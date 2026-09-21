@@ -470,7 +470,7 @@ async def tema_js():
         pref = get_tema()
     except Exception as e:                                  # noqa: BLE001
         _logger.warning("[tema] no se pudo leer el ajuste: %s", e)
-        pref = "sistema"
+        pref = "claro"          # el mismo default que `get_tema()`
     cuerpo = """'use strict';
 window.__TEMA_PREF = %s;
 /* `sistema` no es un color: es «lo que diga el sistema operativo», y sólo el
@@ -484,7 +484,11 @@ function temaResuelto(pref) {
 }
 function aplicarTema(pref) {
   var r = document.documentElement;
-  r.dataset.temaPref = (pref === 'claro' || pref === 'oscuro') ? pref : 'sistema';
+  /* Los tres valores válidos se respetan; cualquier otra cosa —o que el
+     ajuste no haya llegado— cae al DEFAULT, que es `claro`. Antes caía a
+     `sistema`, y eso convertía un fallo en un cambio de aspecto. */
+  r.dataset.temaPref =
+    (pref === 'claro' || pref === 'oscuro' || pref === 'sistema') ? pref : 'claro';
   r.dataset.tema = temaResuelto(r.dataset.temaPref);
 }
 try {

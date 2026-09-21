@@ -68,18 +68,22 @@ IDIOMA_POR_DEFECTO = "es"
 # Mismo modelo que el idioma —ajuste global, sin usuarios— y por el mismo
 # motivo: esto es un aparato de una instalación.
 #
-# `sistema` es el DEFAULT y no es un tercer color: es «lo que diga el
-# sistema operativo», que se resuelve en el navegador con
-# `prefers-color-scheme`. Material 3 y Apple recomiendan respetarlo, y es la
-# única opción que acierta sin preguntar nada. Se guarda la PREFERENCIA, no
-# el resultado: si se guardara el resultado, cambiar el tema del Mac dejaría
-# la app en el anterior para siempre.
+# `sistema` no es un tercer color: es «lo que diga el sistema operativo»,
+# que se resuelve en el navegador con `prefers-color-scheme`. Se guarda la
+# PREFERENCIA y no el resultado — si se guardara el resultado, cambiar el
+# tema del Mac dejaría la app en el anterior para siempre.
+#
+# El DEFAULT es `claro`, no `sistema`, por decisión del usuario (2026-09-21):
+# el claro es el tema con el que la app se ha usado hasta hoy y el que sale
+# en toda la documentación, así que actualizar no debe cambiar de aspecto a
+# quien tenga el ordenador en oscuro. Seguir al sistema pasa a ser lo que
+# es: una opción que se elige.
 TEMAS = ("claro", "oscuro", "sistema")
-TEMA_POR_DEFECTO = "sistema"
+TEMA_POR_DEFECTO = "claro"
 
 
 def get_tema() -> str:
-    """Prioridad: settings.json > `HDO_TEMA` > seguir al sistema."""
+    """Prioridad: settings.json > `HDO_TEMA` > claro."""
     with _lock:
         stored = _load().get("tema", "").strip().lower()
     if stored in TEMAS:

@@ -87,6 +87,11 @@ class ApiTestCase(unittest.TestCase):
             # intenta escribir en el /config real (read-only en el Mac).
             (_settings, "CONFIG_DIR", self.config_dir),
             (_settings, "SETTINGS_PATH", self.config_dir / "app_settings.json"),
+            # Y su CACHÉ EN MEMORIA, que el tmpdir nuevo no vacía: un POST de
+            # un test dejaba el ajuste puesto para el siguiente. Se vio con el
+            # tema, donde el primer test leía el valor que había escrito otra
+            # clase. Es la misma limpieza que la de los dos singleton de Tab 2.
+            (_settings, "_cache", None),
             (storage, "CONFIG_DIR", self.config_dir),
             (storage, "CMV40_DIR", self.cmv40_dir),
             (storage, "MKV_AUDIT_DIR", self.config_dir / "mkv_audits"),

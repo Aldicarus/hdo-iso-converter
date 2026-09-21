@@ -34,6 +34,15 @@ del fichero sigue siendo la medición del overlay REAL, que es donde está su
 valor: regenerarlo entero desde el modal de hoy lo habría convertido en una
 comparación del modal consigo mismo.
 
+**Reajuste del 2026-09-21 (segundo), y sólo el `color` de DOS piezas.** El
+título y la meta de la cartela tenían su color escrito a mano (`#1a1d24` y
+`#5a616e`, heredados del overlay) y un literal no puede seguir a un tema: en
+modo oscuro salían en negro sobre fondo oscuro, que es uno de los tres
+defectos que reportó el usuario. Pasan a `--text-1` y `--text-2`. En claro el
+salto es de ΔE 3,9 y 17,1 —imperceptible el primero, un gris algo más oscuro
+el segundo— y ninguna otra propiedad se movió, que es lo que el golden acaba
+de confirmar.
+
 Si un cambio de diseño es deliberado, hay que regenerar el golden Y explicar en
 el commit por qué el modal deja de parecerse al overlay.
 

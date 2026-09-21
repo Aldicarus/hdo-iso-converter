@@ -61,6 +61,7 @@
   --orange-text:  #8a4a00;
 
   --teal:         #32ADE6;
+  --purple-text:  #6b2a9b;
   --purple:       #AF52DE;
   --purple-rgb:   175, 82, 222;
   --purple-border:rgba(var(--purple-rgb), 0.35);
@@ -221,6 +222,7 @@
   --red:        #FF453A;  --red-rgb:    255, 69, 58;
   --orange:     #FF9F0A;  --orange-rgb: 255, 159, 10;
   --teal:       #64D2FF;
+  --purple-text: #d9a9f5;
   --purple:     #BF5AF2;  --purple-rgb: 191, 90, 242;
   /* El ámbar sigue sin ser el naranja, y con más margen que en claro:
      ΔE 18,3 contra 15,8. Es la diferencia entre «va por merge» y «esto lo
@@ -279,6 +281,7 @@
   --dv-accent-bg-2:     rgba(var(--blue-rgb), 0.22);
   --dv-accent-border:   rgba(var(--blue-rgb), 0.34);
   --dv-accent-text:     #8cc2ff;
+  --dv-green:           #5ddc9a;
   --dv-red:             #ff6961;
   --dv-red-bg:          rgba(255, 105, 97, 0.14);
   --dv-red-text:        #ffa39c;
@@ -1333,11 +1336,11 @@ body {
   grid-row: 3;
   margin-top: 6px;
   padding: 7px 10px;
-  background: rgba(232, 168, 0, 0.13);
-  border: 1px solid rgba(232, 168, 0, 0.45);
+  background: var(--amber-dim);
+  border: 1px solid rgba(var(--amber-rgb), 0.45);
   border-radius: var(--r-sm);
   font-size: var(--fs-sm);
-  color: #b07c00;
+  color: var(--amber-text);
   line-height: 1.4;
   display: flex; align-items: flex-start; gap: 8px;
 }
@@ -1354,12 +1357,12 @@ body {
 
 /* Resaltar la fila completa de la pista ambigua con un acento ámbar */
 .track-item:has(.track-ambiguity) {
-  border-color: rgba(232, 168, 0, 0.45);
-  background: rgba(232, 168, 0, 0.03);
+  border-color: rgba(var(--amber-rgb), 0.45);
+  background: rgba(var(--amber-rgb), 0.03);
 }
 .discarded-item.has-ambiguity {
-  border-color: rgba(232, 168, 0, 0.45);
-  background: rgba(232, 168, 0, 0.05);
+  border-color: rgba(var(--amber-rgb), 0.45);
+  background: rgba(var(--amber-rgb), 0.05);
 }
 
 /* ── Discarded items ────────────────────────────────────────────── */
@@ -1621,13 +1624,13 @@ body {
 .btn-lg  { font-size: var(--fs-xl); padding: 11px 22px; letter-spacing: -0.2px; }
 
 /* Variants */
-.btn-primary  { background: var(--blue);   color: var(--surface-1); box-shadow: 0 1px 4px rgba(0,122,255,.30); }
+.btn-primary  { background: var(--blue);   color: var(--texto-en-relleno); box-shadow: 0 1px 4px rgba(0,122,255,.30); }
 .btn-primary:hover:not(:disabled)  { filter: brightness(1.12); }
 
 .btn-success  { background: var(--green);  color: #000; box-shadow: 0 1px 4px var(--green-border); font-weight: 700; }
 .btn-success:hover:not(:disabled)  { filter: brightness(1.08); }
 
-.btn-danger   { background: var(--red);    color: var(--surface-1); }
+.btn-danger   { background: var(--red);    color: var(--texto-en-relleno); }
 .btn-danger:hover:not(:disabled)   { filter: brightness(1.1); }
 
 .btn-secondary { background: var(--surface-2); color: var(--text-1); border: 1px solid var(--sep-strong); }
@@ -1965,11 +1968,11 @@ select { appearance: none; cursor: pointer;
 .toast.warning { border-color: var(--orange-border); }
 /* El icono del toast, del color de su tipo. Antes era un emoji: ni heredaba
    la paleta ni se distinguía del que traía el mensaje. */
-.toast-icon { display: inline-flex; flex-shrink: 0; color: var(--surface-1); }
+.toast-icon { display: inline-flex; flex-shrink: 0; color: var(--texto-en-relleno); }
 .toast.success .toast-icon { color: var(--green); }
 .toast.error   .toast-icon { color: var(--red); }
 .toast.warning .toast-icon { color: var(--orange); }
-.toast-msg { font-size: var(--fs-md); color: var(--surface-1); }
+.toast-msg { font-size: var(--fs-md); color: var(--texto-en-relleno); }
 .toast.removing { animation: fade-out var(--t-med) var(--ease) forwards; }
 
 /* ── Key status badge (header) ──────────────────────────────────── */
@@ -2695,7 +2698,7 @@ select { appearance: none; cursor: pointer;
   font-family: inherit;
   transition: left var(--t-med) var(--ease), border-radius var(--t-med) var(--ease), background var(--t-fast) var(--ease);
 }
-.cola-expand-tab:hover { background: #ddeeff; }
+.cola-expand-tab:hover { background: var(--blue-dim); }
 /* Cuando el panel Cola está abierto: cortinilla en el borde izquierdo */
 .cola-expand-tab.cola-panel-open {
   left: 0;
@@ -3425,68 +3428,6 @@ select { appearance: none; cursor: pointer;
    de la columna izquierda (.cmv40-running-timeline-wrap, 330px), encima
    del timeline. Asi el usuario ve de un vistazo que peli es el job en
    curso sin que la cabecera ocupe todo el ancho del modal. */
-.cmv40-running-movie {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  /* Padding consistente: el poster respira respecto al borde superior /
-     inferior / izquierdo de la columna — y el texto deja aire al borde
-     derecho. */
-  padding: 12px 14px;
-  /* Fondo claro con texto oscuro — contraste alto sobre el modal oscuro
-     y paleta diferenciada del resto de la columna. */
-  background: var(--bg);
-  /* Border-bottom fino para separar la cabecera del timeline siguiente,
-     en el mismo tono que el resto de separadores de la columna. */
-  border-bottom: 1px solid var(--sep);
-  flex-shrink: 0;
-}
-.cmv40-running-movie-poster {
-  flex-shrink: 0;
-  width: 50px;
-  height: 75px;
-  /* Esquinas redondeadas + sombra suave para que el poster destaque sobre
-     el fondo oscuro del header — coherente con .cmv40-tmdb-poster. */
-  border-radius: var(--r-xxs);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-  background: var(--surface-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-h3);
-  overflow: hidden;
-}
-.cmv40-running-movie-poster img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.cmv40-running-movie-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.cmv40-running-movie-title {
-  font-size: var(--fs-lg);
-  font-weight: 700;
-  color: #1a1d24;
-  letter-spacing: 0.1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.25;
-}
-.cmv40-running-movie-meta {
-  font-size: var(--fs-sm);
-  color: #5a616e;
-  letter-spacing: 0.2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .cmv40-running-header {
   display: flex;
@@ -3567,10 +3508,10 @@ select { appearance: none; cursor: pointer;
   display: flex;
   flex-direction: column;
 }
-/* Wrapper interno que ocupa el espacio restante bajo la cabecera de la
-   peli (.cmv40-running-movie). El JS escribe innerHTML aqui con todo el
-   timeline (.cmv40-running-timeline + sus hijos), por eso necesitamos
-   flex:1 + min-height:0 para que el scroll de .cmv40-tl-steps funcione. */
+/* Wrapper interno que ocupa el espacio restante bajo la cartela
+   (`.trabajo-cartel`). El JS escribe innerHTML aquí con todo el timeline
+   (`.cmv40-running-timeline` + sus hijos), por eso hacen falta flex:1 +
+   min-height:0 para que el scroll de `.cmv40-tl-steps` funcione. */
 .cmv40-running-timeline-inner {
   flex: 1;
   min-height: 0;
@@ -3945,14 +3886,14 @@ select { appearance: none; cursor: pointer;
 /* Icono de estado "error" — punto de decisión que aborta (incompatibilidad) */
 .cmv40-tl-status-icon.error {
   background: rgba(255, 59, 48, 0.18);
-  color: #b10b0b;
+  color: var(--red-text);
   border: 1.5px solid rgba(255, 59, 48, 0.55);
   font-size: var(--fs-sm);
   font-weight: 700;
 }
 .cmv40-tl-eta.error {
   background: rgba(255, 59, 48, 0.15);
-  color: #b10b0b;
+  color: var(--red-text);
   border-color: rgba(255, 59, 48, 0.45);
   font-weight: 700;
 }
@@ -3965,7 +3906,7 @@ select { appearance: none; cursor: pointer;
   color: var(--blue-text);
 }
 .cmv40-tl-step.cmv40-tl-is-gate.cmv40-tl-pending .cmv40-tl-title {
-  color: #68758a;
+  color: var(--text-3);
 }
 
 /* Panel de confianza de sincronización */
@@ -4407,7 +4348,7 @@ select { appearance: none; cursor: pointer;
 .cmv40-repo-card-best {
   font-size: var(--fs-xs);
   font-weight: 700;
-  color: #8a6500;
+  color: var(--amber-text);
 }
 .cmv40-repo-card-score, .cmv40-repo-card-size {
   font-size: var(--fs-xs);
@@ -4719,7 +4660,7 @@ select { appearance: none; cursor: pointer;
   background: rgba(142, 142, 147, 0.12);
   border-color: rgba(142, 142, 147, 0.40);
   border-style: dashed;
-  color: #6e6e73;
+  color: var(--text-3);
 }
 .cmv40-ph-pill.cmv40-ph-skip .cmv40-ph-label {
   text-decoration: line-through;
@@ -4887,7 +4828,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-rec-status-badge.unknown {
   background: rgba(142, 142, 147, 0.18);
-  color: #4a4a4f;
+  color: var(--text-2);
   border: 1px solid rgba(142, 142, 147, 0.45);
 }
 .cmv40-rec-status-badge.caveats {
@@ -4897,7 +4838,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-rec-status-badge.p8only {
   background: rgba(0, 122, 255, 0.16);
-  color: #00459e;
+  color: var(--blue-text);
   border: 1px solid rgba(0, 122, 255, 0.38);
 }
 .cmv40-rec-icon { font-size: var(--fs-xl); line-height: 1; }
@@ -4956,7 +4897,7 @@ select { appearance: none; cursor: pointer;
   border-radius: var(--r-sm);
   background: rgba(0, 122, 255, 0.14);
   border: 1px solid rgba(0, 122, 255, 0.28);
-  color: #00459e;
+  color: var(--blue-text);
   font-size: var(--fs-xs);
   font-weight: 700;
   white-space: nowrap;
@@ -5508,7 +5449,7 @@ select { appearance: none; cursor: pointer;
 input.cmv40-lookup-input {
   padding: 9px 11px;
   background: var(--surface-1);
-  color: #000000;
+  color: var(--text-1);
   border: 1px solid var(--sep-strong);
   border-radius: var(--r-xs);
   font-size: var(--fs-lg);
@@ -5866,7 +5807,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .cmv40-lookup-tag.tag-warn { background: var(--orange-dim);   color: var(--orange-text); border: 1px solid rgba(255, 149, 0, 0.40); }
 .cmv40-lookup-best {
   font-size: var(--fs-xs);
-  color: #8a6500;
+  color: var(--amber-text);
   font-weight: 700;
 }
 .cmv40-lookup-score {
@@ -7227,7 +7168,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .help-subtoc a:hover { text-decoration: underline; }
 
 /* Pills adicionales */
-.help-pill-p5  { background: rgba(175, 82, 222, 0.15); color: #6b2a9b; }
+.help-pill-p5  { background: rgba(var(--purple-rgb), 0.15); color: var(--purple-text); }
 .help-pill-p7  { background: rgba(0, 122, 255, 0.15); color: var(--blue-text); }
 .help-pill-p8  { background: rgba(52, 199, 89, 0.15); color: var(--green-text); }
 .help-pill-lldv { background: var(--red-dim); color: var(--red-text); }
@@ -7258,6 +7199,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   --dv-amber-border:    var(--amber-border);
   --dv-amber-text:      var(--amber-text);
 
+  --dv-green:           #059669;
   --dv-red:             #dc2626;
   --dv-red-bg:          rgba(220, 38, 38, 0.08);
   --dv-red-text:        #991b1b;
@@ -9285,8 +9227,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    sutilmente ambar para que destaque pero no compita con el highlight
    de hover. Combinado con el badge ✓ Existe ayuda al usuario a ver
    de un vistazo qué episodios ya tiene procesados. */
-.series-ep-row.has-existing { background: rgba(180, 132, 0, 0.06); }
-.series-ep-row.has-existing:hover { background: rgba(180, 132, 0, 0.12); }
+.series-ep-row.has-existing { background: rgba(var(--amber-rgb), 0.06); }
+.series-ep-row.has-existing:hover { background: rgba(var(--amber-rgb), 0.12); }
 
 /* Badge inline "✓ Existe" en la columna del MPLS — junto al nombre del
    fichero. Color ámbar (mismo tono que el fondo) para coherencia. */
@@ -9295,8 +9237,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   margin-left: 8px;
   padding: 2px 6px;
   border-radius: var(--r-xxs);
-  background: rgba(180, 132, 0, 0.18);
-  color: #8a6500;
+  background: var(--amber-dim);
+  color: var(--amber-text);
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -9661,7 +9603,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-cmp-table th:first-child { text-align: left; }
 .dv-cmp-table td { padding: 3px 8px; color: var(--text-1); }
 .dv-cmp-table .cmp-num { text-align: right; font-family: 'SF Mono', monospace; }
-.cmp-up   { color: #059669; font-weight: 600; }
+.cmp-up   { color: var(--dv-green); font-weight: 600; }
 .cmp-down { color: var(--dv-red); font-weight: 600; }
 .cmp-flat { color: var(--text-2); }
 .cmp-aviso {
@@ -10398,12 +10340,12 @@ span[data-icono] {
 .trabajo-cartel-info { flex: 1; min-width: 0; display: flex;
   flex-direction: column; gap: 4px; }
 .trabajo-cartel-titulo {
-  font-size: var(--fs-lg); font-weight: 700; color: #1a1d24;
+  font-size: var(--fs-lg); font-weight: 700; color: var(--text-1);
   letter-spacing: .1px; line-height: 1.25;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .trabajo-cartel-meta {
-  font-size: var(--fs-sm); color: #5a616e; letter-spacing: .2px;
+  font-size: var(--fs-sm); color: var(--text-2); letter-spacing: .2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 

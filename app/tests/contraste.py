@@ -99,7 +99,19 @@ window.__LEER = (function () {
   // Sólo los nodos con texto PROPIO: si se midieran también los contenedores
   // se contaría la misma frase tantas veces como ancestros tenga, y el peor
   // caso quedaría enterrado en el promedio.
+  //
+  // Un control de formulario es la EXCEPCIÓN: su valor no es un nodo de
+  // texto sino una propiedad, así que sin este caso `input`, `select` y
+  // `textarea` son invisibles para la sonda — y ahí estaba
+  // `input.cmv40-lookup-input { color: #000000 }`, negro sobre oscuro, que
+  // reportó el usuario. Se mide el valor si lo hay y el placeholder si no,
+  // porque un campo vacío es lo normal y su placeholder es lo único que se
+  // lee.
+  const CONTROL = {INPUT: 1, TEXTAREA: 1, SELECT: 1};
   const textoPropio = el => {
+    if (CONTROL[el.tagName]) {
+      return (el.value || el.getAttribute('placeholder') || '·').trim();
+    }
     let t = '';
     for (const n of el.childNodes) if (n.nodeType === 3) t += n.nodeValue;
     return t.trim();
@@ -145,13 +157,32 @@ window.__LEER = (function () {
       const fg = color(cs.color);
       if (!fg) continue;
       const bg = fondoDe(el);
-      const alfa = fg.a * opacidadHeredada(el);
-      if (alfa <= 0.01) continue;                // invisible: no es contraste
-      const letra = sobre(bg, fg, alfa);
       const px = parseFloat(cs.fontSize) || 0;
       const peso = parseInt(cs.fontWeight, 10) || 400;
       // WCAG: «texto grande» es >=24px, o >=18.66px en negrita.
       const grande = px >= 24 || (px >= 18.66 && peso >= 700);
+      const alfa = fg.a * opacidadHeredada(el);
+      if (alfa <= 0.01) continue;                // invisible: no es contraste
+      const letra = sobre(bg, fg, alfa);
+      // El placeholder lleva SU color, así que puede desaparecer aunque el
+      // valor se lea. Se mide aparte cuando lo hay.
+      if (CONTROL[el.tagName] && el.getAttribute('placeholder')) {
+        const ph = color(getComputedStyle(el, '::placeholder').color);
+        if (ph && ph.a > 0.01) {
+          const vistoPh = sobre(bg, ph, ph.a * opacidadHeredada(el));
+          nodos.push({
+            txt: el.getAttribute('placeholder').slice(0, 40),
+            sel: el.tagName.toLowerCase() + '::placeholder',
+            px, peso, grande,
+            fg: [Math.round(vistoPh.r), Math.round(vistoPh.g), Math.round(vistoPh.b)],
+            bg: [Math.round(bg.r), Math.round(bg.g), Math.round(bg.b)],
+            r: Math.round(razon(vistoPh, bg) * 100) / 100,
+            // Un placeholder es texto secundario por definición: el listón
+            // es el de UI, no el de prosa.
+            min: 3,
+          });
+        }
+      }
       nodos.push({
         txt: txt.slice(0, 60),
         sel: (el.tagName.toLowerCase() +
@@ -171,12 +202,28 @@ window.__LEER = (function () {
 """
 
 
+# Las animaciones de entrada arrancan en `opacity: 0`, y un trozo de marcado
+# inyectado con `innerHTML` en un `<div>` suelto no siempre las completa antes
+# de que Chrome haga el volcado. El resultado es que la opacidad HEREDADA vale
+# 0 y la sonda descarta el nodo entero por invisible — **23 de las 76
+# pantallas medían cero** y el guard pasaba en verde vigilando el vacío, que
+# es el fallo que este repo ya ha tenido cuatro veces.
+#
+# Apagarlas devuelve los estilos base. No toca ningún color: `animation: none`
+# revierte a la declaración de la regla, y ninguna paleta vive en un keyframe.
+SIN_ANIMACION = (
+    "(function(){var e=document.createElement('style');"
+    "e.textContent='*,*::before,*::after{animation:none!important;"
+    "transition:none!important}';document.head.appendChild(e);})();"
+)
+
+
 def previo(tema: str) -> str:
     """El JS que corre antes de montar: fija el tema y pone el extractor."""
     fijar = ""
     if tema:
         fijar = f"document.documentElement.dataset.tema = {tema!r};"
-    return fijar + EXTRACTOR
+    return fijar + SIN_ANIMACION + EXTRACTOR
 
 
 def medir(tema: str = "") -> dict:

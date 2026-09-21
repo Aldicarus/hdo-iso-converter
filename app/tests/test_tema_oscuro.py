@@ -43,11 +43,13 @@ class TestElAjusteDelTema(ApiTestCase):
         self.assertEqual(r.status_code, 200)
         return r.json()["tema"]
 
-    def test_arranca_siguiendo_al_sistema(self):
-        """Es el único default que acierta sin preguntar nada, y lo que
-        recomiendan Material 3 y Apple."""
+    def test_arranca_en_claro(self):
+        """Decisión del usuario: el claro es el tema con el que la app se ha
+        usado hasta hoy, así que actualizar no puede cambiarle el aspecto a
+        quien tenga el ordenador en oscuro. Seguir al sistema se elige."""
         t = self._leer()
-        self.assertEqual(t["activo"], "sistema")
+        self.assertEqual(t["activo"], "claro")
+        self.assertEqual(t["por_defecto"], "claro")
         self.assertEqual(t["disponibles"], ["claro", "oscuro", "sistema"])
 
     def test_se_guarda_y_se_devuelve(self):
@@ -76,14 +78,15 @@ class TestElAjusteDelTema(ApiTestCase):
         self.assertIn('window.__TEMA_PREF = "claro"', r.text)
 
     def test_el_script_no_falla_si_el_ajuste_no_se_puede_leer(self):
-        """Es el script BLOQUEANTE: quedarse en claro es un inconveniente,
+        """Es el script BLOQUEANTE: caer al default es un inconveniente,
         una pantalla en blanco no."""
+        self.client.post("/api/settings", json={"tema": "oscuro"})
         from unittest import mock
         with mock.patch("services.settings_store.get_tema",
                         side_effect=RuntimeError("disco")):
             r = self.client.get("/api/tema.js")
         self.assertEqual(r.status_code, 200)
-        self.assertIn('window.__TEMA_PREF = "sistema"', r.text)
+        self.assertIn('window.__TEMA_PREF = "claro"', r.text)
 
 
 @unittest.skipUnless(NODE, "sin node")

@@ -254,14 +254,70 @@ class TestNingunNodoDejaDeLeerseEnOscuro(unittest.TestCase):
         cls.claro = _contraste.medir("claro")
         cls.oscuro = _contraste.medir("oscuro")
 
+    #: pantalla → por qué NO tiene ni un nodo con texto
+    SIN_TEXTO = {
+        "tab2·orden": "es un botón de un solo icono: no tiene texto",
+        "tab3·orden": "es un botón de un solo icono: no tiene texto",
+        # Estas dos necesitan estado que el fixture no arma. Están aquí para
+        # que el número sólo pueda BAJAR: si alguien añade una pantalla que
+        # no mide nada, este test lo dice.
+        "tab1·analizar":
+            "`analyzeSelectedISO()` necesita una selección de origen que el "
+            "fixture no arma; devuelve el modal vacío",
+        "tab1·origen_m2ts":
+            "el listado de m2ts sale vacío sin el estado del selector",
+    }
+
     def test_la_sonda_mide_algo(self):
         """Con las pantallas sin montar todo pasaría en verde: es el fallo
         que ya tuvo la captura de i18n, que nunca llegó a un panel con
         datos."""
         n = sum(len(v) for v in self.claro.values())
         self.assertGreater(len(self.claro), 30, "faltan pantallas")
-        self.assertGreater(n, 800, f"sólo {n} nodos con texto")
+        self.assertGreater(n, 1500, f"sólo {n} nodos con texto")
         self.assertEqual(sorted(self.claro), sorted(self.oscuro))
+
+    def test_la_sonda_mide_los_controles_de_formulario(self):
+        """Un `input` no tiene nodo de texto: su valor es una propiedad.
+
+        Sin el caso especial la sonda los salta ENTEROS, y ahí estaba
+        `input.cmv40-lookup-input { color: #000000 }` — negro sobre oscuro,
+        que reportó el usuario. Quitarlo no rompe ninguna comparación (los
+        dos temas dejan de medirlos a la vez), así que hace falta afirmar
+        que se miden.
+        """
+        sels = [n["sel"] for v in self.claro.values() for n in v]
+        controles = [x for x in sels if x.startswith(("input", "select", "textarea"))]
+        placeholders = [x for x in sels if x.endswith("::placeholder")]
+        self.assertGreaterEqual(len(controles), 5,
+                                f"sólo {len(controles)} controles medidos")
+        self.assertGreaterEqual(len(placeholders), 3,
+                                f"sólo {len(placeholders)} placeholders medidos")
+
+    def test_ninguna_pantalla_mide_cero(self):
+        """El fallo más silencioso que puede tener esta sonda.
+
+        Llegó a haber **23 de 76 pantallas midiendo cero** y el guard pasaba
+        en verde: las animaciones de entrada dejan `opacity: 0` heredada, y
+        dos casos llamaban a un renderizador que escribe en un contenedor
+        por id y devuelve `undefined`. Un tercio de la cobertura no existía.
+        """
+        vacias = sorted(k for k, v in self.claro.items()
+                        if not v and k not in self.SIN_TEXTO)
+        self.assertEqual(vacias, [],
+                         "\n  · ".join(["pantallas sin un solo nodo medido "
+                                        "(o van en SIN_TEXTO con su motivo):"]
+                                       + vacias))
+
+    def test_cada_pantalla_sin_texto_sigue_existiendo(self):
+        muertas = sorted(k for k in self.SIN_TEXTO if k not in self.claro)
+        self.assertEqual(muertas, [], f"ya no existen: {muertas}")
+
+    def test_las_que_van_en_sin_texto_siguen_sin_texto(self):
+        """Una que empiece a medir sale de la lista: si no, la exención
+        taparía que deje de medir otra vez."""
+        miden = sorted(k for k in self.SIN_TEXTO if self.claro.get(k))
+        self.assertEqual(miden, [], f"ya miden, quitar de SIN_TEXTO: {miden}")
 
     def test_ninguno_pasa_de_leerse_a_no_leerse(self):
         rotos = []

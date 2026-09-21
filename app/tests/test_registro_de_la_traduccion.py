@@ -103,6 +103,10 @@ IGUAL_EN_INGLES = {
         "«General» se escribe igual en castellano y en inglés; en catalán "
         "también. Es el rótulo de la primera sección del modal de "
         "Configuración y no hay nada que traducir",
+    "tab3.editable":
+        "«editable» es la misma palabra en las tres lenguas —cognado del "
+        "latín `editabilis`, y en catalán se escribe igual—. Es el matiz "
+        "que va junto al nombre del MKV de salida cuando se puede cambiar",
     "tab3.l5_letterbox":
         "«L5», «letterbox» y «active area» son los tres el nombre del "
         "campo del RPU, tal cual en la spec de Dolby: no queda ninguna "

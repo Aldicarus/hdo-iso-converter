@@ -920,6 +920,7 @@
   "tab3.drop_in_mel_skip_fase_d": "Drop-in MEL: skips Phase D if the gates pass",
   "tab3.drop_in_o_merge": "drop-in or merge",
   "tab3.drop_in_skip_merge_en_fase": "Drop-in: skip the merge in Phase F + skip Phase D if the gates are OK",
+  "tab3.editable": "· editable",
   "tab3.ejecuta_fases_automaticamente_estimado": "Runs {p1} phases automatically. Estimate: {tiempo}.",
   "tab3.ejecutada_en_modo_drop_in_inject": "Run in drop-in mode (direct inject with no merge beforehand)",
   "tab3.el_bin_contiene_trims_l8_autenticos": "The bin carries genuine L8 trims — the level that brings the fine CMv4.0 tone-mapping.",

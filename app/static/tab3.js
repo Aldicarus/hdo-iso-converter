@@ -3245,7 +3245,7 @@ function _renderCMv40Info(s, pid) {
             </div>` : ''}
           </div>
           <div>
-            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">${tr('tab3.mkv_salida_p1', {p1: canEditName ? '<span style="color:var(--text-3)">· editable</span>' : ''})}</div>
+            <div style="font-size:11px; color:var(--text-3); margin-bottom:2px">${tr('tab3.mkv_salida_p1', {p1: canEditName ? `<span style="color:var(--text-3)">${tr('tab3.editable')}</span>` : ''})}</div>
             ${canEditName
               ? `<input type="text" id="cmv40-output-name-${pid}" class="cmv40-output-name-input"
                     value="${escHtml(s.output_mkv_name)}"

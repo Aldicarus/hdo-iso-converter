@@ -126,10 +126,14 @@ SESION_CMV40 = {
                 "RPU_target.bin": 13000000},
   "output_log": ["━━━ Fase A ━━━", "✓ Fase A completada"],
   "updated_at": "2026-09-16T08:00:00Z", "created_at": "2026-09-15T08:00:00Z",
+  # Los nombres son los de `TmdbDetails` (`services/tmdb.py`), no unos
+  # parecidos: `vote_average` y `runtime_minutes`. Con `rating` y
+  # `runtime` la tarjeta LANZA —el guard mira `vote_count` y lee
+  # `vote_average`— y la duración no sale.
   "tmdb_info": {"poster_url": "https://image.tmdb.org/t/p/w342/br.jpg",
                 "title": "Blade Runner 2049", "year": 2017, "overview": "A young blade runner.",
-                "genres": ["Science Fiction"], "rating": 7.6, "vote_count": 12000,
-                "runtime": 164},
+                "genres": ["Science Fiction"], "vote_average": 7.6, "vote_count": 12000,
+                "runtime_minutes": 164},
   "plan": {"drop_in": False, "trust_effective": False, "target_needs_merge": True,
            "skip_sync_review": False,
            "extract": {"needs_demux": True}, "inject": {"needs_merge": True,
@@ -608,10 +612,20 @@ _CUERPO = """
   } catch (e) { salida.fallos['tab2·panel_de_edicion'] = String(e && e.message || e); }
 
   const CASOS = {
-    'tab3·info':            () => _renderCMv40Info(S, 'c1'),
+    // OJO: estas dos NO devuelven HTML — escriben en un contenedor por id y
+    // devuelven `undefined`, así que el caso medía la cadena vacía. Estuvo
+    // así desde que se escribieron: ni este guard ni el de contraste veían
+    // la cabecera del proyecto ni su tira de fases.
+    'tab3·info':            () => { const c = document.createElement('div');
+                                    c.id = 'cmv40-info-c1'; host.appendChild(c);
+                                    _renderCMv40Info(S, 'c1');
+                                    const h = c.innerHTML; c.remove(); return h; },
     'tab3·hoja':            () => _renderCMv40SheetCard(S, 'c1'),
     'tab3·recomendacion':   () => _renderCMv40RecommendationCard(S, 'c1'),
-    'tab3·tira_de_fases':   () => _renderCMv40PhaseStrip(S, 'c1'),
+    'tab3·tira_de_fases':   () => { const c = document.createElement('div');
+                                    c.id = 'cmv40-phase-strip-c1'; host.appendChild(c);
+                                    _renderCMv40PhaseStrip(S, 'c1');
+                                    const h = c.innerHTML; c.remove(); return h; },
     'tab3·banner_ack':      () => _cmv40RenderCriticalAckBanner('c1', S),
     'tab3·gates_bc':        () => _cmv40RenderGateCardBC('c1', S, true),
     'tab3·gates_gh':        () => _cmv40RenderGateCardGH('c1', S, true),
@@ -820,6 +834,25 @@ _CUERPO = """
     'settings·limpieza':    async () => { await cleanupScanAndShow();
                                     const e = document.getElementById('settings-cleanup-result');
                                     return e ? e.innerHTML : ''; },
+    // ── Las tres que el usuario encontró en el modo oscuro y la sonda
+    //    no montaba: un toast (no existe hasta que se llama), la cartela
+    //    del modal de trabajo y el formulario de la consulta rápida, que
+    //    vive en un modal con `display:none` — y por tanto invisible para
+    //    cualquier medición.
+    'ui·toast':             () => { const c = document.getElementById('toast-container');
+                                    if (!c) return '';
+                                    c.innerHTML = '';
+                                    for (const t of ['info', 'success', 'error', 'warning'])
+                                      showToast('Blade Runner 2049', t, 0);
+                                    return c.innerHTML; },
+    'workbar·cartela':      () => { _trabajoCartelPinta({
+                                      url: '', titulo: 'Blade Runner 2049',
+                                      meta: '2017 · 2h 44min · Sci-Fi',
+                                      icono: icono('claqueta')});
+                                    const e = document.getElementById('trabajo-modal-cartel');
+                                    return e ? e.outerHTML : ''; },
+    'modals·consulta_campos': () => { const e = document.getElementById('cmv40-lookup-modal');
+                                    return e ? e.innerHTML : ''; },
     'browser·modal':        () => { openFileBrowser({title: 'Open MKV',
                                       subtitle: 'Pick a file', roots: ROOTS_MKV,
                                       onSelect: () => {}});
@@ -845,6 +878,7 @@ _CUERPO = """
     'tab2·distribucion':'dv-detail',  'tab2·comparacion':  'dv-detail',
     'tab2·auditoria':   'dv-detail',
     'browser·modal':    'file-browser-modal-box',
+    'ui·toast':         'toast-container',
     'browser·roots':    'file-browser-modal-box',
   };
   for (const [nombre, fn] of Object.entries(CASOS)) {
@@ -1205,6 +1239,9 @@ class TestNingunaPalabraFuncionCastellanaEnLaPantallaInglesa(
         ("modals·lookup_buscar", "de"):
             "la misma pantalla con la búsqueda hecha: el placeholder sigue "
             "ahí debajo",
+        ("modals·consulta_campos", "de"):
+            "el MISMO placeholder de la consulta rápida, medido ahora desde "
+            "su propio formulario. Ver la entrada de abajo.",
         ("app·cromo", "de"):
             "el MISMO placeholder de la consulta rápida: está en el marcado "
             "estático, así que el cromo lo lee. Ver la entrada de abajo.",
