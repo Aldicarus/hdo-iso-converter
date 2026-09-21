@@ -62,6 +62,44 @@ class TestLosRadiosSalenDeLaEscala(unittest.TestCase):
             self.assertRegex(CSS, rf"{t}\s*:", f"falta {t}")
 
 
+class TestLasOpacidadesSalenDeLaEscala(unittest.TestCase):
+    """«Apagado» se escribía con 17 valores distintos entre .3 y .95.
+
+    Cuatro peldaños, no dos: agrupar en dos —como proponía la medición de
+    septiembre— movería algunos 0,25, y eso no es unificar, es repintar. Con
+    cuatro el salto máximo fue de 0,07, salvo un .3 que sube a .4.
+    """
+
+    #: opacidad cruda → por qué no es un peldaño de «apagado»
+    FUERA = {
+        "0": "encendido/apagado, no un grado de atenuación",
+        "1": "lo mismo, al otro extremo",
+        "0.1": "el velo del backdrop ambiente de la ficha: es un efecto con "
+               "su valor, no un elemento atenuado",
+        "0.95": "un casi-opaco puntual, por la misma razón",
+    }
+
+    def test_ninguna_se_escribe_a_mano(self):
+        # `0.10` y `0.1` son el mismo número escrito de dos formas.
+        fuera = {float(v) for v in self.FUERA}
+        crudas = []
+        for m in re.finditer(r"opacity:\s*([\d.]+)\s*[;}]", _fuera_de_root()):
+            if float(m.group(1)) not in fuera:
+                crudas.append(m.group(1))
+        self.assertEqual(sorted(set(crudas)), [],
+                         "\n  · ".join(["opacidades a mano:"] + sorted(set(crudas))))
+
+    def test_la_escala_existe(self):
+        for t in ("--op-fuerte", "--op-medio", "--op-tenue", "--op-muy-tenue"):
+            self.assertRegex(CSS, rf"{t}\s*:", f"falta {t}")
+
+    def test_cada_excepcion_sigue_existiendo(self):
+        vivas = {float(m) for m in
+                 re.findall(r"opacity:\s*([\d.]+)\s*[;}]", CSS)}
+        for v in self.FUERA:
+            self.assertIn(float(v), vivas, f"la excepción {v} ya no existe")
+
+
 class TestLasDuracionesSalenDeLaEscala(unittest.TestCase):
 
     def _crudas(self) -> list[str]:
