@@ -4197,7 +4197,7 @@ function _cmv40RpuFila(etiqueta, a, b, marcaOverride) {
   const m = marcaOverride || _cmv40CmpMarca(a, b);
   const val = v => (v === null || v === undefined || v === '') ? '—' : String(v);
   return `
-    <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:4px 8px; border-bottom:1px solid rgba(15,23,42,0.05); font-size:11.5px">
+    <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:4px 8px; border-bottom:1px solid var(--sep); font-size:11.5px">
       <div style="color:var(--text-2); font-weight:600">${escHtml(etiqueta)}</div>
       <div style="color:var(--text-1)">${escHtml(val(a))}</div>
       <div style="color:var(--text-1)">${escHtml(val(b))}</div>
@@ -4349,7 +4349,7 @@ function _cmv40GateBloque2(s) {
 
   return `
     ${_cmv40BloqueHead('②', tr('tab3.los_dos_rpu_lado_a_lado'))}
-    <div style="border:1px solid rgba(15,23,42,0.08); border-radius:6px; overflow:hidden">
+    <div style="border:1px solid var(--sep); border-radius:6px; overflow:hidden">
       <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:6px 8px; background:rgba(0,122,255,0.06); font-size:11px; font-weight:800; color:var(--text-2)">
         <div></div><div data-i18n="tab3.bd_source"></div><div data-i18n="tab3.bin_target"></div><div style="text-align:right" data-i18n="tab3.rpu_iguales"></div>
       </div>
@@ -4515,7 +4515,7 @@ function _cmv40GateBloque4(s) {
   const tramos = (l5.tramos || []).map(t => {
     const [desde, hasta, n, zona] = t;
     return `
-      <div style="display:grid; grid-template-columns:1fr 1fr 70px 70px; gap:8px; font-size:11px; padding:2px 8px; border-bottom:1px solid rgba(15,23,42,0.04)">
+      <div style="display:grid; grid-template-columns:1fr 1fr 70px 70px; gap:8px; font-size:11px; padding:2px 8px; border-bottom:1px solid var(--sep)">
         <div style="color:var(--text-1)">${escHtml(_cmv40Num(desde))}–${escHtml(_cmv40Num(hasta))}</div>
         <div style="color:var(--text-2)">${escHtml(_cmv40Timecode(desde, fps))} – ${escHtml(_cmv40Timecode(hasta, fps))}</div>
         <div style="color:var(--text-1); text-align:right">${escHtml(_cmv40Num(n))} f</div>

@@ -3895,7 +3895,7 @@ select { appearance: none; cursor: pointer;
   border-radius: var(--r-md);
   background: rgba(0, 0, 0, 0.05);
   color: var(--text-3);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--sep);
 }
 .cmv40-tl-eta.done {
   background: rgba(52, 199, 89, 0.15);
@@ -4304,7 +4304,7 @@ select { appearance: none; cursor: pointer;
   font-weight: 600;
   color: var(--text-2);
   background: var(--velo-medio);
-  border: 1px solid rgba(0, 0, 0, 0.10);
+  border: 1px solid var(--sep-strong);
   padding: 1px 7px;
   border-radius: var(--r-md);
   font-variant-numeric: tabular-nums;
@@ -4656,7 +4656,7 @@ select { appearance: none; cursor: pointer;
   margin-top: 5px;
   padding: 6px 8px;
   background: var(--velo-medio);
-  border: 1px solid rgba(0, 0, 0, 0.10);
+  border: 1px solid var(--sep-strong);
   border-radius: var(--r-xs);
   font-size: var(--fs-sm);
   line-height: 1.5;
@@ -4926,7 +4926,7 @@ select { appearance: none; cursor: pointer;
   padding: 7px 9px;
   border-radius: var(--r-sm);
   background: var(--velo-sutil);
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  border: 1px solid var(--sep);
 }
 /* Fila cuyo motivo no afecta a este flujo: atenuada, no eliminada — el dato
    sigue siendo consultable pero deja de leerse como un rechazo. */
@@ -4961,7 +4961,7 @@ select { appearance: none; cursor: pointer;
   display: flex;
   flex-direction: column;
   background: var(--velo-medio);
-  border: 1px solid rgba(0, 0, 0, 0.10);
+  border: 1px solid var(--sep-strong);
   border-radius: var(--r-sm);
   overflow: hidden;
 }
@@ -4973,7 +4973,7 @@ select { appearance: none; cursor: pointer;
   padding: 5px 11px;
   font-size: var(--fs-md);
   line-height: 1.4;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--sep);
 }
 .cmv40-rec-row:first-child { border-top: none; }
 .cmv40-rec-row-label {
@@ -5037,7 +5037,7 @@ select { appearance: none; cursor: pointer;
   gap: 5px;
   padding: 5px 9px;
   background: var(--velo-fuerte);
-  border: 1px solid rgba(0, 0, 0, 0.10);
+  border: 1px solid var(--sep-strong);
   border-radius: var(--r-xs);
   font-size: var(--fs-sm);
   color: var(--text-1);
@@ -5139,7 +5139,7 @@ select { appearance: none; cursor: pointer;
   background: var(--velo-medio);
   color: var(--text-2);
   border-radius: var(--r-md);
-  border: 1px solid rgba(0, 0, 0, 0.10);
+  border: 1px solid var(--sep-strong);
   cursor: help;
   font-weight: 500;
 }
@@ -5807,7 +5807,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-weight: 600;
   color: var(--text-2);
   background: var(--velo-medio);
-  border: 1px solid rgba(0, 0, 0, 0.10);
+  border: 1px solid var(--sep-strong);
   padding: 1px 8px;
   border-radius: var(--r-md);
   font-variant-numeric: tabular-nums;
@@ -7478,7 +7478,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-pill-off {
   background: rgba(15, 23, 42, 0.025);
   color: var(--dv-text-4);
-  border-color: rgba(15, 23, 42, 0.06);
+  border-color: var(--dv-separator);
   opacity: var(--op-medio);
 }
 .dv-pill-name { font-weight: 700; letter-spacing: 0.4px; }
@@ -7538,7 +7538,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 40px 24px;
   background: linear-gradient(180deg, var(--dv-chart-bg-alt) 0%, #f5f6f8 100%);
   border-radius: var(--r-md);
-  border: 1px dashed rgba(15, 23, 42, 0.12);
+  border: 1px dashed var(--dv-block-border);
   text-align: center;
   transition: background var(--t-med) var(--dv-ease);
 }
@@ -7746,11 +7746,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   letter-spacing: 0.05em;
   color: var(--dv-text-3);
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+  border-bottom: 1px solid var(--dv-chart-border);
 }
 .dv-l5-zones-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+  border-bottom: 1px solid var(--dv-separator);
   color: var(--text-1);
 }
 .dv-l5-zones-table tbody tr:last-child td { border-bottom: none; }
@@ -7779,7 +7779,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   text-align: center;
   padding: 6px 0;
   background: var(--velo-medio);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--dv-separator);
   border-radius: var(--r-xs);
 }
 .dv-l1-stats-grid .lbl {
@@ -7846,7 +7846,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-l1-stats-foot {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-top: 1px solid var(--dv-separator);
   font-size: var(--fs-sm);
   color: var(--dv-text-2);
   font-family: SF Mono, Menlo, monospace;
@@ -7939,7 +7939,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   gap: 12px;
   align-items: center;
   padding: 7px 4px;
-  border-top: 1px solid rgba(15, 23, 42, 0.05);
+  border-top: 1px solid var(--dv-separator);
   font-size: var(--fs-md);
 }
 .dv-mc-row-label {
@@ -9645,7 +9645,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-cmp-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .dv-cmp-table th {
   text-align: right; font-weight: 600; color: var(--text-2);
-  padding: 3px 8px; border-bottom: 1px solid rgba(15,23,42,0.08);
+  padding: 3px 8px; border-bottom: 1px solid var(--dv-separator);
 }
 .dv-cmp-table th:first-child { text-align: left; }
 .dv-cmp-table td { padding: 3px 8px; color: var(--text-1); }

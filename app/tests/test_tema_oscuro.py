@@ -19,6 +19,7 @@ Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_tema_oscuro -v
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -137,27 +138,47 @@ class TestAplicarTemaResuelveSistema(ApiTestCase):
 
 
 class TestElMarcadoCablea(unittest.TestCase):
-    """Lo que hace que todo lo anterior sirva de algo."""
+    """Lo que hace que todo lo anterior sirva de algo.
+
+    Se busca la ETIQUETA `<script src=…>`, no la cadena `/api/tema.js`. Con
+    la cadena, el guard casaba con el comentario HTML que hay justo encima
+    —que cita la ruta para explicar por qué va ahí— y **pasaba en verde con
+    el script borrado**: lo destapó una mutación. Una mención no es una
+    referencia.
+    """
+
+    ETIQUETA = re.compile(r'<script\b[^>]*\bsrc="/api/tema\.js[^"]*"[^>]*>')
 
     @classmethod
     def setUpClass(cls):
         cls.html = frontend_sources.html()
+        cls.tags = cls.ETIQUETA.findall(cls.html)
 
-    def test_el_script_del_tema_va_antes_que_la_hoja_de_estilos(self):
+    def test_el_script_esta_y_una_sola_vez(self):
+        self.assertEqual(len(self.tags), 1,
+                         f"etiquetas <script> de /api/tema.js: {len(self.tags)}")
+
+    def test_va_antes_que_la_hoja_de_estilos(self):
         """Si fuera después habría un fotograma con la app en claro."""
-        i = self.html.index("/api/tema.js")
-        j = self.html.index("style.css")
-        self.assertLess(i, j, "el tema se aplicaría después de pintar")
+        i = self.ETIQUETA.search(self.html).start()
+        self.assertLess(i, self.html.index("style.css"),
+                        "el tema se aplicaría después de pintar")
 
     def test_va_dentro_del_head(self):
-        self.assertLess(self.html.index("/api/tema.js"), self.html.index("</head>"))
+        self.assertLess(self.ETIQUETA.search(self.html).start(),
+                        self.html.index("</head>"))
 
     def test_no_es_async_ni_defer(self):
         """Los dos lo sacarían del camino crítico, que es justo lo que este
         script NO puede permitirse."""
-        linea = next(l for l in self.html.split("\n") if "/api/tema.js" in l)
-        self.assertNotIn("async", linea)
-        self.assertNotIn("defer", linea)
+        self.assertNotIn("async", self.tags[0])
+        self.assertNotIn("defer", self.tags[0])
+
+    def test_lleva_el_mismo_token_de_cache_que_el_resto(self):
+        """Un asset con el token viejo y los demás con el nuevo es peor que
+        no tener token: el desajuste es parcial."""
+        tokens = set(re.findall(r"\?v=([0-9a-z]+)", self.html))
+        self.assertEqual(len(tokens), 1, f"tokens distintos en index.html: {tokens}")
 
 
 if __name__ == "__main__":

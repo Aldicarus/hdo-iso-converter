@@ -105,8 +105,37 @@ window.__LEER = (function () {
     return t.trim();
   };
 
+  // Un borde que se vuelve invisible al cambiar de tema no sale en la
+  // medición de texto y sí se nota: separa cajas. Se mira sólo el que ya
+  // era visible en el otro tema — muchos son decorativos a propósito.
+  const bordeDe = (el, cs, bg) => {
+    const anchos = ['Top', 'Right', 'Bottom', 'Left']
+      .map(l => parseFloat(cs['border' + l + 'Width']) || 0);
+    if (!anchos.some(w => w > 0)) return null;
+    const lado = ['Top', 'Right', 'Bottom', 'Left'][anchos.findIndex(w => w > 0)];
+    const c = color(cs['border' + lado + 'Color']);
+    if (!c || c.a <= 0.01) return null;
+    const visto = sobre(bg, c, c.a * opacidadHeredada(el));
+    return Math.round(razon(visto, bg) * 100) / 100;
+  };
+
   return function (raiz) {
     const nodos = [];
+    const bordes = [];
+    for (const el of [raiz, ...raiz.querySelectorAll('*')]) {
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const bg = fondoDe(el);
+      const r = bordeDe(el, cs, bg);
+      if (r === null) continue;
+      bordes.push({
+        sel: (el.tagName.toLowerCase() +
+              (el.className && typeof el.className === 'string'
+                 ? '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.')
+                 : '')).slice(0, 70),
+        r,
+      });
+    }
     const todos = [raiz, ...raiz.querySelectorAll('*')];
     for (const el of todos) {
       const cs = getComputedStyle(el);
@@ -136,7 +165,7 @@ window.__LEER = (function () {
         min: grande ? 3 : 4.5,
       });
     }
-    return {nodos};
+    return {nodos, bordes};
   };
 })();
 """
@@ -155,6 +184,14 @@ def medir(tema: str = "") -> dict:
     from test_las_tres_lenguas_en_pantalla import _pintar
     salida = _pintar("es", previo(tema))
     return {nombre: datos.get("nodos", [])
+            for nombre, datos in salida.get("pantallas", {}).items()}
+
+
+def medir_bordes(tema: str = "") -> dict:
+    """{pantalla: [{sel, r}, ...]} con el contraste de cada borde visible."""
+    from test_las_tres_lenguas_en_pantalla import _pintar
+    salida = _pintar("es", previo(tema))
+    return {nombre: datos.get("bordes", [])
             for nombre, datos in salida.get("pantallas", {}).items()}
 
 

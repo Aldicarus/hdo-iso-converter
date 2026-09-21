@@ -271,6 +271,31 @@ class TestNingunNodoDejaDeLeerseEnOscuro(unittest.TestCase):
                          "\n  · ".join([f"{len(rotos)} nodos que se leían en claro "
                                         f"y no se leen en oscuro:"] + sorted(rotos)))
 
+    def test_ningun_borde_visible_desaparece(self):
+        """Un separador que se vuelve invisible no sale en la medición de
+        texto y sí se nota: es lo que separa una caja de la siguiente.
+
+        Eran **64**, todos `rgba(15,23,42,α)` o `rgba(0,0,0,α)` escritos a
+        mano: negro sobre claro se ve, negro sobre oscuro no. Los tokens de
+        separación (`--sep`, `--dv-separator`) invierten el canal; los
+        literales no, y no dan ningún error al no hacerlo.
+        """
+        claro = _contraste.medir_bordes("claro")
+        oscuro = _contraste.medir_bordes("oscuro")
+        self.assertGreater(sum(len(v) for v in claro.values()), 400,
+                           "la sonda no está midiendo bordes")
+        # 1,08:1 es el umbral en el que un borde deja de distinguirse de su
+        # fondo. Sólo se miran los que en claro SÍ se ven: muchos son
+        # decorativos y están por debajo en los dos temas a propósito.
+        idos = []
+        for p, bordes in claro.items():
+            for a, b in zip(bordes, oscuro.get(p, [])):
+                if a["sel"] == b["sel"] and b["r"] < 1.08 <= a["r"]:
+                    idos.append(f"{p} · {b['sel']}: {a['r']:.2f} → {b['r']:.2f}")
+        self.assertEqual(sorted(idos), [],
+                         "\n  · ".join([f"{len(idos)} bordes que se ven en claro "
+                                        f"y desaparecen en oscuro:"] + sorted(idos)))
+
     def test_el_oscuro_no_tiene_mas_texto_ilegible_que_el_claro(self):
         """Por debajo de 3,0:1 un texto no se lee, sea cual sea su tamaño."""
         def bajo3(m):
