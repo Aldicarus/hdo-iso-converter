@@ -10270,6 +10270,15 @@ span[data-icono] {
   font-size: 11px; color: var(--text-3); margin: 2px 0 0; line-height: 1.5;
 }
 .trabajo-modal-principal .modal-header .btn { flex-shrink: 0; }
+/* La X de cerrar: es cromo del modal, no una acción del trabajo, así que se
+   separa del grupo de botones con un margen y se apaga hasta que pasas por
+   encima. Sin eso compite con «Cancelar», que lleva el mismo glifo. */
+.trabajo-modal-cerrar {
+  margin-left: 4px;
+  padding: 4px 6px;
+  color: var(--text-3);
+}
+.trabajo-modal-cerrar:hover { color: var(--text-1); }
 .trabajo-modal-principal .trabajo-detalle-vacio {
   flex: 1;
   display: flex;

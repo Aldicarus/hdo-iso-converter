@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UHD Blu-ray Toolkit</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
-  <link rel="stylesheet" href="/static/style.css?v=20260921a">
+  <link rel="stylesheet" href="/static/style.css?v=20260921b">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -863,8 +863,14 @@
     <div class="trabajo-modal-principal">
       <!-- Los botones viven en la CABECERA, como en el overlay que este modal
            sustituye: abajo empujaban el log y le quitaban alto, que es lo
-           único que se mira durante una fase de veinte minutos. No hay
-           «Cerrar»: se cierra con ESC o clicando fuera. -->
+           único que se mira durante una fase de veinte minutos.
+
+           La X cierra el MODAL y la de al lado cancela el TRABAJO: las dos
+           llevan el mismo glifo porque en el catálogo solo hay uno, y lo que
+           las separa es que la destructiva va en rojo y con su palabra
+           delante. Es el mismo par que ya conviven en el manual y en la
+           limpieza masiva. Cerrar con ESC o clicando fuera sigue estando; lo
+           que faltaba era verlo. -->
       <div class="modal-header">
         <div class="modal-icon" id="trabajo-modal-icono"></div>
         <div style="flex:1; min-width:0">
@@ -875,6 +881,9 @@
                 onclick="copyLogToClipboard('trabajo-modal-log', this)" data-i18n-tip="ui.copiar_todo_el_log_al_portapapeles"><span data-icono="portapapeles"></span> <span data-i18n="ui.copiar_log"></span></button>
         <button class="btn btn-danger btn-sm" id="trabajo-modal-cancelar"
                 onclick="cancelarTrabajoActivo(_trabajoModalUltimo)"><span data-icono="cruz"></span> <span data-i18n="ui.cancelar"></span></button>
+        <button class="btn btn-ghost btn-xs trabajo-modal-cerrar" id="trabajo-modal-cerrar"
+                onclick="cerrarModalDeTrabajo()" data-i18n-tip="ui.cerrar"
+                data-i18n-aria="ui.cerrar"><span data-icono="cruz"></span></button>
       </div>
       <!-- El bloque de progreso: el PASO dentro de la fase, el restante y el
            porcentaje en grande. Es la isla oscura que se pegaba al log en el
@@ -1468,15 +1477,15 @@
 <!-- El catálogo ANTES de todo: un `<script src>` clásico es síncrono, así
      que `tr()` ya funciona cuando se parsean las constantes de módulo.
      El idioma lo decide el servidor, que es donde vive el ajuste. -->
-<script src="/api/i18n/catalogo.js?v=20260921a"></script>
-<script src="/static/i18n.js?v=20260921a"></script>
-<script src="/static/core.js?v=20260921a"></script>
-<script src="/static/workbar.js?v=20260921a"></script>
-<script src="/static/settings.js?v=20260921a"></script>
-<script src="/static/cmv40_modals.js?v=20260921a"></script>
-<script src="/static/tab1.js?v=20260921a"></script>
-<script src="/static/tab2.js?v=20260921a"></script>
-<script src="/static/tab3.js?v=20260921a"></script>
-<script src="/static/browser.js?v=20260921a"></script>
+<script src="/api/i18n/catalogo.js?v=20260921b"></script>
+<script src="/static/i18n.js?v=20260921b"></script>
+<script src="/static/core.js?v=20260921b"></script>
+<script src="/static/workbar.js?v=20260921b"></script>
+<script src="/static/settings.js?v=20260921b"></script>
+<script src="/static/cmv40_modals.js?v=20260921b"></script>
+<script src="/static/tab1.js?v=20260921b"></script>
+<script src="/static/tab2.js?v=20260921b"></script>
+<script src="/static/tab3.js?v=20260921b"></script>
+<script src="/static/browser.js?v=20260921b"></script>
 </body>
 </html>
