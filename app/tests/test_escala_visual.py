@@ -62,6 +62,37 @@ class TestLosRadiosSalenDeLaEscala(unittest.TestCase):
             self.assertRegex(CSS, rf"{t}\s*:", f"falta {t}")
 
 
+class TestLaTipografiaSaleDeLaEscala(unittest.TestCase):
+    """24 tamaños con pasos de medio píxel no son una escala.
+
+    Los tres dominantes eran 11 px (126 usos), 12 px (103) y 10 px (79): el
+    cuerpo real de la app estaba en **10-11 px**, pequeño para algo que se
+    mira de lejos en una pantalla de escritorio. Sube un peldaño; los
+    titulares se agrupan pero no crecen.
+
+    Que nada dejara de caber se comprobó midiendo, no razonando: con los 93
+    elementos con texto de `index.html` y todos los overlays abiertos,
+    **cero recortes antes y cero después**, y los 132 tests de layout en
+    Chrome en verde.
+    """
+
+    def test_ninguno_se_escribe_en_pixeles(self):
+        crudos = re.findall(r"font-size:\s*([\d.]+px)", _fuera_de_root())
+        self.assertEqual(sorted(set(crudos)), [],
+                         "\n  · ".join(["tamaños a mano:"] + sorted(set(crudos))))
+
+    def test_la_escala_existe_y_no_tiene_medios_pixeles(self):
+        pasos = dict(re.findall(r"(--fs-[\w-]+)\s*:\s*([\d.]+)px", CSS))
+        self.assertGreaterEqual(len(pasos), 8)
+        for t, v in pasos.items():
+            self.assertEqual(float(v), int(float(v)), f"{t} lleva medio píxel")
+
+    def test_el_cuerpo_no_baja_de_11(self):
+        """Lo que motivó la fase: el cuerpo estaba en 10-11 px."""
+        pasos = [float(v) for v in re.findall(r"--fs-[\w-]+\s*:\s*([\d.]+)px", CSS)]
+        self.assertGreaterEqual(min(pasos), 11)
+
+
 class TestLasOpacidadesSalenDeLaEscala(unittest.TestCase):
     """«Apagado» se escribía con 17 valores distintos entre .3 y .95.
 

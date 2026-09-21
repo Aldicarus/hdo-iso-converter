@@ -19,6 +19,21 @@ textos del fixture (el overlay se midió con el ETA vacío). Lo que importa —
 fondos, tipografías, paddings, radios, sombras, quién scrolla y qué se anima—
 son propiedades.
 
+**Reajuste del 2026-09-21, y solo de DOS propiedades.** Al adoptar la escala
+tipográfica —24 tamaños con medios píxeles pasan a 12 pasos y el cuerpo sube
+uno— las 18 piezas difirieron del golden. Se comprobó que la diferencia era
+*exclusivamente* `fontSize` y `lineHeight`, y en cada una exactamente el
+peldaño aplicado (13→14, 11→12, 15→16, 14→15, 11,5→12): ni un fondo, ni un
+padding, ni un radio, ni una sombra, ni quién scrolla se movieron. O sea que
+el golden hizo su trabajo — confirmó que el cambio global no se coló en nada
+más.
+
+Por eso se reajustaron **solo esas dos**, con el `line-height` reescalado por
+la misma razón para no inventar un interlineado que nadie ha medido. El resto
+del fichero sigue siendo la medición del overlay REAL, que es donde está su
+valor: regenerarlo entero desde el modal de hoy lo habría convertido en una
+comparación del modal consigo mismo.
+
 Si un cambio de diseño es deliberado, hay que regenerar el golden Y explicar en
 el commit por qué el modal deja de parecerse al overlay.
 
