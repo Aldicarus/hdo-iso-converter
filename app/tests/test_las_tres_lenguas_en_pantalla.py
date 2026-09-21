@@ -545,6 +545,24 @@ _CUERPO = """
       .filter(Boolean),
   }));
 
+  // ── El CROMO de la app, antes de montar nada ───────────────────────
+  //
+  // Cabecera, pestañas, sidebar, columna de trabajo y estados vacíos: lo
+  // que se ve SIEMPRE y no es ninguna de las pantallas de abajo. Faltaba, y
+  // se notó al mirar una captura del modo oscuro — el título del sidebar
+  // salía en blanco sobre blanco porque `#sidebar` tenía su gris escrito a
+  // mano, y ninguna de las 39 pantallas lo tocaba. Va el PRIMERO a
+  // propósito: después, `document.body` ya contendría todo lo demás.
+  //
+  // `pintarTextos` primero: este guion corre ANTES de `DOMContentLoaded`,
+  // así que los `data-i18n` del marcado estático todavía están vacíos. Sin
+  // esto se miden 7 nodos en vez de 130 y la pantalla parece cubierta.
+  try {
+    pintarTextos(document.body);
+    pintarIconos(document.body);
+    salida.pantallas['app·cromo'] = leer(document.body);
+  } catch (e) { salida.fallos['app·cromo'] = String(e && e.message || e); }
+
   // ── El panel de proyecto de Tab 1, construido de verdad.
   //
   // Los renders escriben en ids PREFIJADOS por el proyecto activo (`E()`), así
@@ -1120,6 +1138,10 @@ NI_TRADUCIBLE_NI_FUGA = {
     # Nombres del catálogo de glifos (`GLIFOS` en core.js) y claves de objeto
     # que salen en el `JSON.stringify` de la vista previa del pipeline. Son
     # identificadores, no texto: nadie los lee en pantalla.
+    # El NOMBRE de la aplicación, que CLAUDE.md fija: va igual en las tres
+    # lenguas, como «Blu-ray» o «Dolby Vision». Sale desde que el cromo de la
+    # app se mide: es la cabecera.
+    "toolkit": "el nombre de la app, que no se traduce",
     "caja": "nombre de glifo", "diana": "nombre de glifo",
     "icon": "clave de objeto", "warn": "clave de objeto",
     "blurb": "clave de objeto",
@@ -1183,6 +1205,9 @@ class TestNingunaPalabraFuncionCastellanaEnLaPantallaInglesa(
         ("modals·lookup_buscar", "de"):
             "la misma pantalla con la búsqueda hecha: el placeholder sigue "
             "ahí debajo",
+        ("app·cromo", "de"):
+            "el MISMO placeholder de la consulta rápida: está en el marcado "
+            "estático, así que el cromo lo lee. Ver la entrada de abajo.",
         ("modals·lookup", "de"):
             "el placeholder de la consulta rápida pone EJEMPLOS de título "
             "castellano («La jungla de cristal») en las tres lenguas, porque "

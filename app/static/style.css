@@ -84,6 +84,14 @@
   --active-hub-sep:      rgba(255, 255, 255, 0.14);
 
   /* Text */
+  /* El texto que va ENCIMA de un relleno de acento —una píldora azul, el
+     chip de la marca, un marcador teal— o de una isla oscura. Se escribía
+     `var(--surface-1)` en 12 sitios, que en claro ES blanco y en oscuro
+     pasa a ser el gris de una tarjeta: texto oscuro sobre azul vivo. El
+     token dice la intención y vale lo mismo en los dos temas, porque el
+     acento es vivo en los dos. */
+  --texto-en-relleno: #ffffff;
+
   --text-1: #1c1c1e;
   --text-2: #3c3c3e;
   --text-3: #8e8e93;
@@ -374,7 +382,7 @@ body {
   padding: 5px 12px;
   border-radius: var(--r-md);
   background: linear-gradient(135deg, var(--blue) 0%, var(--teal) 100%);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   box-shadow: 0 2px 10px var(--blue-border);
 }
 
@@ -511,7 +519,7 @@ body {
 #sidebar {
   width: 320px;
   flex-shrink: 0;
-  background: rgba(235, 235, 240, 0.98);
+  background: var(--surface-2);
   /* El border-right se dibuja con ::after solo POR DEBAJO del área del botón
      "Nuevo proyecto", para que el mismo color --surface-2 fluya continuo desde
      el botón hasta el subtab-bar (sin línea vertical cortándolos). */
@@ -585,7 +593,7 @@ body {
 }
 .sessions-count {
   background: var(--teal);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   font-size: var(--fs-sm);
   font-weight: 700;
   padding: 2px 8px;
@@ -708,7 +716,7 @@ body {
 .sb-filter-pill:hover { background: var(--surface-3); color: var(--text-1); }
 .sb-filter-pill.active {
   background: var(--blue);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   border-color: var(--blue);
 }
 
@@ -1433,7 +1441,7 @@ body {
   top: 4px;
   transform: translateX(-50%);
   background: var(--teal);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   font-size: var(--fs-xs);
   font-weight: 700;
   padding: 2px 7px;
@@ -2157,7 +2165,7 @@ select { appearance: none; cursor: pointer;
 }
 .subtab-scroll-btn:hover:not(:disabled) {
   background: var(--blue);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   transform: translateY(-1px);
   box-shadow: 0 3px 10px rgba(0, 122, 255, 0.50);
 }
@@ -2292,7 +2300,7 @@ select { appearance: none; cursor: pointer;
   width: 100%;
 }
 .subtab-cola-btn:hover {
-  background: #ddeeff;
+  background: var(--blue-dim);
 }
 .subtab-cola-btn.active {
   font-weight: 700;
@@ -2390,7 +2398,7 @@ select { appearance: none; cursor: pointer;
 
 /* Tarjeta de paso */
 .pc-step {
-  background: rgba(255,255,255,.55);
+  background: var(--velo-medio);
   border: 1px solid rgba(0,122,255,.12);
   border-radius: var(--r-md);
   padding: 12px 14px;
@@ -2401,7 +2409,7 @@ select { appearance: none; cursor: pointer;
 }
 .pc-step.active {
   opacity: 1;
-  background: rgba(255,255,255,.85);
+  background: var(--velo-fuerte);
   border-color: rgba(0,122,255,.35);
   box-shadow: 0 0 0 3px rgba(0,122,255,.06);
 }
@@ -3832,8 +3840,11 @@ select { appearance: none; cursor: pointer;
   flex-shrink: 0;
 }
 .cmv40-tl-status-icon.done {
-  /* fondo pastel opaco (en vez de rgba) para tapar la línea por detrás */
-  background: #d6f3dd;
+  /* Opaco a propósito: tapa la línea de la timeline que pasa por detrás,
+     así que no puede ser un `-dim` translúcido. Se compone con la
+     superficie para que siga al tema sin dejar de ser opaco. */
+  background: var(--green-dim);
+  background: color-mix(in srgb, var(--green) 25%, var(--surface-1));
   color: var(--green-text);
   border: 1.5px solid rgba(52, 199, 89, 0.60);
 }
@@ -3859,7 +3870,7 @@ select { appearance: none; cursor: pointer;
   animation: cmv40-spin 0.9s linear infinite;
 }
 .cmv40-tl-status-icon.skipped {
-  background: #ecedef;              /* opaco para tapar la línea */
+  background: var(--surface-2);     /* opaco para tapar la línea */
   color: var(--text-3);
   border: 1.5px dashed rgba(142, 142, 147, 0.55);
   font-size: var(--fs-xs);
@@ -5258,7 +5269,7 @@ select { appearance: none; cursor: pointer;
 .cmv40-tmdb-title {
   font-size: var(--fs-h4);
   font-weight: 700;
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   letter-spacing: 0.1px;
 }
 .cmv40-tmdb-orig {
@@ -6864,7 +6875,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 0 16px 0 8px;
 }
 .cmv40-help-btn {
-  color: var(--surface-1) !important;
+  color: var(--texto-en-relleno) !important;
   background: rgba(255, 255, 255, 0.22) !important;
   border: 1px solid rgba(255, 255, 255, 0.45) !important;
   font-size: var(--fs-md) !important;
@@ -7637,7 +7648,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   z-index: 5;
   pointer-events: none;
   background: rgba(15, 23, 42, 0.92);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-sm);
   font-weight: 600;
@@ -8035,16 +8046,16 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .dv-light-step.active .dv-light-step-marker {
   background: var(--dvl-accent);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   animation: dv-spin 1.1s linear infinite;
 }
 .dv-light-step.done .dv-light-step-marker {
   background: var(--dvl-accent);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
 }
 .dv-light-step.error .dv-light-step-marker {
   background: var(--dvl-red);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   animation: none;
 }
 @keyframes dv-spin { 100% { transform: rotate(360deg); } }
@@ -8501,7 +8512,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .fb-root-btn.active {
   background: var(--fb-accent);
-  color: var(--surface-1);
+  color: var(--texto-en-relleno);
   border-color: var(--fb-accent);
   box-shadow: 0 1px 3px var(--blue-border);
 }

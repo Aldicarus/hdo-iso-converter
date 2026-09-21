@@ -1464,7 +1464,7 @@
   "ui.analizar": "Analyze",
   "ui.ano": "Year",
   "ui.ano_opcional": "Year (optional)",
-  "ui.api_keys_e_integraciones_se_persisten": "API keys and integrations. Stored obfuscated locally; they take precedence over the environment variables.",
+  "ui.api_keys_e_integraciones_se_persisten": "Appearance, language, maintenance and the integration keys.",
   "ui.aplicando_reglas_automaticas": "Applying automatic rules…",
   "ui.aplicar": "Apply",
   "ui.asignar_episodios": "Assign episodes",

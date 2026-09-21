@@ -61,6 +61,12 @@ SIN_CONTRAPARTE = {
     "--active-hub-sep":      "el hub navy es el mismo en los dos temas",
     "--active-hub-text":     "el hub navy es el mismo en los dos temas",
     "--active-hub-text-dim": "el hub navy es el mismo en los dos temas",
+    # Vale lo mismo en los dos temas por definición: es el texto que va
+    # ENCIMA de un relleno de acento, y el acento es vivo en los dos. Se
+    # escribía `var(--surface-1)` en 12 sitios —que en claro ES blanco y en
+    # oscuro es el gris de una tarjeta—, así que el botón «Limpiar
+    # artefactos» del hub navy salía con la letra oscura sobre el azul.
+    "--texto-en-relleno": "es blanco en los dos temas: va sobre relleno de acento",
 }
 
 

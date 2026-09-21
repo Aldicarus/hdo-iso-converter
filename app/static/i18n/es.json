@@ -1464,7 +1464,7 @@
   "ui.analizar": "Analizar",
   "ui.ano": "Año",
   "ui.ano_opcional": "Año (opcional)",
-  "ui.api_keys_e_integraciones_se_persisten": "API keys e integraciones. Se persisten ofuscadas en local; ganan sobre las variables de entorno.",
+  "ui.api_keys_e_integraciones_se_persisten": "Aspecto, idioma, mantenimiento y las claves de las integraciones.",
   "ui.aplicando_reglas_automaticas": "Aplicando reglas automáticas…",
   "ui.aplicar": "Aplicar",
   "ui.asignar_episodios": "Asignar episodios",

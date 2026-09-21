@@ -47,6 +47,13 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    "API keys e integraciones. Se persisten ofuscadas en local; ganan sobre "
+    "las variables de entorno.":
+        "el subtítulo del modal de ⚙︎ describía SOLO la sección de "
+        "Integraciones, y desde el 2026-09-21 hay tres: General, Aspecto e "
+        "idioma e Integraciones. La advertencia sobre las claves pertenece a "
+        "su sección, no a la cabecera de todo el modal. Se vio mirando la "
+        "captura del modo oscuro, no el código.",
     # ── Los textos del veredicto CMv4.0, reescritos el 2026-09-19 a petición
     #    del usuario: «estructurado, entendible y formal para un usuario
     #    medio». Todos describían el FORMATO de la metadata —combos, trims,
