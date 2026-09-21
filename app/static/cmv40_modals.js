@@ -276,7 +276,7 @@ async function _cmv40HelpHydrateDriveLink() {
     const apiKey = s?.google || {};
     if (df.configured) {
       statusEl.innerHTML = icono('check') + ` Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">${tr('cmv40_modals.folder_p1', {p1: escHtml(df.folder_id_last6 || '??????')})}</span>`;
-      statusEl.style.color = '#0e6b2a';
+      statusEl.style.color = 'var(--green-text)';
       const srcLabel = df.source === 'settings' ? tr('cmv40_modals.configurada_desde_configuracion')
         : df.source === 'env' ? tr('cmv40_modals.configurada_por_variable_de_entorno_del')
         : 'configurada';
@@ -284,7 +284,7 @@ async function _cmv40HelpHydrateDriveLink() {
       if (metaEl) metaEl.textContent = `${srcLabel} · ${apiKeyState}`;
     } else {
       statusEl.innerHTML = icono('aviso') + ' ' + tr('cmv40_modals.no_configurada');
-      statusEl.style.color = '#8a4a00';
+      statusEl.style.color = 'var(--orange-text)';
       if (metaEl) metaEl.textContent = tr('cmv40_modals.sigue_los_pasos_de_abajo_para');
     }
   } catch (_) {

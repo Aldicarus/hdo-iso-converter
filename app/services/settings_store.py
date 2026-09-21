@@ -57,12 +57,54 @@ DEFAULT_SHEET_URL = (
 # no decidir por petición. Ver `fijar_idioma_detectado`.
 #
 # El frontend guarda además una copia en `localStorage` para pintar la primera
-# pantalla sin esperar a una petición; el selector escribe las dos y
-# `reconciliarIdioma()` arregla el caso de un `app_settings.json` editado a
-# mano. Este de aquí es la fuente de verdad, y es quien decide en qué idioma
+# pantalla sin esperar a una petición, pero manda la siembra del servidor.
+# Este de aquí es la fuente de verdad, y es quien decide en qué idioma
 # escribe el servidor sus propios mensajes.
 IDIOMAS = ("es", "en", "ca")
 IDIOMA_POR_DEFECTO = "es"
+
+# ── El tema ────────────────────────────────────────────────────────────
+#
+# Mismo modelo que el idioma —ajuste global, sin usuarios— y por el mismo
+# motivo: esto es un aparato de una instalación.
+#
+# `sistema` es el DEFAULT y no es un tercer color: es «lo que diga el
+# sistema operativo», que se resuelve en el navegador con
+# `prefers-color-scheme`. Material 3 y Apple recomiendan respetarlo, y es la
+# única opción que acierta sin preguntar nada. Se guarda la PREFERENCIA, no
+# el resultado: si se guardara el resultado, cambiar el tema del Mac dejaría
+# la app en el anterior para siempre.
+TEMAS = ("claro", "oscuro", "sistema")
+TEMA_POR_DEFECTO = "sistema"
+
+
+def get_tema() -> str:
+    """Prioridad: settings.json > `HDO_TEMA` > seguir al sistema."""
+    with _lock:
+        stored = _load().get("tema", "").strip().lower()
+    if stored in TEMAS:
+        return stored
+    env = os.environ.get("HDO_TEMA", "").strip().lower()
+    if env in TEMAS:
+        return env
+    return TEMA_POR_DEFECTO
+
+
+def update_tema(new_value: str | None) -> None:
+    """`None` = no tocar. Un valor fuera de la lista se ignora, como el idioma.
+
+    Se ignora en vez de lanzar por lo mismo: esto lo llama el endpoint de
+    ajustes con lo que venga del cliente, y un tema inventado no debe tumbar
+    el guardado de las cuatro claves que viajan en el mismo POST.
+    """
+    if new_value is None:
+        return
+    v = new_value.strip().lower()
+    if v not in TEMAS:
+        _logger.warning("[settings] tema no soportado, se ignora: %r", new_value)
+        return
+    _update_field("tema", v)
+
 
 
 def get_idioma() -> str:
@@ -548,6 +590,14 @@ def get_public_settings() -> dict[str, Any]:
         },
         "dovitools": estado_donacion_dovitools(),
         # El idioma NO es un secreto: va en crudo, como el sheet.
+        # El tema tampoco es un secreto. `activo` es la PREFERENCIA
+        # (`sistema` incluido): quien resuelve `sistema` es el navegador,
+        # que es el único que sabe qué tiene puesto el sistema operativo.
+        "tema": {
+            "activo": get_tema(),
+            "disponibles": list(TEMAS),
+            "por_defecto": TEMA_POR_DEFECTO,
+        },
         "idioma": {
             "activo": get_idioma(),
             "disponibles": list(IDIOMAS),

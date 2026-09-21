@@ -437,6 +437,70 @@ class SettingsUpdate(BaseModel):
     cmv40_drive_folder_url: str | None = None
     cmv40_sheet_url: str | None = None
     idioma: str | None = None          # 'es' | 'en' | 'ca'
+    tema: str | None = None            # 'claro' | 'oscuro' | 'sistema'
+
+
+@app.get("/api/tema.js", summary="El tema activo, como script BLOQUEANTE del <head>")
+async def tema_js():
+    """El tema, aplicado ANTES del primer pintado.
+
+    Va como `<script src>` clásico y **lo primero del `<head>`** porque el
+    problema que resuelve es el destello: cualquier cosa que se aplique más
+    tarde deja ver la app en claro durante unos fotogramas en cada carga, y
+    eso en una app que se abre veinte veces al día es exactamente el defecto
+    que el modo oscuro venía a evitar. El catálogo del idioma no sirve de
+    canal para esto: va al final del `<body>`, cuando el marcado ya se pintó.
+
+    Lo decide el SERVIDOR, igual que el idioma y por los mismos motivos —el
+    ajuste vive en `app_settings.json`, no hay usuarios y `localStorage` es
+    una copia—. Aquí además evita una segunda fuente de verdad: el navegador
+    no tiene que adivinar nada salvo `sistema`, que es lo único que sólo él
+    sabe.
+
+    Las dos funciones viven aquí y no en un estático para que haya **una
+    sola** implementación de «qué tema toca»: `settings.js` llama a
+    `aplicarTema()` cuando el usuario cambia el ajuste, y es esta misma.
+
+    Envuelto en `try` por lo mismo que el catálogo: es bloqueante, y quedarse
+    en claro es un inconveniente mientras una pantalla en blanco no lo es.
+    """
+    from fastapi.responses import Response
+    from services.settings_store import get_tema
+    try:
+        pref = get_tema()
+    except Exception as e:                                  # noqa: BLE001
+        _logger.warning("[tema] no se pudo leer el ajuste: %s", e)
+        pref = "sistema"
+    cuerpo = """'use strict';
+window.__TEMA_PREF = %s;
+/* `sistema` no es un color: es «lo que diga el sistema operativo», y sólo el
+   navegador lo sabe. Se resuelve aquí para que el CSS tenga UN solo selector
+   (`[data-tema="oscuro"]`) en vez de repetir la paleta dentro de un
+   `@media (prefers-color-scheme: dark)`. */
+function temaResuelto(pref) {
+  if (pref === 'claro' || pref === 'oscuro') return pref;
+  return (window.matchMedia &&
+          matchMedia('(prefers-color-scheme: dark)').matches) ? 'oscuro' : 'claro';
+}
+function aplicarTema(pref) {
+  var r = document.documentElement;
+  r.dataset.temaPref = (pref === 'claro' || pref === 'oscuro') ? pref : 'sistema';
+  r.dataset.tema = temaResuelto(r.dataset.temaPref);
+}
+try {
+  aplicarTema(window.__TEMA_PREF);
+  /* Con `sistema` puesto, cambiar el tema del Mac cambia el de la app sin
+     recargar. Es lo que distingue «seguir al sistema» de haber elegido. */
+  if (window.matchMedia) {
+    var mq = matchMedia('(prefers-color-scheme: dark)');
+    var alCambiar = function () { aplicarTema(window.__TEMA_PREF); };
+    if (mq.addEventListener) mq.addEventListener('change', alCambiar);
+    else if (mq.addListener) mq.addListener(alCambiar);
+  }
+} catch (e) { /* el tema es lo de menos si algo de esto falla */ }
+""" % json.dumps(pref)
+    return Response(content=cuerpo, media_type="application/javascript",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/i18n/catalogo.js", summary="El catálogo del idioma activo, como script BLOQUEANTE")
@@ -518,9 +582,10 @@ async def update_settings(body: SettingsUpdate):
         get_public_settings,
         update_tmdb_api_key, update_google_api_key,
         update_cmv40_drive_folder_url, update_cmv40_sheet_url,
-        update_idioma,
+        update_idioma, update_tema,
     )
     update_idioma(body.idioma)
+    update_tema(body.tema)
     update_tmdb_api_key(body.tmdb_api_key)
     update_google_api_key(body.google_api_key)
     update_cmv40_drive_folder_url(body.cmv40_drive_folder_url)

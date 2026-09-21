@@ -50,7 +50,14 @@ const SECCIONES_AJUSTES = [
     icono: 'ajustes',
     // La versión va PRIMERO: es lo que se viene a mirar cuando se abre esto
     // sin una tarea concreta, y lo único que puede pedir una acción (actualizar).
-    bloques: ['version', 'idioma', 'aviso', 'mantenimiento'],
+    bloques: ['version', 'aviso', 'mantenimiento'],
+  },
+  {
+    id: 'aspecto',
+    icono: 'contraste',
+    // Tema e idioma son la misma pregunta —cómo se ve y en qué lengua— y
+    // vivían separados: el idioma perdido entre la versión y el mantenimiento.
+    bloques: ['tema', 'idioma'],
   },
   {
     id: 'integraciones',
@@ -644,7 +651,56 @@ function _confirmarCambioDeIdioma() {
   });
 }
 
+/** Los tres botones del tema. Mismo patrón que el de idioma. */
+function _renderSettingsTema(data) {
+  const caja = document.getElementById('settings-temas');
+  if (!caja) return;
+  // El ajuste es la PREFERENCIA (`sistema` incluido), no el color resuelto:
+  // marcar «Oscuro» porque el Mac está en oscuro sería mentir sobre lo que
+  // hay guardado, y dejaría al usuario sin saber que sigue al sistema.
+  const activo = (data && data.tema && data.tema.activo)
+                 || document.documentElement.dataset.temaPref || 'sistema';
+  const OPCIONES = [
+    {codigo: 'claro',   ico: 'sol'},
+    {codigo: 'oscuro',  ico: 'luna'},
+    {codigo: 'sistema', ico: 'pantalla'},
+  ];
+  caja.innerHTML = OPCIONES.map(o => `
+    <button class="btn btn-sm settings-tema${o.codigo === activo ? ' activo' : ''}"
+            onclick="cambiarTema('${o.codigo}')"
+            ${o.codigo === activo ? 'disabled' : ''}
+            ><span class="settings-tema-ico">${icono(o.ico)}</span
+            ><span data-i18n="ajustes.tema.${o.codigo}"></span></button>
+  `).join('');
+  pintarTextos(caja);
+}
+
+/** Cambia el tema y lo persiste.
+ *
+ *  A diferencia del idioma, esto **no recarga**: el tema es sólo CSS y el
+ *  cambio se ve en el acto, así que no hay nada escrito en el formulario que
+ *  se pueda perder ni un catálogo que volver a pedir.
+ */
+async function cambiarTema(codigo) {
+  aplicarTema(codigo);
+  window.__TEMA_PREF = codigo;
+  try { localStorage.setItem('tema', codigo); } catch (e) { /* modo privado */ }
+  try {
+    const data = await apiFetch('/api/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tema: codigo}),
+    });
+    _renderSettingsTema(data);
+  } catch (e) {
+    // Se queda aplicado en esta pestaña aunque no se haya podido guardar:
+    // deshacerlo delante del usuario sería peor que avisar.
+    showToast(tr('ajustes.tema_no_guardado'), 'warning');
+  }
+}
+
 function _renderSettings(data) {
+  _renderSettingsTema(data);
   _renderSettingsIdioma(data);
   const tmdbUserSet   = _renderSettingsSection('tmdb', data);
   const googleUserSet = _renderSettingsSection('google', data);

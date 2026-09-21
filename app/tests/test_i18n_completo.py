@@ -134,6 +134,12 @@ FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
         "renombrado dejara de aplicarse sin un error.",
     "Análisis RPU/Luz ·":
         "lo mismo, la otra entrada de `historial._RENOMBRADOS`.",
+    "HDO_TEMA":
+        "el nombre de una VARIABLE DE ENTORNO, no un rótulo. Salta porque el "
+        "detector de vocabulario da «tema» por castellana —lo es, y el "
+        "catálogo inglés dice «Theme»—, pero esto es el hermano de "
+        "`HDO_IDIOMA`, que no salta sólo porque «idioma» no aparece suelta "
+        "en ningún catálogo. Cambiarla rompería el `.env` de la instalación.",
     "✏️ Consultar / Editar MKV":
         "`workload.TAB_MKV` es un ID, no un rótulo: lo indexa `TAB_IDS`, la "
         "UI compara contra él y `historial.jsonl` lo tiene escrito en las "

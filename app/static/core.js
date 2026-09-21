@@ -1612,6 +1612,21 @@ const GLIFOS = {
           + '<path d="M10.5 11v5.5M13.5 11v5.5"/>',
   ajustes: '<path d="M4 8.5h9M17 8.5h3M4 15.5h3M11 15.5h9"/>'
          + '<circle cx="15" cy="8.5" r="2.2"/><circle cx="7" cy="15.5" r="2.2"/>',
+  // Círculo con media luna rellena: claro contra oscuro. CLAUDE.md lo
+  // descartó para CMv4.0 justamente porque «parece un conmutador de
+  // tema» — que es lo que aquí es. El relleno rompe con los otros 43 a
+  // propósito: la mitad llena ES el significado.
+  contraste: '<circle cx="12" cy="12" r="8.5"/>'
+           + '<path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/>',
+  // Los tres del conmutador de tema. El sol y la luna son la convención
+  // universal; la pantalla es «lo que diga el sistema», y por eso NO se
+  // reutiliza `tv`, que en este catálogo significa «una serie».
+  sol: '<circle cx="12" cy="12" r="4.2"/>'
+     + '<path d="M12 2.6v2.4M12 19v2.4M21.4 12H19M5 12H2.6"/>'
+     + '<path d="m18.6 5.4-1.7 1.7M7.1 16.9l-1.7 1.7M18.6 18.6l-1.7-1.7M7.1 7.1 5.4 5.4"/>',
+  luna: '<path d="M20.2 14.8A8.6 8.6 0 0 1 9.2 3.8a8.6 8.6 0 1 0 11 11z"/>',
+  pantalla: '<rect x="2.8" y="4.3" width="18.4" height="12.4" rx="2"/>'
+          + '<path d="M9 20.2h6M12 16.7v3.5"/>',
   libro: '<path d="M4 5.2A1.7 1.7 0 0 1 5.7 3.5H11v17H5.7A1.7 1.7 0 0 1 4 18.8z"/>'
        + '<path d="M20 5.2a1.7 1.7 0 0 0-1.7-1.7H13v17h5.3A1.7 1.7 0 0 0 20 18.8z"/>',
   campana: '<path d="M7 10a5 5 0 0 1 10 0c0 4 1.3 5.5 1.8 6H5.2C5.7 15.5 7 14 7 10z"/>'

@@ -513,8 +513,8 @@ function _rgrfRow(label, value, { tooltip = '', status = 'neutral' } = {}) {
     value = '<span style="color:var(--text-3); font-style:italic">—</span>';
   }
   const colorMap = {
-    ok:      '#0e6b2a',
-    warn:    '#8a4a00',
+    ok:      'var(--green-text)',
+    warn:    'var(--orange-text)',
     absent:  'var(--text-3)',
     neutral: 'var(--text-1)',
   };
@@ -530,7 +530,7 @@ function _rgrfRow(label, value, { tooltip = '', status = 'neutral' } = {}) {
 /** Icono ✓/✗ según presencia, con tooltip explicativo opcional. */
 function _rgrfPresence(present, label, { tooltip = '' } = {}) {
   const icon  = icono(present ? 'check' : 'cruz');
-  const color = present ? '#0e6b2a' : 'var(--text-3)';
+  const color = present ? 'var(--green-text)' : 'var(--text-3)';
   const bg    = present ? 'rgba(52,199,89,0.10)' : 'transparent';
   const tip   = tooltip ? ` data-tooltip="${escHtml(tooltip)}"` : '';
   return `<span class="rgrf-pill" style="color:${color}; background:${bg}"${tip}><span class="rgrf-pill-icon">${icon}</span> ${escHtml(label)}</span>`;
@@ -638,7 +638,7 @@ function _rgrfL8Svg(nits) {
     const x = xOf(t);
     html += `<line x1="${x}" y1="${axisY - 3}" x2="${x}" y2="${axisY + 3}"
                stroke="rgba(15,23,42,0.28)" stroke-width="1.2" />`;
-    html += `<text x="${x}" y="${axisY + 18}" fill="#64748b" font-size="11.5"
+    html += `<text x="${x}" y="${axisY + 18}" fill="var(--dv-text-3)" font-size="11.5"
                font-family="SF Mono,monospace" text-anchor="middle" font-weight="500">${t}</text>`;
   });
   // Dots con halo + label semántica debajo (si conocida)
@@ -646,7 +646,7 @@ function _rgrfL8Svg(nits) {
     const x = xOf(n);
     html += `<circle cx="${x}" cy="${axisY}" r="10" fill="#007AFF" fill-opacity="0.12" />`;
     html += `<circle cx="${x}" cy="${axisY}" r="6.5" fill="url(#${gid})" stroke="#ffffff" stroke-width="2" />`;
-    html += `<text x="${x}" y="${axisY - 14}" fill="#003e8a" font-size="12"
+    html += `<text x="${x}" y="${axisY - 14}" fill="var(--dv-accent-text)" font-size="12"
                font-family="SF Mono,monospace" text-anchor="middle" font-weight="700">${n}</text>`;
     const label = _l8NitsLabel(n);
     if (label) {
@@ -695,7 +695,7 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
 
   return `
     <svg viewBox="0 0 ${svgSize} ${svgSize}" width="${svgSize}" height="${svgSize}"
-         style="display:block; background:#fafbfc; border-radius:8px; border:1px solid rgba(15,23,42,0.05)"
+         style="display:block; background:var(--dv-chart-bg-alt); border-radius:8px; border:1px solid var(--dv-chart-border)"
          xmlns="http://www.w3.org/2000/svg">
       <!-- grid sutil -->
       <g stroke="rgba(15,23,42,0.05)" stroke-width="1">
@@ -717,14 +717,14 @@ function _rgrfGamutSvg(l9Primaries, l10Primaries) {
       ${triangle(rec709,  cRec709,  l9Match === 'rec709')}
       <!-- D65 white point con halo -->
       <circle cx="${d65x}" cy="${d65y}" r="8" fill="rgba(15,23,42,0.08)" />
-      <circle cx="${d65x}" cy="${d65y}" r="4" fill="#ffffff" stroke="#0f172a" stroke-width="1.5" />
-      <text x="${d65x + 9}" y="${d65y + 4}" fill="#0f172a" font-size="11" font-family="SF Mono,monospace" font-weight="700">D65</text>
+      <circle cx="${d65x}" cy="${d65y}" r="4" fill="#ffffff" stroke="var(--dv-text-1)" stroke-width="1.5" />
+      <text x="${d65x + 9}" y="${d65y + 4}" fill="var(--dv-text-1)" font-size="11" font-family="SF Mono,monospace" font-weight="700">D65</text>
       <!-- Leyenda glassmorphism -->
       <g font-size="11" font-family="SF Mono,monospace">
         <rect x="${svgSize - 94}" y="${pad - 4}" width="84" height="62" rx="6"
               fill="rgba(255,255,255,0.92)" stroke="rgba(15,23,42,0.08)" stroke-width="1" />
         <circle cx="${svgSize - 85}" cy="${pad + 8}" r="4" fill="${cRec2020}"/>
-        <text x="${svgSize - 77}" y="${pad + 12}" fill="#003e8a" font-weight="700"><span data-i18n="tab2.rec_2020"></span></text>
+        <text x="${svgSize - 77}" y="${pad + 12}" fill="var(--dv-accent-text)" font-weight="700"><span data-i18n="tab2.rec_2020"></span></text>
         <circle cx="${svgSize - 85}" cy="${pad + 26}" r="4" fill="${cP3}"/>
         <text x="${svgSize - 77}" y="${pad + 30}" fill="#92400e" font-weight="700"><span data-i18n="tab2.dci_p3"></span></text>
         <circle cx="${svgSize - 85}" cy="${pad + 44}" r="4" fill="${cRec709}"/>
@@ -816,7 +816,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
     const y = padT + usableH - pct * usableH;
     const val = Math.round(yMax * pct);
     return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(15,23,42,0.06)" stroke-dasharray="3,4" />
-            <text x="${padL - 8}" y="${y + 4}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${val}</text>`;
+            <text x="${padL - 8}" y="${y + 4}" fill="var(--dv-text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${val}</text>`;
   }).join('');
 
   const gid = `sp-${Math.random().toString(36).slice(2, 7)}`;
@@ -834,7 +834,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
                          stroke="rgba(15,23,42,0.3)" stroke-width="1.2" />`;
     if (label) {
       const anchor = frac === 0 ? 'start' : (frac === 1 ? 'end' : 'middle');
-      timeTicks += `<text x="${x}" y="${axisY + 18}" fill="#475569" font-size="11"
+      timeTicks += `<text x="${x}" y="${axisY + 18}" fill="var(--dv-text-2)" font-size="11"
                           font-family="SF Mono,monospace" text-anchor="${anchor}" font-weight="500">${label}</text>`;
     }
   });
@@ -854,7 +854,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
           stroke="#007AFF" stroke-width="1" stroke-dasharray="2,3" opacity="0.45" />
     <circle cx="${peakX}" cy="${peakY}" r="9" fill="#007AFF" fill-opacity="0.15" />
     <circle cx="${peakX}" cy="${peakY}" r="4.5" fill="#007AFF" stroke="#ffffff" stroke-width="2" />
-    <text x="${peakLabelX}" y="${peakY + 4}" fill="#003e8a" font-size="11.5"
+    <text x="${peakLabelX}" y="${peakY + 4}" fill="var(--dv-accent-text)" font-size="11.5"
           font-family="SF Mono,monospace" text-anchor="${peakLabelAnchor}" font-weight="700">${peakLabelText}</text>`;
 
   // ── Líneas de referencia (L2 trims, HDR10 MaxCLL, L6 master) ─────
@@ -950,7 +950,7 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
       ${gridLines}
       ${refLines}
       <path d="${areaPath}" fill="url(#${gid}-area)" />
-      ${minPath ? `<path d="${minPath}" fill="none" stroke="#94a3b8" stroke-width="1.2"
+      ${minPath ? `<path d="${minPath}" fill="none" stroke="var(--dv-text-4)" stroke-width="1.2"
             stroke-dasharray="4,3" opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />` : ''}
       ${avgPath ? `<path d="${avgPath}" fill="none" stroke="#22c55e" stroke-width="1.6"
             stroke-linejoin="round" stroke-linecap="round" opacity="0.85" />` : ''}
@@ -1227,7 +1227,7 @@ function _rgrfDistributionSvg(series) {
     const y = padT + usableH - r * usableH;
     const lbl = Math.round(maxPct * r);
     grid += `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(15,23,42,0.06)" stroke-dasharray="3,4" />`;
-    grid += `<text x="${padL - 8}" y="${y + 4}" fill="#64748b" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${lbl}%</text>`;
+    grid += `<text x="${padL - 8}" y="${y + 4}" fill="var(--dv-text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${lbl}%</text>`;
   });
 
   let bars = '';
@@ -1239,10 +1239,10 @@ function _rgrfDistributionSvg(series) {
     // Barra con radius top + shadow sutil
     bars += `<rect x="${x + 8}" y="${y}" width="${barW - 16}" height="${Math.max(h, 1)}"
                fill="url(#${gid}-${i})" rx="3" />`;
-    bars += `<text x="${x + barW/2}" y="${padT + usableH + 18}" fill="#475569" font-size="12"
+    bars += `<text x="${x + barW/2}" y="${padT + usableH + 18}" fill="var(--dv-text-2)" font-size="12"
                font-family="SF Mono,monospace" text-anchor="middle" font-weight="600">${binLabels[i]}</text>`;
     if (c > 0) {
-      bars += `<text x="${x + barW/2}" y="${y - 6}" fill="#0f172a" font-size="12"
+      bars += `<text x="${x + barW/2}" y="${y - 6}" fill="var(--dv-text-1)" font-size="12"
                  font-family="SF Mono,monospace" text-anchor="middle" font-weight="700">${Math.round(pct)}%</text>`;
     }
   });
@@ -1255,7 +1255,7 @@ function _rgrfDistributionSvg(series) {
       ${bars}
       <line x1="${padL}" y1="${padT + usableH}" x2="${svgW - padR}" y2="${padT + usableH}"
             stroke="rgba(15,23,42,0.25)" stroke-width="1" />
-      <text x="${padL + usableW/2}" y="${svgH - 10}" fill="#64748b" font-size="11"
+      <text x="${padL + usableW/2}" y="${svgH - 10}" fill="var(--dv-text-3)" font-size="11"
             font-family="SF Mono,monospace" text-anchor="middle" font-weight="500" data-i18n="tab2.pico_de_luz_por_frame_nits"></text>
     </svg>`;
 }
@@ -2042,13 +2042,13 @@ function _renderMkvEditPanel(project = mkvProject) {
     const isV40 = cm.includes('4.0') || cm.includes('v4');
     const isV29 = cm.includes('2.9') || cm.includes('v2');
     if (isV40) {
-      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:#0e6b2a; font-size:11px; font-weight:700; letter-spacing:0.2px" data-i18n-tip="tab2.este_mkv_ya_tiene_cmv4_0"><span data-icono="check"></span> CMv4.0</span>`;
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(52,199,89,0.18); color:var(--green-text); font-size:11px; font-weight:700; letter-spacing:0.2px" data-i18n-tip="tab2.este_mkv_ya_tiene_cmv4_0"><span data-icono="check"></span> CMv4.0</span>`;
       // Los badges heuristicos de procedencia (nativo/retail/generado/incierto)
       // se reemplazaron por la tabla detallada "Radiografia DV+HDR" que muestra
       // los datos factuales sin interpretacion.
     } else if (isV29) {
-      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:#8a4a00; font-size:11px; font-weight:700; letter-spacing:0.2px" data-i18n-tip="tab2.este_mkv_esta_en_cmv2_9"><span data-icono="rayo"></span> CMv2.9</span>`;
-      cmHintHtml = `<span style="color:#8a4a00; font-size:11px; font-weight:500" data-i18n="tab2.upgradeable_a_cmv4_0_pestana_upgrade"></span>`;
+      cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(255,149,0,0.18); color:var(--orange-text); font-size:11px; font-weight:700; letter-spacing:0.2px" data-i18n-tip="tab2.este_mkv_esta_en_cmv2_9"><span data-icono="rayo"></span> CMv2.9</span>`;
+      cmHintHtml = `<span style="color:var(--orange-text); font-size:11px; font-weight:500" data-i18n="tab2.upgradeable_a_cmv4_0_pestana_upgrade"></span>`;
     } else if (dv.cm_version) {
       cmBadgeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:10px; background:rgba(142,142,147,0.20); color:var(--text-2); font-size:11px; font-weight:700">CM ${escHtml(dv.cm_version)}</span>`;
     }
@@ -2249,7 +2249,7 @@ function _attachSparklineHover() {
       lines.push(`<span style="color:#7cc4ff"><span data-i18n="tab2.peak"></span></span> ${v.toLocaleString(localeActual())} nits`);
       if (av != null) lines.push(`<span style="color:#86efac"><span data-i18n="tab2.avg"></span></span> ${av.toLocaleString(localeActual())} nits`);
       if (mn != null) lines.push(`<span style="color:#cbd5e1"><span data-i18n="tab2.min"></span></span> ${mn.toLocaleString(localeActual())} nits`);
-      if (dur > 0) lines.push(`<span style="color:#94a3b8">@</span> ${_rgrfFmtTime(t)}`);
+      if (dur > 0) lines.push(`<span style="color:var(--dv-text-4)">@</span> ${_rgrfFmtTime(t)}`);
       tooltip.innerHTML = lines.join('<br>');
       tooltip.style.display = '';
       // Posiciona el tooltip cerca del cursor; si está en la mitad derecha
@@ -2290,7 +2290,7 @@ function _renderMkvTracks(project = mkvProject) {
     // Codec comercial (Atmos, DTS:X, TrueHD…) prevalece sobre el técnico
     const codecPretty = t.format_commercial || t.codec || '';
     const compressionPill = t.compression_mode
-      ? `<span style="font-size:10px; padding:1px 6px; border-radius:8px; background:${t.compression_mode.toLowerCase().includes('lossless') ? 'rgba(52,199,89,0.15)' : 'rgba(142,142,147,0.18)'}; color:${t.compression_mode.toLowerCase().includes('lossless') ? '#0e6b2a' : 'var(--text-2)'}; font-weight:600; margin-left:4px">${escHtml(t.compression_mode)}</span>`
+      ? `<span style="font-size:10px; padding:1px 6px; border-radius:8px; background:${t.compression_mode.toLowerCase().includes('lossless') ? 'rgba(52,199,89,0.15)' : 'rgba(142,142,147,0.18)'}; color:${t.compression_mode.toLowerCase().includes('lossless') ? 'var(--green-text)' : 'var(--text-2)'}; font-weight:600; margin-left:4px">${escHtml(t.compression_mode)}</span>`
       : '';
     // Info visible (no solo tooltip) — todo lo que aporta
     const desc = [

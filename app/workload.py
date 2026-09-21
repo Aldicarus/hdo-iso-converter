@@ -444,6 +444,7 @@ CLASE_POR_RUTA: dict[str, str] = {
     "GET /api/settings":                    CLASE_LIGERO,
     # El catálogo del idioma activo, leído de disco y servido como
     # script bloqueante. Son ~200 KB y un `read_text`: navegación.
+    "GET /api/tema.js":                     CLASE_LIGERO,
     "GET /api/i18n/catalogo.js":            CLASE_LIGERO,
     "POST /api/settings":                   CLASE_LIGERO,
     "POST /api/settings/test-tmdb":         CLASE_LIGERO,

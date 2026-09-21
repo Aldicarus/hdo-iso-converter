@@ -4073,7 +4073,7 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
   const titleSuffix = isSkipped
     ? ` <span style="color:var(--text-3); font-weight:400; font-size:11px">${skippedSuffix}</span>`
     : isDropInF
-    ? ' <span style="color:#8a4a00; font-weight:500; font-size:11px">(drop-in)</span>'
+    ? ' <span style="color:var(--orange-text); font-weight:500; font-size:11px">(drop-in)</span>'
     : '';
   return `
     <div class="section-card cmv40-fase-card cmv40-fase-${state}${extraCls}" style="margin-top:12px" data-fase-key="${fase.key}">
@@ -4102,7 +4102,7 @@ function _cmv40GateRowHtml(status, title, result, explanation) {
   // status: 'ok' | 'warn' | 'ko' | 'pending'
   const icon = icono({ ok: 'check', warn: 'aviso', ko: 'cruz',
                        pending: 'pendiente' }[status] || 'pendiente');
-  const color = { ok: '#0e6b2a', warn: '#8a4a00', ko: '#b10b0b', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
+  const color = { ok: 'var(--green-text)', warn: 'var(--orange-text)', ko: 'var(--red-text)', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
   const bg    = { ok: 'rgba(52,199,89,0.10)', warn: 'rgba(255,149,0,0.10)', ko: 'rgba(255,59,48,0.10)', pending: 'rgba(0,0,0,0.03)' }[status] || 'transparent';
   return `
     <div style="display:grid; grid-template-columns:24px 1fr; gap:10px; padding:10px 12px; background:${bg}; border-radius:6px; margin-bottom:6px">
@@ -4182,14 +4182,14 @@ function _cmv40CmpMarca(a, b) {
   if (a === null || a === undefined || a === '' || a === '—') {
     return (b === null || b === undefined || b === '' || b === '—')
       ? { txt: '', color: 'var(--text-3)' }
-      : { txt: tr('tab3.rpu_l8_nuevo'), color: '#0a5cab' };
+      : { txt: tr('tab3.rpu_l8_nuevo'), color: 'var(--blue-text)' };
   }
   if (b === null || b === undefined || b === '' || b === '—') {
-    return { txt: tr('tab3.solo_bd'), color: '#8a4a00' };
+    return { txt: tr('tab3.solo_bd'), color: 'var(--orange-text)' };
   }
   return String(a) === String(b)
-    ? { html: icono('check'), color: '#0e6b2a' }
-    : { txt: '≠', color: '#8a4a00' };
+    ? { html: icono('check'), color: 'var(--green-text)' }
+    : { txt: '≠', color: 'var(--orange-text)' };
 }
 
 /** Fila de dos columnas del bloque ②. */
@@ -4210,7 +4210,7 @@ function _cmv40RpuFila(etiqueta, a, b, marcaOverride) {
 function _cmv40BloqueHead(num, titulo, extra) {
   return `
     <div style="display:flex; align-items:baseline; gap:8px; margin:14px 0 6px">
-      <span style="font-size:12px; font-weight:800; color:#0a5cab">${escHtml(num)}</span>
+      <span style="font-size:12px; font-weight:800; color:var(--blue-text)">${escHtml(num)}</span>
       <span style="font-size:11.5px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:var(--text-2)">${escHtml(titulo)}</span>
       ${extra ? `<span style="font-size:11px; color:var(--text-3)">${escHtml(extra)}</span>` : ''}
     </div>`;
@@ -4258,7 +4258,7 @@ function _cmv40GateBloque1(pid, s) {
     }
     ackHtml = `
       <div style="margin-top:8px; padding:10px 12px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px">
-        <div style="font-size:12px; font-weight:700; color:#8a4a00"><span data-icono="aviso"></span> <span data-i18n="tab3.esperando_tu_confirmacion"></span></div>
+        <div style="font-size:12px; font-weight:700; color:var(--orange-text)"><span data-icono="aviso"></span> <span data-i18n="tab3.esperando_tu_confirmacion"></span></div>
         <div style="font-size:11.5px; color:var(--text-2); line-height:1.5; margin-top:3px">
           ${tr('tab3.aviso_los_botones_estan_arriba', {
             motivo: detalles.length
@@ -4334,10 +4334,10 @@ function _cmv40GateBloque2(s) {
   const cmS = sdv ? (sdv.cm_version || '—') : '—';
   const cmT = tdv ? (tdv.cm_version || '—') : '—';
   const marcaCm = (cmS !== '—' && cmT !== '—' && cmS !== cmT)
-    ? { txt: '↑ upgrade', color: '#0a5cab' } : null;
+    ? { txt: '↑ upgrade', color: 'var(--blue-text)' } : null;
   const nivS = niveles(sdv), nivT = niveles(tdv);
   const marcaNiv = (nivS !== nivT && tdv && tdv.has_l8 && sdv && !sdv.has_l8)
-    ? { txt: '+L8', color: '#0a5cab' } : null;
+    ? { txt: '+L8', color: 'var(--blue-text)' } : null;
   const l5S = l5txt(sdv, perfS), l5T = l5txt(tdv, perfT);
   // Lo que el bin APORTA, que es la pregunta de este bloque: el ajuste de
   // tonos medios lo calcula el análisis de Dolby y el Blu-ray no lo trae
@@ -4345,7 +4345,7 @@ function _cmv40GateBloque2(s) {
   // así que traerlo es una mejora real aunque el L8 esté plano.
   const marcaL3 = (tdv && tdv.l3_unique_count && sdv && sdv.l3_medido
                    && !sdv.l3_unique_count)
-    ? { txt: '+L3', color: '#0a5cab' } : null;
+    ? { txt: '+L3', color: 'var(--blue-text)' } : null;
 
   return `
     ${_cmv40BloqueHead('②', tr('tab3.los_dos_rpu_lado_a_lado'))}
@@ -4375,7 +4375,7 @@ function _cmv40GateBloque2(s) {
 function _cmv40GateFilaHtml(status, titulo, valor, umbral, sev, critical, explicacion) {
   const icon  = icono({ ok: 'check', warn: 'aviso', ko: 'cruz',
                         pending: 'pendiente' }[status] || 'pendiente');
-  const color = { ok: '#0e6b2a', warn: '#8a4a00', ko: '#b10b0b', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
+  const color = { ok: 'var(--green-text)', warn: 'var(--orange-text)', ko: 'var(--red-text)', pending: 'var(--text-3)' }[status] || 'var(--text-3)';
   const bg    = { ok: 'rgba(52,199,89,0.10)', warn: 'rgba(255,149,0,0.10)', ko: 'rgba(255,59,48,0.10)', pending: 'rgba(0,0,0,0.03)' }[status] || 'transparent';
   const chip = (txt, c) => `<span style="font-size:10px; font-weight:700; padding:1px 6px; border-radius:8px; background:rgba(15,23,42,0.06); color:${c}">${escHtml(txt)}</span>`;
   return `
@@ -4530,7 +4530,7 @@ function _cmv40GateBloque4(s) {
   // gates: no es un gate, la cuestiona.
   const proc = l5.procedencia || {};
   const avisoProc = proc.contradice ? `
-    <div style="margin-top:8px; padding:9px 11px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px; font-size:11.5px; color:#8a4a00; line-height:1.5">
+    <div style="margin-top:8px; padding:9px 11px; background:rgba(255,149,0,0.12); border:1px solid rgba(255,149,0,0.35); border-radius:6px; font-size:11.5px; color:var(--orange-text); line-height:1.5">
       <span data-icono="aviso"></span> <span data-i18n="tab3.el_nombre_del_bin_declara"></span> <strong><span data-i18n="tab3.l5_variable"></span></strong>${tr('tab3.p1_pero_la_medicion_no_ha', {p1: (proc.tokens || []).length ? ` (${escHtml((proc.tokens || []).join(', '))})` : ''})}
     </div>` : '';
 
@@ -4736,7 +4736,7 @@ function _cmv40RenderGateCardBC(pid, s, isExpanded) {
       <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','GATE_BC')" style="cursor:pointer">
         <div class="cmv40-fase-state-icon" style="font-size:20px">${overallIcon}</div>
         <div style="flex:1">
-          <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> <span data-i18n="tab3.validaciones_trust_gates_compatibilidad"></span></div>
+          <div class="section-title" style="color:var(--blue-text)"><span data-icono="escudo"></span> <span data-i18n="tab3.validaciones_trust_gates_compatibilidad"></span></div>
           <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
         </div>
         <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>
@@ -4816,7 +4816,7 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
       <div class="section-header cmv40-fase-header" onclick="_cmv40TogglePhase('${pid}','GATE_GH')" style="cursor:pointer">
         <div class="cmv40-fase-state-icon" style="font-size:20px">${overallIcon}</div>
         <div style="flex:1">
-          <div class="section-title" style="color:#0a5cab"><span data-icono="escudo"></span> <span data-i18n="tab3.validacion_final_pre_finalizar"></span></div>
+          <div class="section-title" style="color:var(--blue-text)"><span data-icono="escudo"></span> <span data-i18n="tab3.validacion_final_pre_finalizar"></span></div>
           <div class="section-subtitle">${escHtml(overallLabel)} · ${escHtml(summary)}</div>
         </div>
         <div class="cmv40-fase-chevron">${icono('chevron', isExpanded ? 'chevron-abierto' : '')}</div>

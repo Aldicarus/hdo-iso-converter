@@ -5,8 +5,11 @@
 
 /* ── Variables ─────────────────────────────────────────────────── */
 :root {
+  color-scheme: light;
+
   /* Surfaces */
   --bg:        #f5f5f7;
+  --bg-rgb:    245, 245, 247;
   --surface-1: #ffffff;
   --surface-2: #ebebf0;
   --surface-3: #dcdce0;
@@ -14,8 +17,9 @@
 
   /* Accents — Apple HIG light mode */
   --blue:         #007AFF;
-  --blue-dim:     rgba(0, 122, 255, 0.12);
-  --blue-border:  rgba(0, 122, 255, 0.30);
+  --blue-rgb:     0, 122, 255;
+  --blue-dim:     rgba(var(--blue-rgb), 0.12);
+  --blue-border:  rgba(var(--blue-rgb), 0.30);
   --cola-surface: #edf4ff;                 /* fondo unificado pestaña + sidebar Cola (opaco, idéntico en cualquier contexto) */
   --wb-cabecera-h: 26px;                   /* alto del título de sección pegado: el día del historial se pega justo debajo */
   --green:        #34C759;
@@ -23,14 +27,16 @@
      Sin esto no se puede escribir un halo con EL verde: `rgba()` no admite
      una variable de color dentro, y de ahí salía el verde de Spotify. */
   --green-rgb:    52, 199, 89;
-  --green-dim:    rgba(52, 199, 89, 0.12);
-  --green-border: rgba(52, 199, 89, 0.30);
+  --green-dim:    rgba(var(--green-rgb), 0.12);
+  --green-border: rgba(var(--green-rgb), 0.30);
   --red:          #FF3B30;
-  --red-dim:      rgba(255, 59, 48, 0.12);
-  --red-border:   rgba(255, 59, 48, 0.30);
+  --red-rgb:      255, 59, 48;
+  --red-dim:      rgba(var(--red-rgb), 0.12);
+  --red-border:   rgba(var(--red-rgb), 0.30);
   --orange:       #FF9500;
-  --orange-dim:   rgba(255, 149, 0, 0.12);
-  --orange-border:rgba(255, 149, 0, 0.30);
+  --orange-rgb:   255, 149, 0;
+  --orange-dim:   rgba(var(--orange-rgb), 0.12);
+  --orange-border:rgba(var(--orange-rgb), 0.30);
   /* Ámbar — NO es el naranja: en la card de decisión de Tab 3 el naranja es
      «va por merge» y el ámbar es «esto lo decides tú», y son dos cosas que no
      pueden verse igual. Los valores son los que ya usaba la radiografía
@@ -39,8 +45,9 @@
      badge caían y el ámbar se quedaba sin fondo, sin color y sin borde. Una
      `var()` fuera de alcance no da error: se lleva la declaración entera. */
   --amber:        #d97706;
-  --amber-dim:    rgba(217, 119, 6, 0.09);
-  --amber-border: rgba(217, 119, 6, 0.22);
+  --amber-rgb:    217, 119, 6;
+  --amber-dim:    rgba(var(--amber-rgb), 0.09);
+  --amber-border: rgba(var(--amber-rgb), 0.22);
   --amber-text:   #92400e;
   /* ── El peldaño que le faltaba a la escala ───────────────────────────
      Cada color tenía `-dim` (el fondo teñido) y `-border`, pero el TEXTO
@@ -48,13 +55,15 @@
      vivían escritos a mano 46 veces: `#005fb8` sobre `--blue-dim`,
      `#0e6b2a` sobre `--green-dim` y `#8a4a00` sobre `--orange-dim`. El
      emparejamiento ya era consistente; lo que faltaba era nombrarlo. */
+  --red-text:     #a31a13;
   --blue-text:    #005fb8;
   --green-text:   #0e6b2a;
   --orange-text:  #8a4a00;
 
   --teal:         #32ADE6;
   --purple:       #AF52DE;
-  --purple-border:rgba(175, 82, 222, 0.35);
+  --purple-rgb:   175, 82, 222;
+  --purple-border:rgba(var(--purple-rgb), 0.35);
 
   /* Hub activo — franja top (pestaña activa + subtab-bar + área botón Nuevo proyecto).
      Gradiente virtual continuo: #264a78 (top del tab) → #1a3557 (base del subtab-bar)
@@ -130,6 +139,14 @@
      sube a .4— así que ninguno cambia de legibilidad. Los dos que se quedan
      crudos, 0.1 y 0.95, son extremos de un efecto concreto (el velo del
      backdrop ambiente y un casi-opaco), no «apagado». */
+  /* Aclarar la superficie de debajo. Sobre claro es casi blanco; sobre
+     oscuro, la MISMA intención con una fracción del alfa —elevar sigue
+     siendo aclarar—. Los doce valores que había entre .45 y .92 se
+     agrupan en tres, como se hizo con «apagado». */
+  --velo-sutil:    rgba(255, 255, 255, .45);
+  --velo-medio:    rgba(255, 255, 255, .70);
+  --velo-fuerte:   rgba(255, 255, 255, .90);
+
   --op-fuerte:     .85;
   --op-medio:      .7;
   --op-tenue:      .55;
@@ -139,6 +156,160 @@
   --t-fast: 140ms;
   --t-med:  220ms;
   --t-slow: 380ms;
+}
+
+/* ── Tema oscuro ───────────────────────────────────────────────────
+   Sólo tokens. La regla es que el modo oscuro NO sea un segundo CSS: si
+   una pantalla necesita una declaración propia aquí abajo, es que ese
+   color estaba escrito a mano y lo que toca es atarlo a la escala.
+
+   Los acentos son los **oscuros oficiales de Apple HIG**, no los claros
+   aclarados a ojo: la paleta clara ya era la de Apple, así que la pareja
+   está publicada y es la que el sistema operativo usa alrededor de la app.
+   Un color saturado sobre fondo oscuro vibra, y por eso ninguna de las dos
+   escalas se inventa: #007AFF↔#0A84FF, #34C759↔#30D158, #FF3B30↔#FF453A,
+   #FF9500↔#FF9F0A, #32ADE6↔#64D2FF, #AF52DE↔#BF5AF2.
+
+   Tres cosas medidas que decidieron los valores:
+
+   * **Los escalones de superficie son los MISMOS** que en claro (1,11 ·
+     1,14 · 1,19 contra 1,09 · 1,19 · 1,15), así que la jerarquía de
+     paneles se lee igual. Lo que se invierte es el sentido: en oscuro
+     «más elevado» es **más claro**, que es como lo dicen Material 3 y
+     Apple, y por eso `--surface-4` es el más claro y no el más oscuro.
+   * **Ni negro puro ni blanco puro.** `#000` sobre una pantalla grande
+     hace halo alrededor de la letra y mata la sombra; `#fff` a 21:1
+     deslumbra. El fondo arranca en `#17181b` y el texto en `#e9eaec`
+     (13,2:1 sobre una tarjeta), que es la franja que recomiendan las dos
+     guías.
+   * **`--text-3` pasa de suspender a aprobar**: 2,99-3,26:1 en claro
+     contra 4,37-5,53:1 aquí. Es el token del texto secundario y el que
+     más veces incumplía WCAG AA en la app.
+
+   Las alfas de `-dim` y `-border` NO cambian: medido, un tinte al 12 %
+   sobre superficie oscura se ve MÁS que sobre blanca (1,25:1 contra
+   1,10:1), así que subirlas habría hecho las etiquetas más ruidosas que
+   en claro, no iguales.
+
+   El hub navy se queda como está. Sigue siendo el ancla de marca, el
+   blanco sobre él no cambia de contraste, y en oscuro pasa a leerse como
+   una banda elevada —más clara que la página— que es justo el lenguaje de
+   elevación correcto aquí. Por eso tampoco hay que recalcular la
+   interpolación de `--active-hub`. */
+[data-tema="oscuro"] {
+  color-scheme: dark;
+
+  /* Superficies — el escalón sube en claridad con la elevación */
+  --bg:        #17181b;
+  --bg-rgb:    23, 24, 27;
+  --surface-1: #202226;
+  --surface-2: #292c31;
+  --surface-3: #34383e;
+  --surface-4: #43484f;
+
+  /* Acentos — Apple HIG dark */
+  --blue:       #0A84FF;  --blue-rgb:   10, 132, 255;
+  --green:      #30D158;  --green-rgb:  48, 209, 88;
+  --red:        #FF453A;  --red-rgb:    255, 69, 58;
+  --orange:     #FF9F0A;  --orange-rgb: 255, 159, 10;
+  --teal:       #64D2FF;
+  --purple:     #BF5AF2;  --purple-rgb: 191, 90, 242;
+  /* El ámbar sigue sin ser el naranja, y con más margen que en claro:
+     ΔE 18,3 contra 15,8. Es la diferencia entre «va por merge» y «esto lo
+     decides tú», que no pueden verse igual. */
+  --amber:      #e9a33a;  --amber-rgb:  233, 163, 58;
+
+  /* El texto que va ENCIMA de un `-dim`. En claro son tonos oscuros sobre
+     un tinte claro; aquí, tonos claros sobre un tinte oscuro. */
+  --red-text:    #ff9a93;
+  --blue-text:   #8cc2ff;
+  --green-text:  #7ce29a;
+  --orange-text: #ffc470;
+  --amber-text:  #f5c77e;
+
+  --cola-surface: #1b2330;
+
+  --text-1: #e9eaec;
+  --text-2: #b4b8bf;
+  --text-3: #8b9099;
+
+  /* Un separador oscuro sobre fondo oscuro no existe: se invierte. */
+  --sep:        rgba(255, 255, 255, 0.10);
+  --sep-strong: rgba(255, 255, 255, 0.18);
+
+  /* La sombra casi no se ve sobre oscuro —de ahí que Material 3 use el
+     tinte de superficie en su lugar—, así que se refuerza en vez de
+     fingir que sigue haciendo el trabajo. La elevación real la da
+     `--surface-1`, que ya es más claro que la página. */
+  --velo-sutil:  rgba(255, 255, 255, .045);
+  --velo-medio:  rgba(255, 255, 255, .075);
+  --velo-fuerte: rgba(255, 255, 255, .13);
+
+  --sh-sm: 0 1px 3px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.30);
+  --sh-md: 0 4px 14px rgba(0,0,0,.50), 0 2px 4px rgba(0,0,0,.32);
+  --sh-lg: 0 10px 30px rgba(0,0,0,.58), 0 4px 8px rgba(0,0,0,.40);
+  --sh-modal: 0 20px 60px rgba(0,0,0,.70);
+}
+
+/* ── Tema oscuro · las tres paletas de ámbito local ────────────────
+   La radiografía DV+HDR, el modal del perfil de luminancia y el file
+   browser declaran su propia escala en *slate* dentro de su contenedor:
+   53 variables entre las tres. Es una decisión del proyecto —esas tres
+   vistas son densas en datos y quieren su propio gris—, así que aquí se
+   VOLTEAN en vez de redirigirse a la escala global, que les quitaría la
+   identidad. Tailwind slate hacia el otro lado: 900/600/500/400 pasan a
+   100/300/400/500.
+
+   Sin esto la radiografía era el peor sitio de la app en oscuro: 33 nodos
+   con la letra clara sobre el bloque claro que no se volteó, a 1,0-1,2:1.
+   Una `var()` que no se redefine no da ningún error; simplemente sigue
+   sirviendo el color del tema contrario. */
+[data-tema="oscuro"] .dv-detail {
+  --dv-accent-soft:     #5aa9ff;
+  --dv-accent-bright:   #8cc2ff;
+  --dv-accent-bg:       rgba(var(--blue-rgb), 0.14);
+  --dv-accent-bg-2:     rgba(var(--blue-rgb), 0.22);
+  --dv-accent-border:   rgba(var(--blue-rgb), 0.34);
+  --dv-accent-text:     #8cc2ff;
+  --dv-red:             #ff6961;
+  --dv-red-bg:          rgba(255, 105, 97, 0.14);
+  --dv-red-text:        #ffa39c;
+  --dv-block-bg:        #1b1d22;
+  --dv-block-bg-hover:  #212429;
+  --dv-block-border:    rgba(255, 255, 255, 0.08);
+  --dv-separator:       rgba(255, 255, 255, 0.08);
+  --dv-chart-bg-alt:    #1a1c21;
+  --dv-chart-border:    rgba(255, 255, 255, 0.10);
+  --dv-grid:            rgba(255, 255, 255, 0.10);
+  --dv-text-1:          #e8edf3;
+  --dv-text-2:          #b6c0cd;
+  --dv-text-3:          #93a0b1;
+  --dv-text-4:          #74808f;
+}
+
+[data-tema="oscuro"] .dv-light-modal-box {
+  --dvl-accent-bright:  #5aa9ff;
+  --dvl-accent-text:    #8cc2ff;
+  --dvl-accent-bg:      rgba(var(--blue-rgb), 0.16);
+  --dvl-accent-border:  rgba(var(--blue-rgb), 0.38);
+  --dvl-surface:        #1b1d22;
+  --dvl-border:         rgba(255, 255, 255, 0.10);
+  --dvl-text-1:         #e8edf3;
+  --dvl-text-2:         #b6c0cd;
+  --dvl-text-3:         #93a0b1;
+  --dvl-red:            #ff6961;
+  --dvl-red-text:       #ffa39c;
+}
+
+[data-tema="oscuro"] .file-browser-modal-box {
+  --fb-accent-bg:     rgba(var(--blue-rgb), 0.16);
+  --fb-accent-bg-2:   rgba(var(--blue-rgb), 0.24);
+  --fb-text-1:        #e8edf3;
+  --fb-text-2:        #b6c0cd;
+  --fb-text-3:        #93a0b1;
+  --fb-surface:       #1b1d22;
+  --fb-border:        rgba(255, 255, 255, 0.10);
+  --fb-row-hover:     rgba(var(--blue-rgb), 0.10);
 }
 
 /* ── Reset ─────────────────────────────────────────────────────── */
@@ -164,7 +335,7 @@ body {
 #app-header {
   flex-shrink: 0;
   height: 52px;
-  background: rgba(245, 245, 247, 0.88);
+  background: rgba(var(--bg-rgb), 0.88);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border-bottom: 1px solid var(--sep);
@@ -3583,7 +3754,7 @@ select { appearance: none; cursor: pointer;
   box-shadow: 0 0 6px rgba(255, 59, 48, 0.40);
 }
 .cmv40-tl-progress.cmv40-tl-progress-error .cmv40-tl-progress-pct {
-  color: #a31a13;
+  color: var(--red-text);
   background: var(--red-dim);
   border-color: rgba(255, 59, 48, 0.40);
 }
@@ -3776,11 +3947,11 @@ select { appearance: none; cursor: pointer;
 }
 /* Gate (🛡️) — punto de decisión entre fases. Color azul distintivo. */
 .cmv40-tl-step.cmv40-tl-is-gate .cmv40-tl-title {
-  color: #0a5cab;
+  color: var(--blue-text);
   font-weight: 600;
 }
 .cmv40-tl-step.cmv40-tl-is-gate.cmv40-tl-done .cmv40-tl-title {
-  color: #0a5cab;
+  color: var(--blue-text);
 }
 .cmv40-tl-step.cmv40-tl-is-gate.cmv40-tl-pending .cmv40-tl-title {
   color: #68758a;
@@ -4089,7 +4260,7 @@ select { appearance: none; cursor: pointer;
   font-style: italic;
 }
 .cmv40-repo-empty.error {
-  color: #a31a13;
+  color: var(--red-text);
   font-style: normal;
   font-weight: 500;
 }
@@ -4132,7 +4303,7 @@ select { appearance: none; cursor: pointer;
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-2);
-  background: rgba(255, 255, 255, 0.70);
+  background: var(--velo-medio);
   border: 1px solid rgba(0, 0, 0, 0.10);
   padding: 1px 7px;
   border-radius: var(--r-md);
@@ -4342,7 +4513,7 @@ select { appearance: none; cursor: pointer;
 .cmv40-trust-panel.ko {
   background: rgba(255, 59, 48, 0.14);
   border-color: rgba(255, 59, 48, 0.55);
-  color: #a31a13;
+  color: var(--red-text);
 }
 .cmv40-trust-panel.generic {
   background: rgba(142, 142, 147, 0.12);
@@ -4382,13 +4553,13 @@ select { appearance: none; cursor: pointer;
   gap: 4px;
   padding: 2px 8px;
   border-radius: var(--r-md);
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--velo-medio);
   border: 1px solid var(--sep);
   cursor: help;
   font-weight: 600;
 }
 .cmv40-trust-gate.pass { color: var(--green-text); border-color: rgba(52, 199, 89, 0.40); }
-.cmv40-trust-gate.fail { color: #a31a13; border-color: rgba(255, 59, 48, 0.40); }
+.cmv40-trust-gate.fail { color: var(--red-text); border-color: rgba(255, 59, 48, 0.40); }
 .cmv40-trust-gate.soft { color: var(--orange-text); border-color: rgba(255, 149, 0, 0.40); }
 
 /* ── Preview del pipeline al seleccionar un bin del repo ──────────── */
@@ -4429,7 +4600,7 @@ select { appearance: none; cursor: pointer;
   font-weight: 600;
   font-size: var(--fs-sm);
   color: var(--text-2);
-  background: rgba(255, 255, 255, 0.70);
+  background: var(--velo-medio);
   border: 1px solid var(--sep);
   padding: 3px 9px;
   border-radius: var(--r-md);
@@ -4475,7 +4646,7 @@ select { appearance: none; cursor: pointer;
   opacity: 0.95;
 }
 .cmv40-pp-prov-body code {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--velo-medio);
   padding: 1px 5px;
   border-radius: var(--r-xxs);
   font-size: var(--fs-xs);
@@ -4484,7 +4655,7 @@ select { appearance: none; cursor: pointer;
   grid-column: 1 / -1;
   margin-top: 5px;
   padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--velo-medio);
   border: 1px solid rgba(0, 0, 0, 0.10);
   border-radius: var(--r-xs);
   font-size: var(--fs-sm);
@@ -4529,7 +4700,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-ph-pill:hover { transform: translateY(-1px); }
 .cmv40-ph-pill.cmv40-ph-run {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--velo-fuerte);
   border-color: rgba(52, 199, 89, 0.55);
   color: var(--green-text);
 }
@@ -4550,7 +4721,7 @@ select { appearance: none; cursor: pointer;
   background: rgba(0, 122, 255, 0.10);
   border-color: rgba(0, 122, 255, 0.45);
   border-style: dashed;
-  color: #0a5cab;
+  color: var(--blue-text);
 }
 .cmv40-ph-letter {
   font-weight: 800;
@@ -4700,7 +4871,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-rec-status-badge.ko {
   background: rgba(255, 69, 58, 0.18);
-  color: #a31a13;
+  color: var(--red-text);
   border: 1px solid rgba(255, 69, 58, 0.40);
 }
 .cmv40-rec-status-badge.unknown {
@@ -4754,7 +4925,7 @@ select { appearance: none; cursor: pointer;
   gap: 5px;
   padding: 7px 9px;
   border-radius: var(--r-sm);
-  background: rgba(255, 255, 255, 0.45);
+  background: var(--velo-sutil);
   border: 1px solid rgba(0, 0, 0, 0.07);
 }
 /* Fila cuyo motivo no afecta a este flujo: atenuada, no eliminada — el dato
@@ -4789,7 +4960,7 @@ select { appearance: none; cursor: pointer;
 .cmv40-rec-table {
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.70);
+  background: var(--velo-medio);
   border: 1px solid rgba(0, 0, 0, 0.10);
   border-radius: var(--r-sm);
   overflow: hidden;
@@ -4865,7 +5036,7 @@ select { appearance: none; cursor: pointer;
   align-items: center;
   gap: 5px;
   padding: 5px 9px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--velo-fuerte);
   border: 1px solid rgba(0, 0, 0, 0.10);
   border-radius: var(--r-xs);
   font-size: var(--fs-sm);
@@ -4912,7 +5083,7 @@ select { appearance: none; cursor: pointer;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.70);
+  background: var(--velo-medio);
   border: 1px solid var(--sep);
   border-radius: var(--r-xs);
   font-size: var(--fs-sm);
@@ -4965,7 +5136,7 @@ select { appearance: none; cursor: pointer;
 }
 .cmv40-rec-meta-tag {
   padding: 2px 9px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--velo-medio);
   color: var(--text-2);
   border-radius: var(--r-md);
   border: 1px solid rgba(0, 0, 0, 0.10);
@@ -5382,7 +5553,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: var(--red-dim);
   border: 1px solid rgba(255, 59, 48, 0.25);
   border-radius: 50%;
-  color: #a31a13;
+  color: var(--red-text);
   font-size: var(--fs-sm);
   font-weight: 700;
   cursor: pointer;
@@ -5392,7 +5563,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .cmv40-lookup-year-clear:hover {
   background: rgba(255, 59, 48, 0.28);
   border-color: rgba(255, 59, 48, 0.50);
-  color: #a31a13;
+  color: var(--red-text);
 }
 .cmv40-lookup-btn {
   white-space: nowrap;
@@ -5635,7 +5806,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-2);
-  background: rgba(255, 255, 255, 0.70);
+  background: var(--velo-medio);
   border: 1px solid rgba(0, 0, 0, 0.10);
   padding: 1px 8px;
   border-radius: var(--r-md);
@@ -6635,6 +6806,15 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 
 .settings-idiomas { display: flex; gap: 8px; flex-wrap: wrap; }
+/* El conmutador de tema: mismo patrón que el de idioma, para que las dos
+   preguntas de la sección se contesten igual. El icono va monocromo y hereda
+   el color —al revés que la bandera, que es la única familia con color
+   propio del catálogo. */
+.settings-temas { display: flex; gap: 8px; flex-wrap: wrap; }
+.settings-tema { display: inline-flex; align-items: center; gap: 7px; }
+.settings-tema-ico { display: inline-flex; flex-shrink: 0; }
+.settings-tema-ico svg { width: 15px; height: 15px; }
+.settings-tema.activo,
 .settings-idioma.activo {
   background: var(--blue-dim);
   color: var(--blue);
@@ -7039,7 +7219,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .help-pill-p5  { background: rgba(175, 82, 222, 0.15); color: #6b2a9b; }
 .help-pill-p7  { background: rgba(0, 122, 255, 0.15); color: var(--blue-text); }
 .help-pill-p8  { background: rgba(52, 199, 89, 0.15); color: var(--green-text); }
-.help-pill-lldv { background: var(--red-dim); color: #a31a13; }
+.help-pill-lldv { background: var(--red-dim); color: var(--red-text); }
 .help-pill-samsung { background: rgba(142, 142, 147, 0.20); color: var(--text-2); }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -7129,12 +7309,12 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .video-badge-hdr {
   background: linear-gradient(180deg, rgba(234, 179, 8, 0.09), rgba(234, 179, 8, 0.06));
-  color: #854d0e;
+  color: var(--amber-text);
   border-color: rgba(234, 179, 8, 0.25);
 }
 .video-badge-dv {
   background: linear-gradient(180deg, rgba(0, 122, 255, 0.09), rgba(0, 122, 255, 0.06));
-  color: #003e8a;
+  color: var(--blue-text);
   border-color: rgba(0, 122, 255, 0.25);
 }
 .video-hint { font-size: var(--fs-sm); color: var(--text-3); margin-left: 2px; }
@@ -7356,7 +7536,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-chart-large:last-child { margin-bottom: 0; }
 .dv-chart-empty {
   padding: 40px 24px;
-  background: linear-gradient(180deg, #fafbfc 0%, #f5f6f8 100%);
+  background: linear-gradient(180deg, var(--dv-chart-bg-alt) 0%, #f5f6f8 100%);
   border-radius: var(--r-md);
   border: 1px dashed rgba(15, 23, 42, 0.12);
   text-align: center;
@@ -7424,6 +7604,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   --dvl-text-2:         #475569;
   --dvl-text-3:         #64748b;
   --dvl-red:            #dc2626;
+  --dvl-red-text:       #991b1b;
 }
 .dv-light-header {
   display: flex;
@@ -7476,7 +7657,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   margin-top: 8px;
   padding: 0 4px;
   font-size: var(--fs-sm);
-  color: #475569;
+  color: var(--dv-text-2);
   font-family: SF Mono, Menlo, monospace;
   font-weight: 600;
 }
@@ -7508,7 +7689,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   margin-top: 6px;
   padding: 0 4px;
   font-size: var(--fs-sm);
-  color: #64748b;
+  color: var(--dv-text-3);
 }
 .dv-sparkline-out-label {
   font-weight: 600;
@@ -7519,8 +7700,8 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 1px 7px;
   border-radius: var(--r-md);
   background: rgba(15, 23, 42, 0.04);
-  border: 1px dashed var(--chip-c, #64748b);
-  color: var(--chip-c, #64748b);
+  border: 1px dashed var(--chip-c, var(--dv-text-3));
+  color: var(--chip-c, var(--dv-text-3));
   font-family: SF Mono, Menlo, monospace;
   font-weight: 600;
   font-size: var(--fs-xs);
@@ -7563,7 +7744,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #64748b;
+  color: var(--dv-text-3);
   padding: 6px 8px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.10);
 }
@@ -7576,14 +7757,14 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-l5-zones-table code {
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-xs);
-  color: #475569;
+  color: var(--dv-text-2);
 }
 .dv-l1-stats-block-title {
   font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #64748b;
+  color: var(--dv-text-3);
   margin-bottom: 8px;
 }
 .dv-l1-stats-grid {
@@ -7597,7 +7778,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   align-items: center;
   text-align: center;
   padding: 6px 0;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--velo-medio);
   border: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: var(--r-xs);
 }
@@ -7605,19 +7786,19 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--dv-text-4);
   letter-spacing: 0.05em;
 }
 .dv-l1-stats-grid .val {
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-xl);
   font-weight: 700;
-  color: #003e8a;
+  color: var(--dv-accent-text);
   margin-top: 1px;
 }
 .dv-l1-stats-grid .u {
   font-size: var(--fs-xs);
-  color: #94a3b8;
+  color: var(--dv-text-4);
   margin-left: 2px;
   font-weight: 500;
 }
@@ -7635,7 +7816,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .dv-l1-bar-label {
   font-weight: 600;
-  color: #334155;
+  color: var(--dv-text-2);
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-sm);
 }
@@ -7654,24 +7835,24 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-sm);
   font-weight: 700;
-  color: #475569;
+  color: var(--dv-text-2);
   text-align: right;
 }
 .dv-l1-bar-count {
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-xs);
-  color: #94a3b8;
+  color: var(--dv-text-4);
 }
 .dv-l1-stats-foot {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid rgba(15, 23, 42, 0.06);
   font-size: var(--fs-sm);
-  color: #475569;
+  color: var(--dv-text-2);
   font-family: SF Mono, Menlo, monospace;
 }
 .dv-l1-stats-foot-note {
-  color: #94a3b8;
+  color: var(--dv-text-4);
   font-style: italic;
   margin-left: 4px;
   font-family: -apple-system, system-ui, sans-serif;
@@ -7703,7 +7884,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-mc-card-title {
   font-size: var(--fs-xs);
   font-weight: 700;
-  color: #64748b;
+  color: var(--dv-text-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   display: flex;
@@ -7712,7 +7893,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .dv-mc-card-src {
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--dv-text-4);
   text-transform: none;
   letter-spacing: normal;
   font-size: var(--fs-xs);
@@ -7721,17 +7902,17 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-xl);
   font-weight: 700;
-  color: #003e8a;
+  color: var(--dv-accent-text);
   margin-top: 2px;
   line-height: 1.2;
 }
 .dv-mc-card-meta {
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-sm);
-  color: #475569;
+  color: var(--dv-text-2);
   line-height: 1.45;
 }
-.dv-mc-card-meta strong { color: #003e8a; }
+.dv-mc-card-meta strong { color: var(--dv-accent-text); }
 .dv-mc-flow-hint {
   margin-top: 4px;
   padding: 3px 7px;
@@ -7745,7 +7926,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .dv-mc-empty {
   font-size: var(--fs-sm);
-  color: #94a3b8;
+  color: var(--dv-text-4);
   font-style: italic;
 }
 
@@ -7766,11 +7947,11 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #64748b;
+  color: var(--dv-text-3);
 }
 .dv-mc-row-sub {
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--dv-text-4);
   text-transform: none;
   letter-spacing: normal;
   font-size: var(--fs-xs);
@@ -7796,7 +7977,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-mc-hdr10-val {
   font-family: SF Mono, Menlo, monospace;
   font-size: var(--fs-md);
-  color: #003e8a;
+  color: var(--dv-accent-text);
   font-weight: 600;
 }
 
@@ -7837,7 +8018,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-light-step.error {
   background: rgba(220, 38, 38, 0.06);
   border-color: rgba(220, 38, 38, 0.3);
-  color: #991b1b;
+  color: var(--dvl-red-text);
 }
 .dv-light-step-marker {
   width: 22px;
@@ -8257,6 +8438,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   --fb-text-1:        #0f172a;
   --fb-text-2:        #475569;
   --fb-text-3:        #64748b;
+  --fb-surface:       #fbfcfd;
   --fb-border:        rgba(15, 23, 42, 0.07);
   --fb-row-hover:     rgba(0, 122, 255, 0.05);
 }
@@ -8399,7 +8581,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 0 12px;
   font-size: var(--fs-lg);
   color: var(--fb-text-1);
-  background: #fbfcfd;
+  background: var(--fb-surface);
   transition: border-color var(--t-fast) ease, box-shadow var(--t-fast) ease;
 }
 .file-browser-search-input:focus {
@@ -8494,7 +8676,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 12px 22px;
   border-top: 1px solid var(--fb-border);
   flex-shrink: 0;
-  background: #fbfcfd;
+  background: var(--fb-surface);
 }
 .file-browser-base {
   flex: 1;
@@ -8551,12 +8733,12 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-weight: 500;
 }
 .cmv40-source-btn-label.placeholder {
-  color: #94a3b8;
+  color: var(--text-3);
   font-weight: 400;
   font-style: italic;
 }
 .cmv40-source-btn-chevron {
-  color: #94a3b8;
+  color: var(--text-3);
   font-size: var(--fs-sm);
   flex-shrink: 0;
 }
@@ -8958,7 +9140,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: var(--fs-lg);
   border: 1px solid var(--sep);
   border-radius: var(--r-xs);
-  background: white;
+  background: var(--surface-1);
   color: var(--text-1);
   flex: 1;
   min-width: 0;
@@ -8986,7 +9168,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   padding: 10px;
   border: 1px solid var(--sep);
   border-radius: var(--r-sm);
-  background: white;
+  background: var(--surface-1);
   cursor: pointer;
   transition: border-color var(--t-fast) ease, background var(--t-fast) ease;
   align-items: flex-start;
@@ -9060,7 +9242,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border: 1px solid var(--sep);
   border-radius: var(--r-xs);
   overflow: hidden;
-  background: white;
+  background: var(--surface-1);
 }
 .series-ep-header {
   display: grid;
@@ -9084,7 +9266,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-bottom: 1px solid var(--sep);
   font-size: var(--fs-md);
   align-items: center;
-  background: white;
+  background: var(--surface-1);
 }
 .series-ep-row:last-child { border-bottom: none; }
 .series-ep-row:hover { background: var(--surface-2); }
@@ -9150,7 +9332,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: var(--fs-md);
   border: 1px solid var(--sep);
   border-radius: var(--r-xxs);
-  background: white;
+  background: var(--surface-1);
   color: var(--text-1);
 }
 .series-ep-row .col-episode select:focus {
@@ -9174,7 +9356,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: var(--fs-md);
   border: 1px solid var(--sep);
   border-radius: var(--r-xxs);
-  background: white;
+  background: var(--surface-1);
   color: var(--text-1);
   width: 100%;
   font-variant-numeric: tabular-nums;
@@ -9469,7 +9651,7 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-cmp-table td { padding: 3px 8px; color: var(--text-1); }
 .dv-cmp-table .cmp-num { text-align: right; font-family: 'SF Mono', monospace; }
 .cmp-up   { color: #059669; font-weight: 600; }
-.cmp-down { color: #dc2626; font-weight: 600; }
+.cmp-down { color: var(--dv-red); font-weight: 600; }
 .cmp-flat { color: var(--text-2); }
 .cmp-aviso {
   margin-top: 9px; font-size: var(--fs-md); line-height: 1.45;

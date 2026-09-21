@@ -56,14 +56,34 @@ sys.path.insert(0, str(APP_DIR / "tests"))
 CSS = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
 
 #: token → por qué su valor puede aparecer crudo en algún sitio
-CRUDO_ACEPTADO: dict[str, str] = {}
+CRUDO_ACEPTADO: dict[str, str] = {
+    # `--velo-sutil` es un fondo: en oscuro baja a .045 para que «elevar»
+    # siga siendo «aclarar» sin blanquear la superficie. Los dos sitios que
+    # escriben ese mismo valor a mano son un COLOR DE LETRA y un BORDE sobre
+    # isla oscura, donde usar el token los volvería invisibles al cambiar de
+    # tema. Mismo número, papel distinto.
+    "--velo-sutil": "es un velo de fondo; los crudos son una letra y un borde sobre oscuro",
+}
+
+
+def _sin_comentarios(css: str) -> str:
+    """Los comentarios fuera, conservando los saltos de línea.
+
+    Sin esto el guard lee los colores que un comentario CITA —el bloque del
+    tema oscuro documenta las seis parejas de Apple HIG— y los denuncia como
+    si fueran declaraciones. Los `\n` se conservan para que el número de
+    línea que reporta siga señalando al sitio correcto.
+    """
+    return re.sub(r"/\*.*?\*/",
+                  lambda m: "\n" * m.group(0).count("\n"), css, flags=re.S)
 
 
 def _root() -> tuple[str, str]:
     """El bloque `:root` y el resto del fichero, por separado."""
-    i = CSS.index(":root")
-    j = CSS.index("\n}", i)
-    return CSS[i:j], CSS[:i] + CSS[j:]
+    css = _sin_comentarios(CSS)
+    i = css.index(":root")
+    j = css.index("\n}", i)
+    return css[i:j], css[:i] + css[j:]
 
 
 def _norm(v: str) -> str:

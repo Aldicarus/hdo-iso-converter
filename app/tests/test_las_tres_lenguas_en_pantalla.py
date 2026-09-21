@@ -532,14 +532,18 @@ _CUERPO = """
   const host = document.createElement('div');
   host.id = '__host'; document.body.appendChild(host);
 
-  const leer = el => ({
+  // Qué se LEE de cada pantalla es intercambiable: este módulo lee texto y
+  // `test_contraste_del_tema` lee colores, sobre las MISMAS pantallas montadas.
+  // Duplicar el montaje daría dos listas que se desincronizan — es lo que ya
+  // pasó con los parsers del export de niveles.
+  const leer = window.__LEER || (el => ({
     texto: el.innerText || el.textContent || '',
     atributos: [...el.querySelectorAll(
         '[data-tooltip],[title],[placeholder],[aria-label]')]
       .flatMap(e => [e.getAttribute('data-tooltip'), e.getAttribute('title'),
                      e.getAttribute('placeholder'), e.getAttribute('aria-label')])
       .filter(Boolean),
-  });
+  }));
 
   // ── El panel de proyecto de Tab 1, construido de verdad.
   //
@@ -808,6 +812,23 @@ _CUERPO = """
                                     const e = document.getElementById('file-browser-roots');
                                     return e ? e.innerHTML : ''; },
   };
+  // ── El ámbito de las variables locales ─────────────────────────────
+  //
+  // Tres subsistemas declaran su paleta en su propio contenedor (53
+  // variables entre `--dv-*`, `--dvl-*` y `--fb-*`). Copiar solo el
+  // `innerHTML` los deja FUERA de ese ámbito, y una `var()` fuera de
+  // alcance no da error: se lleva la declaración entera. El síntoma medido
+  // fue «Biblioteca» en blanco sobre blanco (contraste 1,09) por un
+  // `.fb-root-btn.active` que se quedó sin su `background`.
+  const ENVOLTORIO = {
+    'tab2·radiografia': 'dv-detail',  'tab2·mastering':    'dv-detail',
+    'tab2·stats_l1':    'dv-detail',  'tab2·sparkline':    'dv-detail',
+    'tab2·l5':          'dv-detail',  'tab2·gamut':        'dv-detail',
+    'tab2·distribucion':'dv-detail',  'tab2·comparacion':  'dv-detail',
+    'tab2·auditoria':   'dv-detail',
+    'browser·modal':    'file-browser-modal-box',
+    'browser·roots':    'file-browser-modal-box',
+  };
   for (const [nombre, fn] of Object.entries(CASOS)) {
     try {
       // `await` porque seis de los casos salen a la red. Con un tope: un
@@ -818,6 +839,7 @@ _CUERPO = """
         new Promise(r => setTimeout(() => r('§§TIMEOUT§§'), 2500)),
       ]);
       if (h === '§§TIMEOUT§§') { salida.fallos[nombre] = 'timeout'; continue; }
+      host.className = ENVOLTORIO[nombre] || '';
       host.innerHTML = (typeof h === 'string') ? h : '';
       pintarTextos(host);
       salida.pantallas[nombre] = leer(host);
@@ -838,7 +860,12 @@ _CUERPO = """
 """
 
 
-def _pintar(idioma: str) -> dict:
+def _pintar(idioma: str, previo: str = "") -> dict:
+    """Monta las pantallas reales y devuelve lo que `leer()` saque de cada una.
+
+    `previo` es JS que corre ANTES del montaje: lo usa el arnés de
+    contraste para fijar el tema y sustituir `window.__LEER`.
+    """
     import html as H
     cuerpo = _CUERPO % (json.dumps(SESION_CMV40), json.dumps(SESION_TAB1),
                         json.dumps(DOVI_TAB2), json.dumps({
@@ -858,7 +885,8 @@ def _pintar(idioma: str) -> dict:
     pagina = html().replace(
         "</head>", _sonda(respuestas) + semilla_catalogo(idioma) + "</head>")
     pagina = pagina.replace(
-        "</body>", f'<pre id="__out"></pre><script>{cuerpo}</script></body>')
+        "</body>", f'<pre id="__out"></pre><script>{previo}</script>'
+                   f'<script>{cuerpo}</script></body>')
     pagina = (pagina.replace('src="/static/', 'src="')
                     .replace('href="/static/', 'href="'))
     tmp = tempfile.NamedTemporaryFile("w", suffix=".html", delete=False,

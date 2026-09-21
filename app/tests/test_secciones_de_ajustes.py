@@ -184,8 +184,9 @@ def _medir() -> dict:
                     desc: b.querySelector('.settings-nav-desc').textContent,
                     activo: b.classList.contains('activo'),
                     svg: b.querySelectorAll('svg').length}));
-      out.general = bloquesDe('general');
-      out.integraciones = bloquesDe('integraciones');
+      // De la TABLA, no de una lista escrita aquí: una sección nueva se
+      // mide sola, que es lo que este guard existe para vigilar.
+      for (const sec of SECCIONES_AJUSTES) out[sec.id] = bloquesDe(sec.id);
       out.visibles = [...document.querySelectorAll('#settings-panel .settings-seccion')]
         .filter(visible).map(c => c.dataset.seccion);
       // Ningún bloque puede haberse quedado fuera del panel.
@@ -308,10 +309,12 @@ class TestElModalSeParteDeVerdad(unittest.TestCase):
         self.assertNotIn("error", self.m, self.m.get("error"))
         self.assertEqual(self.m["errores"], [])
 
-    def test_la_navegacion_trae_las_dos_secciones_traducidas(self):
+    def test_la_navegacion_trae_las_tres_secciones_traducidas(self):
         nav = self.m["nav"]
-        self.assertEqual([n["id"] for n in nav], ["general", "integraciones"])
-        self.assertEqual([n["txt"] for n in nav], ["General", "Integraciones"])
+        self.assertEqual([n["id"] for n in nav],
+                         ["general", "aspecto", "integraciones"])
+        self.assertEqual([n["txt"] for n in nav],
+                         ["General", "Aspecto e idioma", "Integraciones"])
         for n in nav:
             with self.subTest(seccion=n["id"]):
                 self.assertTrue(n["desc"], "la descripción no se pintó")
@@ -319,7 +322,8 @@ class TestElModalSeParteDeVerdad(unittest.TestCase):
 
     def test_los_bloques_estan_donde_dice_la_tabla_y_en_ese_orden(self):
         self.assertEqual(self.m["general"],
-                         ["version", "idioma", "aviso", "mantenimiento"])
+                         ["version", "aviso", "mantenimiento"])
+        self.assertEqual(self.m["aspecto"], ["tema", "idioma"])
         self.assertEqual(self.m["integraciones"],
                          ["tmdb", "google", "drive", "sheet"])
 
