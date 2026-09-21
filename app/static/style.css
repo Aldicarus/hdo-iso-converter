@@ -509,13 +509,6 @@ body {
   min-height: 0;
   overflow-y: auto;
   padding: 2px 8px 16px;
-  /* Aislar scroll del overlay/header con backdrop-filter — mismo patron
-     que .raw-analysis-pre y otros scrollers internos. Sin esto el scroll
-     repinta capas superiores y se ve flicker en el sidebar. */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 #sessions-list::-webkit-scrollbar,
 #cmv40-sidebar-list::-webkit-scrollbar,
@@ -1026,16 +1019,6 @@ body {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  /* Aislar el scroll del overlay-backdrop-blur: sin esto, cada tick de
-     scroll invalida la backdrop-filter:blur(8px) del .modal-overlay → todo
-     el viewport repintado → flash blanco visible ~500ms. */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  /* Contener el rubber-band/overscroll: sin esto, al alcanzar tope o fondo
-     del scroll, el navegador propaga la acción al contenedor padre (el
-     overlay con backdrop-filter), volviendo a invalidar el viewport. */
-  overscroll-behavior: contain;
 }
 
 .track-orig-pos {
@@ -1472,6 +1455,60 @@ select { appearance: none; cursor: pointer;
   padding-right: 28px;
 }
 
+/* ── El scroll dentro de un modal va AISLADO ─────────────────────────────
+ *
+ * `.modal-overlay` lleva `backdrop-filter: blur(8px)`, y un contenedor que
+ * hace scroll por debajo de él **invalida ese desenfoque en cada tick**: el
+ * navegador repinta el viewport entero y se ve como un flash blanco. Es
+ * intermitente porque depende de que el compositor decida rasterizar de
+ * nuevo, así que aparece sobre todo con contenidos largos — los que se
+ * desplazan de verdad. Reportado otra vez el 2026-09-20 sobre el log de un
+ * trabajo CMv4.0 terminado.
+ *
+ * Las cuatro declaraciones estaban copiadas en ONCE bloques, con su
+ * comentario, y aun así faltaban en los once contenedores de modal de
+ * abajo: cada vez que aparecía el flash se parcheaba el sitio donde había
+ * aparecido. Una lista es mejor que once copias — añadir un scroll a un
+ * modal es añadir un selector aquí — y `test_scroll_aislado_en_modales.py`
+ * falla si queda uno sin él.
+ *
+ * `contain: paint` no recorta ningún tooltip: los `data-tooltip` los pinta
+ * un único `#tooltip` a nivel de viewport, no un hijo del contenedor.
+ */
+.raw-analysis-pre,
+.log-viewer-content,
+.cmv40-new-body,
+.cmv40-lookup-body,
+.cmv40-lookup-picks,
+.settings-panel,
+.settings-nav,
+.settings-update-notes pre,
+.settings-update-rel-body,
+.cmv40-cleanup-body,
+.settings-cleanup-result,
+.cmv40-help-nav,
+.cmv40-help-content,
+.file-browser-list,
+/* Éste lo encontró el guard, no la lista a mano: hace scroll en
+   HORIZONTAL, que es igual de capaz de invalidar el desenfoque. */
+.file-browser-breadcrumb,
+.src-fb-list,
+.series-modal-body,
+.series-tmdb-results,
+.progress-modal-steps,
+.cmv40-pf-cuerpo,
+.cmv40-tl-steps,
+.cmv40-log,
+#mkv-recientes-list {
+  contain: paint;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  /* Y el rubber-band: al llegar al tope o al fondo, sin esto el navegador
+     propaga el gesto al padre —el overlay con el desenfoque— y vuelve a
+     invalidar el viewport. */
+  overscroll-behavior: contain;
+}
+
 /* ── Modal ──────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;
@@ -1523,11 +1560,6 @@ select { appearance: none; cursor: pointer;
   white-space: pre-wrap;
   word-break: break-all;
   margin: 12px 0;
-  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 /* Paleta legacy (historial Tab 1) — compat con logs antiguos sin clases nuevas */
 .log-viewer-content .log-line-error   { color: #f44747; }
@@ -4230,11 +4262,6 @@ select { appearance: none; cursor: pointer;
   min-height: 0;
   overflow-y: auto;
   padding: 10px 22px 14px;
-  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 /* Tabs del selector de RPU target: nunca wrappean */
 .cmv40-new-tabs .cmv40-tab-btn {
@@ -5214,11 +5241,6 @@ select { appearance: none; cursor: pointer;
   overflow-y: auto;
   padding: 14px 22px;
   background: var(--bg);
-  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 .cmv40-lookup-foot {
   flex-shrink: 0;
@@ -5738,11 +5760,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   overflow-y: auto;
   padding: 10px 22px 12px;
   background: var(--bg);
-  /* Aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 .settings-foot {
   flex-shrink: 0;
@@ -6070,10 +6087,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   overflow-y: auto;
   padding: 14px 22px;
   background: var(--bg);
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 .cmv40-cleanup-loading,
 .cmv40-cleanup-empty {
@@ -6199,11 +6212,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
      interno propio del bloque, independiente del scroll general del body. */
   max-height: 50vh;
   overflow-y: auto;
-  /* Aislar scroll del overlay con backdrop-filter (mismo patrón) */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 .settings-cleanup-empty {
   padding: 14px;
@@ -6746,10 +6754,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   gap: 4px;
   /* Mismo aislamiento que el content — por si el usuario scrollea la nav
      sidebar cuando hay muchas secciones y el viewport es pequeño. */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 .cmv40-help-nav-item {
   display: flex;
@@ -6797,10 +6801,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   overflow-y: auto;
   padding: 22px 28px 30px;
   /* aislar scroll del overlay con backdrop-filter (mismo patrón que raw-analysis-pre) */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 
 /* Tipografía interna del manual */
@@ -8382,14 +8382,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   background: #ffffff;
   min-height: 240px;
   scrollbar-width: thin;
-  /* Aislar el scroll del .modal-overlay con backdrop-filter:blur(8px) —
-     sin esto cada tick de scroll re-evalúa el blur de TODO el viewport,
-     causando flicker visible mientras se navega la lista. Mismo patrón
-     que .raw-analysis-pre y otros scrollers dentro de modales. */
-  contain: paint;
-  will-change: scroll-position;
-  transform: translateZ(0);
-  overscroll-behavior: contain;
 }
 .file-browser-row {
   display: flex;
