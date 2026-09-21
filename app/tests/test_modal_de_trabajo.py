@@ -50,6 +50,21 @@ def _bloque(marca: str) -> str:
     return JS[i:JS.index("\n};\n", i) + 4]
 
 
+def _estado_del_modal() -> str:
+    """Las `let _trabajoModal*` de `workbar.js`, tal cual las declara.
+
+    Se sacan del fuente y no se escriben aquí por lo mismo que
+    `sistema_de_iconos()`: los once arneses de este fichero pintan con
+    `_trabajoModalPinta`, que lee ese estado, así que una variable nueva los
+    rompía todos a la vez con un `ReferenceError` — y con la variable escrita
+    a mano, un renombrado los dejaría declarando un nombre muerto sin que
+    nada avisara.
+    """
+    lineas = re.findall(r"^let (_trabajoModal\w+) = .*$", JS, re.M)
+    assert lineas, "no se encuentran las variables de estado del modal"
+    return "".join(f"let {n} = null;\n" for n in lineas)
+
+
 def _iconos() -> str:
     """Lo que hace falta para que el marcado de los iconos se pueda evaluar.
 
@@ -106,6 +121,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -273,6 +289,7 @@ class TestElCuerpoSegunElTipo(unittest.TestCase):
     def _correr(self, fn_nombre, arg) -> str:
         guion = f"""
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_iconos()}
 {_fn(fn_nombre)}
 console.log(JSON.stringify({fn_nombre}({json.dumps(arg)})));
@@ -361,6 +378,7 @@ for (const id of _ids) {{
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 globalThis.openModal = () => {{}};
 globalThis.setInterval = () => 1;      // el bucle lo dirige el test
 globalThis.clearInterval = () => {{ _timerApagado = true; }};
@@ -374,10 +392,6 @@ let _timerApagado = false;
 {_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: null, cola: [] }};
-let _trabajoModalTimer = null, _trabajoModalTipo = null;
-let _trabajoModalRef = null, _trabajoModalUltimo = null;
-let _trabajoModalVista = null;
-let _trabajoModalSinActivo = 0;
 const _workbarDetalles = {{}};
 // La vista del tipo lee su propia sesión, no el contrato: siempre tiene algo
 // que enseñar aunque el trabajo ya no esté activo.
@@ -440,7 +454,9 @@ class TestElLateralNoSeReescribeSinMotivo(unittest.TestCase):
     las dos las evitaba ya el overlay con su actualización incremental.
     """
 
-    def _correr(self, laterales) -> dict:
+    def _correr(self, laterales, cuerpo="") -> dict:
+        cuerpos = ([cuerpo] * len(laterales) if isinstance(cuerpo, str)
+                   else list(cuerpo))
         guion = f"""
 const _els = {{}};
 for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-sub',
@@ -460,6 +476,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -471,16 +488,67 @@ globalThis.escHtml = t => String(t);
 const _fnLlamadas = [];
 const laterales = {json.dumps(laterales)}.map(
   l => l === '@fn' ? ((el) => _fnLlamadas.push(el === _els['trabajo-modal-timeline'])) : l);
-for (const lateral of laterales) {{
-  _trabajoModalPinta({json.dumps(ACTIVO)}, {{ lateral, pasos: [] }});
-}}
+const cuerpos = {json.dumps(cuerpos)};
+laterales.forEach((lateral, i) => {{
+  _trabajoModalPinta({json.dumps(ACTIVO)},
+                     {{ lateral, pasos: [], cuerpo: cuerpos[i] }});
+}});
 console.log(JSON.stringify({{
   escrituras: _els['trabajo-modal-timeline'].escrituras,
   html: _els['trabajo-modal-timeline']._html,
+  cuerpoEscrituras: _els['trabajo-modal-cuerpo'].escrituras,
   fnLlamadas: _fnLlamadas,
 }}));
 """
         return _node(guion)
+
+    def test_el_cuerpo_tampoco_se_reescribe_sin_motivo(self):
+        """El parpadeo al desplazar el log de un trabajo TERMINADO.
+
+        El cuerpo se reemplazaba entero cada 1,5 s y después se le devolvía
+        el scroll a mano; mientras el usuario está desplazándose, su scroll y
+        el nuestro se pisan y eso se ve como un parpadeo. En un trabajo ya
+        acabado el log no cambia nunca, así que el repintado era gratis de
+        principio a fin — y por eso el rip no parpadea y una fase CMv4.0 sí:
+        el rip emite ~136 líneas y una fase CMv4.0 llega a 2.000. Reportado
+        el 2026-09-20.
+        """
+        r = self._correr(["<div>x</div>"] * 3,
+                         cuerpo="<div class='cmv40-log'>a</div>")
+        self.assertEqual(r["cuerpoEscrituras"], 1)
+
+    def test_y_si_llegan_lineas_nuevas_SI_se_reescribe(self):
+        """La contraprueba: con el trabajo en marcha el log crece y hay que
+        pintarlo. El guard no puede congelar un directo."""
+        r = self._correr(["<div>x</div>"] * 3,
+                         cuerpo=["<div class='cmv40-log'>a</div>",
+                                 "<div class='cmv40-log'>a b</div>",
+                                 "<div class='cmv40-log'>a b c</div>"])
+        self.assertEqual(r["cuerpoEscrituras"], 3)
+
+    def test_al_cerrar_el_cuerpo_se_vacia_con_su_cache(self):
+        """Si el cuerpo se quedara puesto, abrir otro trabajo enseñaría el log
+        del anterior hasta que llegue su primera petición. Y la caché es por
+        CONTENIDO, así que tampoco lo repintaría si coincidieran."""
+        guion = f"""
+const _els = {{}};
+for (const id of ['trabajo-modal-timeline', 'trabajo-modal-cuerpo']) {{
+  _els[id] = {{ innerHTML: 'lo de antes', dataset: {{ pintado: 'x' }} }};
+}}
+globalThis.document = {{ getElementById: id => _els[id] || null }};
+globalThis.closeModal = () => {{}};
+{_estado_del_modal()}
+_trabajoModalCuerpo = 'lo de antes';
+{_fn('cerrarModalDeTrabajo')}
+cerrarModalDeTrabajo();
+console.log(JSON.stringify({{
+  cuerpo: _els['trabajo-modal-cuerpo'].innerHTML,
+  cache: _trabajoModalCuerpo,
+}}));
+"""
+        r = _node(guion)
+        self.assertEqual(r["cuerpo"], "")
+        self.assertIsNone(r["cache"], "la caché sobreviviría al cierre")
 
     def test_el_mismo_html_tres_veces_se_escribe_UNA(self):
         r = self._correr(["<div>fases</div>"] * 3)
@@ -525,6 +593,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 globalThis.openModal = () => {{}};
 globalThis.setInterval = () => 1;
 globalThis.clearInterval = () => {{}};
@@ -537,9 +606,6 @@ globalThis.clearInterval = () => {{}};
 {_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: {json.dumps(ACTIVO)}, cola: [] }};
-let _trabajoModalTimer = null, _trabajoModalTipo = null;
-let _trabajoModalRef = null, _trabajoModalUltimo = null;
-let _trabajoModalSinActivo = 0, _trabajoModalVista = null;
 const _workbarDetalles = {{}};
 let _vacia = false;
 _workbarDetalles['cmv40'] = async () => _vacia ? {{}} : {{
@@ -591,6 +657,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 globalThis.openModal = () => {{}};
 let _apagado = false;
 globalThis.setInterval = () => 7;
@@ -609,9 +676,6 @@ const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado',
 {_fn('restaurarAnclajeDeLog')}
 {_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: null, cola: [] }};
-let _trabajoModalTimer = null, _trabajoModalTipo = null;
-let _trabajoModalRef = null, _trabajoModalUltimo = null;
-let _trabajoModalSinActivo = 0, _trabajoModalVista = null;
 let _llamadas = 0;
 const _VACIA = {{vacia}};
 const _workbarDetalles = {{ rip: async () => {{
@@ -669,6 +733,7 @@ const _workbarDetalles = {{ rip: async () => {{
     def _motivo(self, sinDetalle) -> str:
         guion = f"""
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
 {_fn('_trabajoKvHTML')}
@@ -715,6 +780,7 @@ console.log(JSON.stringify(_trabajoModalConResumen(
         vacío. Antes que un modal en blanco, lo que el historial sabe."""
         guion = f"""
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
 {_fn('_trabajoKvHTML')}
@@ -747,6 +813,7 @@ console.log(JSON.stringify(v));
     def test_pero_si_la_vista_trae_log_no_se_pisa(self):
         guion = f"""
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
 {_fn('_trabajoKvHTML')}
@@ -775,7 +842,8 @@ class TestCancelarNuncaSeVaDeVacio(unittest.TestCase):
     def _pulsar(self, activo, ultimo=None, arg="undefined") -> dict:
         guion = f"""
 let workbarEstado = {{ activo: {json.dumps(activo)}, cola: [] }};
-let _trabajoModalUltimo = {json.dumps(ultimo)};
+{_estado_del_modal()}
+_trabajoModalUltimo = {json.dumps(ultimo)};
 const _llamadas = [], _toasts = [];
 globalThis.apiFetch = async (url, o) => {{ _llamadas.push([url, o?.method]); }};
 globalThis.showToast = (t, k) => _toasts.push([t, k]);
@@ -866,6 +934,7 @@ for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-hi
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -948,6 +1017,7 @@ console.log(JSON.stringify({{ html: (_els['workbar-body'].innerHTML || '') + (_e
     def _timeline(self, a, pasos):
         guion = f"""
 globalThis.escHtml = t => String(t);
+{_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
 {_iconos()}

@@ -947,6 +947,7 @@ let _trabajoModalRef = null;      // `sobre` del trabajo que se está mirando
 let _trabajoModalUltimo = null;   // su último progreso conocido
 let _trabajoModalSinActivo = 0;   // refrescos seguidos sin sujeto
 let _trabajoModalVista = null;    // la última vista con contenido
+let _trabajoModalCuerpo = null;   // el HTML del cuerpo que está PINTADO
 
 
 /** Una cartela a partir del `tmdb_info` que ya tiene la pestaña.
@@ -1166,12 +1167,30 @@ function _trabajoModalPinta(a, vista) {
 
   const cuerpo = document.getElementById('trabajo-modal-cuerpo');
   if (cuerpo) {
-    // El log es un directo: interesa el final. Pero solo se baja si el usuario
-    // YA estaba abajo — si ha subido a leer algo, el refresco cada dos
-    // segundos no puede arrastrarlo de vuelta.
-    const ancla = anclajeDeLog(cuerpo.querySelector('.cmv40-log'));
-    cuerpo.innerHTML = vista.cuerpo || '';
-    restaurarAnclajeDeLog(cuerpo.querySelector('.cmv40-log'), ancla);
+    const html = vista.cuerpo || '';
+    // **NO se reescribe si no ha cambiado**, igual que la timeline de abajo.
+    // Reemplazar el `innerHTML` cada 1,5 s destruye y reconstruye las 400
+    // líneas del log y después le devuelve el scroll a mano: mientras el
+    // usuario está desplazándose eso se ve como un parpadeo, porque su
+    // scroll y el nuestro se pisan. En un trabajo YA TERMINADO el log no
+    // cambia nunca, así que el repintado era entero gratis — y por eso el
+    // rip no parpadea y una fase CMv4.0 sí: el rip emite ~136 líneas y una
+    // fase CMv4.0 llega a 2.000. Reportado el 2026-09-20.
+    //
+    // Se compara contra la cadena que ESTE código escribió, no contra
+    // `cuerpo.innerHTML`: el navegador devuelve el HTML normalizado y no
+    // coincide nunca con lo que se le dio, así que ese guard repintaría en
+    // cada vuelta. Es la misma trampa del `dataset.estado` del badge de
+    // trust.
+    if (html !== _trabajoModalCuerpo) {
+      // El log es un directo: interesa el final. Pero solo se baja si el
+      // usuario YA estaba abajo — si ha subido a leer algo, el refresco no
+      // puede arrastrarlo de vuelta.
+      const ancla = anclajeDeLog(cuerpo.querySelector('.cmv40-log'));
+      cuerpo.innerHTML = html;
+      _trabajoModalCuerpo = html;
+      restaurarAnclajeDeLog(cuerpo.querySelector('.cmv40-log'), ancla);
+    }
   }
   // La columna izquierda la rellena el tipo. Vacía, el CSS la esconde y el
   // modal se queda a una columna — no todos los trabajos tienen una timeline
@@ -1302,8 +1321,15 @@ function cerrarModalDeTrabajo() {
   _trabajoModalRef = null;
   _trabajoModalUltimo = null;
   _trabajoModalVista = null;
+  _trabajoModalCuerpo = null;
   const tl = document.getElementById('trabajo-modal-timeline');
   if (tl) { tl.innerHTML = ''; delete tl.dataset.pintado; }
+  // El cuerpo, igual que la timeline. Si se quedara puesto, abrir otro
+  // trabajo enseñaría el log del anterior hasta que llegue la primera
+  // petición — y con la caché al lado, que es por contenido, tampoco se
+  // repintaría si por casualidad coincidieran.
+  const cu = document.getElementById('trabajo-modal-cuerpo');
+  if (cu) cu.innerHTML = '';
   closeModal('trabajo-modal');
 }
 
