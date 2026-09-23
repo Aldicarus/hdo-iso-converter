@@ -73,17 +73,24 @@ IDIOMA_POR_DEFECTO = "es"
 # PREFERENCIA y no el resultado — si se guardara el resultado, cambiar el
 # tema del Mac dejaría la app en el anterior para siempre.
 #
-# El DEFAULT es `claro`, no `sistema`, por decisión del usuario (2026-09-21):
-# el claro es el tema con el que la app se ha usado hasta hoy y el que sale
-# en toda la documentación, así que actualizar no debe cambiar de aspecto a
-# quien tenga el ordenador en oscuro. Seguir al sistema pasa a ser lo que
-# es: una opción que se elige.
+# El DEFAULT es `sistema`, por decisión del usuario (2026-09-23).
+#
+# Nació siendo `claro` con el argumento de que actualizar no debía cambiarle
+# el aspecto a nadie: el claro era el único tema que había existido. Ese
+# argumento **se agota solo** — dos días después el parque ya conoce el
+# oscuro, y lo que queda es que quien tiene el ordenador en oscuro abra la
+# app en blanco y tenga que ir a ⚙︎ a decirlo. Seguir al sistema no es un
+# tercer color: es no preguntar.
+#
+# Y no rompe la promesa anterior, porque quien ya eligió tiene su valor en
+# `app_settings.json` y ese gana: esto solo mueve a quien nunca tocó el
+# ajuste.
 TEMAS = ("claro", "oscuro", "sistema")
-TEMA_POR_DEFECTO = "claro"
+TEMA_POR_DEFECTO = "sistema"
 
 
 def get_tema() -> str:
-    """Prioridad: settings.json > `HDO_TEMA` > claro."""
+    """Prioridad: settings.json > `HDO_TEMA` > seguir al sistema."""
     with _lock:
         stored = _load().get("tema", "").strip().lower()
     if stored in TEMAS:

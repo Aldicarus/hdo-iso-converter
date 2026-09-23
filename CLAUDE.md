@@ -3266,6 +3266,19 @@ Concatenar scripts clásicos en orden es equivalente al fichero único **con tre
 ### Estilo general — macOS moderno
 - Paleta **clara** (tema macOS light: `--bg: #f5f5f7`, texto oscuro), con **islas oscuras** puntuales (el hub navy superior, la consola del pipeline, ciertos modales). Acentos azul/teal, radios generosos, transiciones fluidas
 - Variables CSS centralizadas en `:root`
+- **El tema por defecto es `sistema`** (`TEMA_POR_DEFECTO` en
+  `services/settings_store.py`), o sea `prefers-color-scheme`. Nació en
+  `claro` el 2026-09-21 con el argumento de que actualizar no debía cambiarle
+  el aspecto a nadie, y el usuario lo cambió el **2026-09-23**: ese argumento
+  se agota solo —a los dos días el parque ya conoce el oscuro— y lo que
+  queda es que quien tenga el ordenador en oscuro abra la app en blanco.
+  - **Solo mueve a quien nunca tocó el ajuste**: `app_settings.json` gana
+    sobre el default, así que una instalación con el tema elegido sigue
+    exactamente igual. Es lo que hace barato cambiarlo.
+  - El default se escribe en **tres** sitios y los tres tienen que decir lo
+    mismo: la constante, el respaldo de `/api/tema.js` cuando el ajuste no se
+    puede leer (es el script BLOQUEANTE) y el del selector de ⚙︎ cuando la
+    respuesta no trae tema.
 
 ### Hub activo — franja superior
 Todas las pestañas comparten una **franja navy** en la parte superior que unifica visualmente la "zona de acción" (tabs principales + botón primary de la herramienta).

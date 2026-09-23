@@ -666,7 +666,7 @@ function _renderSettingsTema(data) {
   // marcar «Oscuro» porque el Mac está en oscuro sería mentir sobre lo que
   // hay guardado, y dejaría al usuario sin saber que sigue al sistema.
   const activo = (data && data.tema && data.tema.activo)
-                 || document.documentElement.dataset.temaPref || 'claro';
+                 || document.documentElement.dataset.temaPref || 'sistema';
   const OPCIONES = [
     {codigo: 'claro',   ico: 'sol'},
     {codigo: 'oscuro',  ico: 'luna'},

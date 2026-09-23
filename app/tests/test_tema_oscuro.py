@@ -43,14 +43,29 @@ class TestElAjusteDelTema(ApiTestCase):
         self.assertEqual(r.status_code, 200)
         return r.json()["tema"]
 
-    def test_arranca_en_claro(self):
-        """Decisión del usuario: el claro es el tema con el que la app se ha
-        usado hasta hoy, así que actualizar no puede cambiarle el aspecto a
-        quien tenga el ordenador en oscuro. Seguir al sistema se elige."""
+    def test_arranca_siguiendo_al_sistema(self):
+        """Decisión del usuario (2026-09-23), que cambió la del 21.
+
+        Nació en `claro` para que actualizar no le cambiara el aspecto a
+        nadie. Ese argumento se agota solo: dos días después el parque ya
+        conoce el oscuro y lo que queda es que quien tiene el ordenador en
+        oscuro abra la app en blanco y tenga que ir a ⚙︎ a decirlo.
+        """
         t = self._leer()
-        self.assertEqual(t["activo"], "claro")
-        self.assertEqual(t["por_defecto"], "claro")
+        self.assertEqual(t["activo"], "sistema")
+        self.assertEqual(t["por_defecto"], "sistema")
         self.assertEqual(t["disponibles"], ["claro", "oscuro", "sistema"])
+
+    def test_quien_ya_eligio_no_se_mueve(self):
+        """El cambio de default solo alcanza a quien nunca tocó el ajuste.
+
+        Es lo que hace que cambiarlo sea barato: `app_settings.json` gana
+        sobre el default, así que una instalación con el tema elegido sigue
+        exactamente igual tras actualizar.
+        """
+        self.client.post("/api/settings", json={"tema": "claro"})
+        self.assertEqual(self._leer()["activo"], "claro")
+        self.assertEqual(self._leer()["por_defecto"], "sistema")
 
     def test_se_guarda_y_se_devuelve(self):
         r = self.client.post("/api/settings", json={"tema": "oscuro"})
@@ -86,7 +101,7 @@ class TestElAjusteDelTema(ApiTestCase):
                         side_effect=RuntimeError("disco")):
             r = self.client.get("/api/tema.js")
         self.assertEqual(r.status_code, 200)
-        self.assertIn('window.__TEMA_PREF = "claro"', r.text)
+        self.assertIn('window.__TEMA_PREF = "sistema"', r.text)
 
 
 @unittest.skipUnless(NODE, "sin node")
