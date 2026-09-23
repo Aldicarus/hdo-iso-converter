@@ -6963,11 +6963,20 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     abrirProyectoCMv40Para(a.id);
     return null;
   }
-  const s = await apiFetch(`/api/cmv40/${a.id}`, { silent: true })
-    .catch(() => null);
+  const est = {};
+  const s = await apiFetch(`/api/cmv40/${a.id}`,
+                           { silent: true, estado: est }).catch(() => null);
+  // **Un fallo de red o un timeout no es un proyecto borrado.** Con el pool
+  // del NAS saturado esta petición tarda, y entonces este adaptador seguía
+  // devolviendo `cartel` (el icono de respaldo) y `cuerpo` («Todavía no hay
+  // líneas de log»), los dos con valor: el guard del armazón los daba por
+  // buenos y la vista degradada SUSTITUÍA a la completa. Lo que se veía es
+  // el modal perdiendo su columna lateral durante un minuto y volviendo
+  // solo. Reportado el 2026-09-23 durante una Fase C.
+  if (!s && est.status !== 404) return { sinDatos: true };
   const project = openCMv40Projects.find(p => p.session && p.session.id === a.id);
   return {
-    // Un 404 aquí significa que el proyecto se borró: su log vivía en
+    // Un 404 aquí sí significa que el proyecto se borró: su log vivía en
     // `/config/cmv40/{id}.log` y se fue con él.
     sinDetalle: s ? '' : 'borrado',
     titulo: s?.output_mkv_name || a.que,

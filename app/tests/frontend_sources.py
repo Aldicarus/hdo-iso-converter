@@ -69,6 +69,48 @@ def pieza_de(funcion: str) -> tuple[str, str]:
     return encontradas[0]
 
 
+def maquinaria_del_modal_de_trabajo() -> str:
+    """El estado y TODAS las funciones `_trabajoModal*`, para los arneses.
+
+    Misma historia que `sistema_de_iconos()`: los arneses las enumeraban a
+    mano (`_fn('_trabajoModalAbrir')` + `_fn('_trabajoModalRefrescar')` + …)
+    y el día que el armazón ganó dos —`_trabajoModalProgramar` y
+    `_trabajoModalParar`, al pasar el poller de `setInterval` a encadenado—
+    diez tests murieron a la vez con un `ReferenceError`, sin decir nada
+    sobre el comportamiento que medían.
+
+    Se DERIVA del fuente: cualquier `function _trabajoModal…` entra sola.
+    Un arnés que quiera espiar una la redeclara después, que es lo que ya
+    hacían — la última declaración gana.
+    """
+    js = js_completo()
+    estado = "".join(f"let {n} = null;\n" for n in
+                     re.findall(r"^let (_trabajoModal\w+) = .*$", js, re.M))
+    assert estado, "no se encuentran las variables de estado del modal"
+    # Por prefijo `_trabajo` y no `_trabajoModal`: el resumen llama a
+    # `_trabajoKvHTML` y la cartela a `_trabajoCartelPinta`. Inyectar la
+    # función sin sus ayudantes cambia el `ReferenceError` de sitio.
+    trozos = []
+    for m in re.finditer(r"^(?:async )?function (_trabajo\w+)\(", js, re.M):
+        i = js.rindex("\n", 0, m.start()) + 1
+        trozos.append(js[i:js.index("\n}\n", m.start()) + 3])
+    assert trozos, "no se encuentra ninguna función del modal de trabajo"
+    # Y las tablas que esas funciones leen. Inyectar la función sin su tabla
+    # solo mueve el `ReferenceError` una línea más abajo, que es exactamente
+    # lo que este helper existe para no tener que ir descubriendo de una en
+    # una: `_CMV40_FIN` lo lee el resumen y `_MOTIVO_SIN_LOG` el cuerpo.
+    #
+    # Van como propiedad de `globalThis` y NO como `const`: un `const`
+    # duplicado es un SyntaxError —al revés que una `function`, que
+    # simplemente se redeclara— y varios arneses ya declaran el suyo. Así el
+    # que lo tenga lo sombrea y el que no, lo hereda.
+    for nombre in ("_CMV40_FIN", "_MOTIVO_SIN_LOG"):
+        i = js.index(f"const {nombre} = {{")
+        cuerpo = js[i + len(f"const {nombre} = "):js.index("\n};\n", i) + 3]
+        trozos.insert(0, f"globalThis.{nombre} = {cuerpo};")
+    return estado + "\n" + "\n".join(trozos) + "\n"
+
+
 def sistema_de_iconos() -> str:
     """El sistema de iconos completo, para los arneses de node.
 

@@ -33,7 +33,8 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 from frontend_sources import (motor_i18n, argv_node, pintar_en,  # noqa: E402
-                              sistema_de_iconos, html, js_completo, pieza_de)
+                              sistema_de_iconos, html, js_completo, pieza_de,
+                              maquinaria_del_modal_de_trabajo)
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -51,18 +52,17 @@ def _bloque(marca: str) -> str:
 
 
 def _estado_del_modal() -> str:
-    """Las `let _trabajoModal*` de `workbar.js`, tal cual las declara.
+    """El estado Y las funciones del modal, del fuente y no enumerados.
 
-    Se sacan del fuente y no se escriben aquí por lo mismo que
-    `sistema_de_iconos()`: los once arneses de este fichero pintan con
-    `_trabajoModalPinta`, que lee ese estado, así que una variable nueva los
-    rompía todos a la vez con un `ReferenceError` — y con la variable escrita
-    a mano, un renombrado los dejaría declarando un nombre muerto sin que
-    nada avisara.
+    Antes eran solo las `let _trabajoModal*`, y cada arnés añadía a mano las
+    funciones que necesitaba. El día que el armazón ganó dos —
+    `_trabajoModalProgramar` y `_trabajoModalParar`, al pasar el poller de
+    `setInterval` a encadenado— diez tests murieron a la vez con un
+    `ReferenceError`, sin decir nada del comportamiento que medían. Es la
+    misma historia que `sistema_de_iconos()`, y se resuelve igual: se pide
+    el conjunto.
     """
-    lineas = re.findall(r"^let (_trabajoModal\w+) = .*$", JS, re.M)
-    assert lineas, "no se encuentran las variables de estado del modal"
-    return "".join(f"let {n} = null;\n" for n in lineas)
+    return maquinaria_del_modal_de_trabajo()
 
 
 def _iconos() -> str:
@@ -129,7 +129,6 @@ globalThis.escHtml = t => String(t);
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
-{_fn('_trabajoModalPinta')}
 _trabajoModalPinta({json.dumps(activo)}, {json.dumps(vista)});
 console.log(JSON.stringify({{
   icono: _els['trabajo-modal-icono'].innerHTML,
@@ -380,8 +379,13 @@ globalThis.document = {{ getElementById: id => _els[id] || null,
 globalThis.escHtml = t => String(t);
 {_estado_del_modal()}
 globalThis.openModal = () => {{}};
-globalThis.setInterval = () => 1;      // el bucle lo dirige el test
-globalThis.clearInterval = () => {{ _timerApagado = true; }};
+// El bucle lo dirige el TEST: se neutraliza el planificador, no el
+// temporizador global. Espiar `setInterval` ataba el arnés al mecanismo, y
+// el día que el poller pasó a `setTimeout` encadenado —para que no se
+// solapen dos refrescos bajo carga— estos arneses dejaron de interceptarlo
+// y node se quedaba colgado reprogramándose solo.
+_trabajoModalProgramar = () => {{}};
+_trabajoModalParar = () => {{ _timerApagado = true; }};
 let _timerApagado = false;
 {_iconos()}
 {_fn('_workbarTiempo')}
@@ -390,7 +394,6 @@ let _timerApagado = false;
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
-{_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: null, cola: [] }};
 const _workbarDetalles = {{}};
 // La vista del tipo lee su propia sesión, no el contrato: siempre tiene algo
@@ -400,8 +403,6 @@ _workbarDetalles['cmv40'] = async (a) => ({{
   conLog: true, cuerpo: '<div class="cmv40-log">línea</div>',
   cartel: {{ url: '', titulo: 'Predator', meta: '2026' }},
 }});
-{_fn('_trabajoModalRefrescar')}
-{_fn('_trabajoModalAbrir')}
 (async () => {{
   const secuencia = {json.dumps(secuencia)};
   workbarEstado.activo = secuencia[0];
@@ -484,7 +485,6 @@ globalThis.escHtml = t => String(t);
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
-{_fn('_trabajoModalPinta')}
 const _fnLlamadas = [];
 const laterales = {json.dumps(laterales)}.map(
   l => l === '@fn' ? ((el) => _fnLlamadas.push(el === _els['trabajo-modal-timeline'])) : l);
@@ -595,8 +595,13 @@ globalThis.document = {{ getElementById: id => _els[id] || null,
 globalThis.escHtml = t => String(t);
 {_estado_del_modal()}
 globalThis.openModal = () => {{}};
-globalThis.setInterval = () => 1;
-globalThis.clearInterval = () => {{}};
+// El bucle lo dirige el TEST: se neutraliza el planificador, no el
+// temporizador global. Espiar `setInterval` ataba el arnés al mecanismo, y
+// el día que el poller pasó a `setTimeout` encadenado —para que no se
+// solapen dos refrescos bajo carga— estos arneses dejaron de interceptarlo
+// y node se quedaba colgado reprogramándose solo.
+_trabajoModalProgramar = () => {{}};
+_trabajoModalParar = () => {{}};
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -604,7 +609,6 @@ globalThis.clearInterval = () => {{}};
 {_fn('_trabajoCartelPinta')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
-{_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: {json.dumps(ACTIVO)}, cola: [] }};
 const _workbarDetalles = {{}};
 let _vacia = false;
@@ -612,8 +616,6 @@ _workbarDetalles['cmv40'] = async () => _vacia ? {{}} : {{
   lateral: '<div>siete fases</div>', cuerpo: '<div class="cmv40-log">log</div>',
   cartel: {{ url: '', titulo: 'Predator', meta: '2026' }},
 }};
-{_fn('_trabajoModalRefrescar')}
-{_fn('_trabajoModalAbrir')}
 (async () => {{
   await _trabajoModalAbrir({json.dumps(ACTIVO)});
   _vacia = true;                       // el GET se cae
@@ -660,21 +662,24 @@ globalThis.escHtml = t => String(t);
 {_estado_del_modal()}
 globalThis.openModal = () => {{}};
 let _apagado = false;
-globalThis.setInterval = () => 7;
-globalThis.clearInterval = () => {{ _apagado = true; }};
+// El bucle lo dirige el TEST: se neutraliza el planificador, no el
+// temporizador global. Espiar `setInterval` ataba el arnés al mecanismo, y
+// el día que el poller pasó a `setTimeout` encadenado —para que no se
+// solapen dos refrescos bajo carga— estos arneses dejaron de interceptarlo
+// y node se quedaba colgado reprogramándose solo.
+_trabajoModalProgramar = () => {{}};
+_trabajoModalParar = () => {{ _apagado = true; }};
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
 {_fn('_glifoDePaso') + _fn('timelineDeTrabajo')}
 {_fn('_trabajoCartelPinta')}
 {_fn('_trabajoKvHTML')}
-{_fn('_trabajoModalConResumen')}
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado',
                       error: 'Terminado con error' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
 {_fn('anclajeDeLog')}
 {_fn('restaurarAnclajeDeLog')}
-{_fn('_trabajoModalPinta')}
 let workbarEstado = {{ activo: null, cola: [] }};
 let _llamadas = 0;
 const _VACIA = {{vacia}};
@@ -684,8 +689,6 @@ const _workbarDetalles = {{ rip: async () => {{
                 : {{ lateral: '<div>fases</div>',
                     cuerpo: '<div class="cmv40-log">log</div>' }};
 }} }};
-{_fn('_trabajoModalRefrescar')}
-{_fn('_trabajoModalAbrir')}
 (async () => {{
   await _trabajoModalAbrir({json.dumps(terminal)});
   await _trabajoModalRefrescar();
@@ -739,7 +742,6 @@ globalThis.escHtml = t => String(t);
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
-{_fn('_trabajoModalConResumen')}
 console.log(JSON.stringify(_trabajoModalConResumen(
   {{ terminal: true, historial: {{ estado: 'done' }} }},
   {{ conLog: true, cuerpo: '', sinDetalle: {json.dumps(sinDetalle)} }})));
@@ -786,7 +788,6 @@ globalThis.escHtml = t => String(t);
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado', cancelled: 'Cancelado' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
-{_fn('_trabajoModalConResumen')}
 const v = _trabajoModalConResumen({{
   terminal: true, segundos: 78,
   historial: {{ estado: 'cancelled', segundos: 78,
@@ -819,7 +820,6 @@ globalThis.escHtml = t => String(t);
 {_fn('_trabajoKvHTML')}
 const _CMV40_FIN = {{ done: 'Terminado' }};
 {_bloque('const _MOTIVO_SIN_LOG = {')}
-{_fn('_trabajoModalConResumen')}
 console.log(JSON.stringify(_trabajoModalConResumen(
   {{ terminal: true, historial: {{ estado: 'done' }} }},
   {{ conLog: true, cuerpo: '<div class="cmv40-log">hay log</div>' }})));

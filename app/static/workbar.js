@@ -776,7 +776,7 @@ function insigniaDeTrabajo(sobre) {
     + iconoDeEstado('en_cola', 'icono-chip-sm') + tr('workbar.cola_posicion', {posicion: t.posicion}) + '</span>';
 }
 
-function _workbarTick() {
+async function _workbarTick() {
   // Con la pestaña oculta no hay nada que pintar, y esto es tráfico cada 2 s
   // contra un NAS que además está procesando vídeo. Al volver,
   // `visibilitychange` dispara la recuperación.
@@ -786,14 +786,23 @@ function _workbarTick() {
   // de saber nada al plegarse, cerrarla te dejaría sin ninguna señal de que
   // hay trabajo. La petición se responde desde memoria.
   if (document.hidden) return;
-  refrescarWorkbar();
+  await refrescarWorkbar();
 }
 
 function arrancarWorkbar() {
   _aplicarEstadoWorkbar();
   _arrancarRelojes();
-  if (_workbarTimer) clearInterval(_workbarTimer);
-  _workbarTimer = setInterval(_workbarTick, _WORKBAR_INTERVALO_MS);
+  // Encadenado y no `setInterval`, por lo mismo que el modal: `_workbarTick`
+  // es async y el temporizador no lo espera, así que bajo carga se apilaban
+  // peticiones a `/api/trabajos` y la respuesta vieja podía pintarse la
+  // última. Cada dos segundos DESPUÉS de terminar la anterior.
+  if (_workbarTimer) clearTimeout(_workbarTimer);
+  const bucle = async () => {
+    try { await _workbarTick(); }
+    catch (e) { console.error('[workbar]', e); }
+    _workbarTimer = setTimeout(bucle, _WORKBAR_INTERVALO_MS);
+  };
+  _workbarTimer = setTimeout(bucle, _WORKBAR_INTERVALO_MS);
   refrescarWorkbar();
 }
 
@@ -942,6 +951,32 @@ function cancelarTrabajoActivo(trabajo) {
 // detalle son bytes y episodios. Un log vacío sería peor que decirlo.
 
 let _trabajoModalTimer = null;
+let _trabajoModalVivo = false;
+
+/** Programa el siguiente refresco del modal. **Encadenado, no `setInterval`.**
+ *
+ *  El callback es `async` y `setInterval` no espera a que termine: con el
+ *  pool del NAS saturado se solapaban varios refrescos y el que pintaba el
+ *  último podía ser el más viejo, así que una fase seguía enseñándose «en
+ *  ejecución» un rato después de acabar. Es el patrón que Tab 2 ya usa para
+ *  el perfil de luminancia (`_pollLoop`), y por el mismo motivo: una sola
+ *  petición en vuelo garantiza el orden a nivel de transporte.
+ */
+function _trabajoModalProgramar(ms = 1500) {
+  _trabajoModalParar();
+  _trabajoModalVivo = true;
+  _trabajoModalTimer = setTimeout(async () => {
+    _trabajoModalTimer = null;
+    try { await _trabajoModalRefrescar(); }
+    catch (e) { console.error('[trabajo-modal]', e); }
+    if (_trabajoModalVivo) _trabajoModalProgramar(ms);
+  }, ms);
+}
+
+function _trabajoModalParar() {
+  _trabajoModalVivo = false;
+  if (_trabajoModalTimer) { clearTimeout(_trabajoModalTimer); _trabajoModalTimer = null; }
+}
 let _trabajoModalTipo = null;
 let _trabajoModalRef = null;      // `sobre` del trabajo que se está mirando
 let _trabajoModalUltimo = null;   // su último progreso conocido
@@ -1165,7 +1200,11 @@ function _trabajoModalPinta(a, vista) {
       : (fase.segundos ? _relojHTML(fase.segundos, tr('workbar.lleva') + ' ') : '');
   }
 
-  const cuerpo = document.getElementById('trabajo-modal-cuerpo');
+  // `sinCuerpo`: el esqueleto que se pinta al abrir, antes de pedir el
+  // detalle, NO toca el log.
+  const cuerpo = vista.sinCuerpo ? null
+    : document.getElementById('trabajo-modal-cuerpo');
+  let pendiente = null;      // el ancla del log, a restaurar al final
   if (cuerpo) {
     const html = vista.cuerpo || '';
     // **NO se reescribe si no ha cambiado**, igual que la timeline de abajo.
@@ -1189,7 +1228,12 @@ function _trabajoModalPinta(a, vista) {
       const ancla = anclajeDeLog(cuerpo.querySelector('.cmv40-log'));
       cuerpo.innerHTML = html;
       _trabajoModalCuerpo = html;
-      restaurarAnclajeDeLog(cuerpo.querySelector('.cmv40-log'), ancla);
+      // **Se restaura al FINAL de la pintada, no aquí.** El navegador recorta
+      // el `scrollTop` a la altura del log EN ESE INSTANTE, y la columna
+      // lateral —que se pinta unas líneas más abajo— todavía no le ha dado su
+      // forma final al modal: medido, el log valía 687 px al fijar el scroll y
+      // 426 al terminar, así que se quedaba 261 px corto del final.
+      pendiente = ancla;
     }
   }
   // La columna izquierda la rellena el tipo. Vacía, el CSS la esconde y el
@@ -1216,6 +1260,10 @@ function _trabajoModalPinta(a, vista) {
   if (copiar) copiar.style.display = vista.conLog ? '' : 'none';
   const cancelar = document.getElementById('trabajo-modal-cancelar');
   if (cancelar) cancelar.style.display = a.cancelable ? '' : 'none';
+  // Y ahora sí: el modal ya tiene su forma definitiva.
+  if (pendiente && cuerpo) {
+    restaurarAnclajeDeLog(cuerpo.querySelector('.cmv40-log'), pendiente);
+  }
 }
 
 // Por qué no hay registro que enseñar. Son casos distintos y decirlos como
@@ -1316,7 +1364,7 @@ function _trabajoKvHTML(pares) {
 }
 
 function cerrarModalDeTrabajo() {
-  if (_trabajoModalTimer) { clearInterval(_trabajoModalTimer); _trabajoModalTimer = null; }
+  _trabajoModalParar();
   _trabajoModalTipo = null;
   _trabajoModalRef = null;
   _trabajoModalUltimo = null;
@@ -1354,7 +1402,7 @@ async function _trabajoModalRefrescar() {
       const vista = (await fn(base)) || {};
       _trabajoModalPinta(base, _trabajoModalConResumen(base, vista));
     } catch (e) { console.error('[trabajo-modal]', e); }
-    if (_trabajoModalTimer) { clearInterval(_trabajoModalTimer); _trabajoModalTimer = null; }
+    _trabajoModalParar();
     return;
   }
   const act = workbarEstado.activo;
@@ -1377,32 +1425,47 @@ async function _trabajoModalRefrescar() {
     paso: enTransito ? tr('workbar.cambiando_de_fase') : tr('workbar.terminado'),
   };
   try {
-    const vista = await fn(base);
-    // Una vista vacía NO sustituye a la anterior. Las cinco piden su estado al
-    // backend y se lo tragan con `.catch(() => null)`, así que un GET lento
-    // durante una fase pesada devolvía todo en blanco: se veía cómo el modal
-    // perdía la columna, la cartela y el log durante un minuto y luego volvía.
-    const hayAlgo = vista && (vista.lateral || vista.cuerpo || vista.cartel);
-    if (hayAlgo) _trabajoModalVista = vista;
-    _trabajoModalPinta(base, hayAlgo ? vista : (_trabajoModalVista || vista || {}));
+    const vista = (await fn(base)) || {};
+    // **Una lectura fallida no sustituye a la vista buena, y lo DICE el
+    // adaptador.**
+    //
+    // El guard anterior era todo-o-nada (`lateral || cuerpo || cartel`) y no
+    // bastaba: cuando la petición del adaptador falla, sigue devolviendo un
+    // `cartel` —el icono de respaldo— y un `cuerpo` —«Todavía no hay líneas
+    // de log»—, los dos con valor. Así que `hayAlgo` era cierto y la vista a
+    // medias pisaba la completa: se perdía la columna lateral durante un
+    // minuto y volvía sola. Reportado el 2026-09-23 en una Fase C.
+    //
+    // Quien sabe que la lectura falló es el adaptador, no el armazón: manda
+    // `sinDatos` y aquí se conserva lo último bueno. El respaldo por hueco
+    // se queda como segunda red, para el adaptador que aún no lo diga.
+    if (!vista.sinDatos) {
+      const previa = _trabajoModalVista || {};
+      const fusion = { ...previa, ...vista };
+      for (const hueco of ['lateral', 'cuerpo', 'cartel', 'titulo', 'sub']) {
+        if (!vista[hueco] && previa[hueco]) fusion[hueco] = previa[hueco];
+      }
+      _trabajoModalVista = fusion;
+    }
+    _trabajoModalPinta(base, _trabajoModalVista || vista);
   } catch (e) {
     console.error('[trabajo-modal]', e);
   }
   // Se deja de pollear cuando lleva un rato sin sujeto, pero el contenido se
   // queda: cerrarlo es del usuario.
-  if (_trabajoModalSinActivo > 20 && _trabajoModalTimer) {
-    clearInterval(_trabajoModalTimer);
-    _trabajoModalTimer = null;
-  }
+  if (_trabajoModalSinActivo > 20) _trabajoModalParar();
 }
 
 async function _trabajoModalAbrir(a) {
   const fn = _workbarDetalles[a.detalle];
   if (!fn) return;
-  // Un tipo con modal PROPIO —el pre-flight— lo abre él y devuelve null; el
-  // armazón no monta el suyo encima. Es un caso, no una familia: montar un
-  // segundo registro para él sería abstracción para un solo uso.
-  if (await fn(a) === null) return;
+  // **El armazón se monta ANTES de pedir el detalle.**
+  //
+  // El `openModal` iba detrás del `await fn(a)`, que es una petición al
+  // backend: con el NAS cargado el botón «Detalles» parecía muerto varios
+  // segundos, y si la petición RECHAZABA la excepción se llevaba por delante
+  // la apertura entera — el modal no salía y había que volver a pulsar.
+  // Reportado el 2026-09-23.
   _trabajoModalTipo = a.detalle;
   // El modal se ancla al TRABAJO, no al tipo. Un proyecto CMv4.0 encadena
   // siete fases y entre una y la siguiente el contrato deja de traer activo un
@@ -1412,10 +1475,30 @@ async function _trabajoModalAbrir(a) {
   _trabajoModalRef = a.sobre || a.id;
   _trabajoModalUltimo = a;
   _trabajoModalSinActivo = 0;
+  // La vista del trabajo anterior no se hereda: son dos trabajos distintos.
+  _trabajoModalVista = null;
   openModal('trabajo-modal');
-  await _trabajoModalRefrescar();
-  if (_trabajoModalTimer) clearInterval(_trabajoModalTimer);
-  _trabajoModalTimer = setInterval(_trabajoModalRefrescar, 1500);
+  // Solo el cromo: cabecera, barra y tiempos. El cuerpo lo escribe la
+  // primera vista de verdad, una sola vez.
+  _trabajoModalPinta(a, { ..._trabajoModalConResumen(a, {}), sinCuerpo: true });
+
+  // Un tipo con sitio PROPIO —el pre-flight, y un CMv4.0 que espera
+  // respuesta— devuelve null: es el contrato de «ya lo he enseñado yo». Los
+  // dos lo deciden SIN salir a la red, así que el armazón se cierra en el
+  // mismo tick y no llega a verse. Un fallo, en cambio, NO lo cierra: el
+  // usuario pidió el detalle y se queda con lo que se sepa del trabajo.
+  let vista = null, fallo = false;
+  try { vista = await fn(a); }
+  catch (e) { console.error('[trabajo-modal]', e); fallo = true; }
+  if (!fallo && vista === null) {
+    cerrarModalDeTrabajo();
+    return;
+  }
+  if (vista && !vista.sinDatos) {
+    _trabajoModalVista = vista;
+    _trabajoModalPinta(a, _trabajoModalConResumen(a, vista));
+  }
+  _trabajoModalProgramar();
 }
 
 // ── Iconos ───────────────────────────────────────────────────────────────────

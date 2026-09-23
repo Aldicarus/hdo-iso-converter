@@ -4837,13 +4837,22 @@ const API_FETCH_TIMEOUT_LARGO = 900000;
  */
 async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
   const silent = !!opts.silent;
+  // `estado` es un out-param OPCIONAL. `apiFetch` devuelve `null` tanto para
+  // un 404 como para un timeout, y hay sitios donde la diferencia decide qué
+  // se le cuenta al usuario: «este proyecto se borró» y «el NAS va lento» no
+  // son lo mismo, y el modal de trabajo anunciaba lo primero cada vez que
+  // pasaba lo segundo. Se escribe aquí en vez de cambiar el retorno, que
+  // leen unas doscientas llamadas.
+  const estado = opts.estado;
   delete opts.silent;
+  delete opts.estado;
   opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   opts.signal = controller.signal;
   try {
     const resp = await fetch(url, opts);
+    if (estado) estado.status = resp.status;
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
       const detalle = err.detail || resp.statusText;
@@ -4853,6 +4862,7 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     }
     return await resp.json();
   } catch (e) {
+    if (estado) estado.status = 0;     // 0 = no hubo respuesta
     const msg = e.name === 'AbortError'
       ? tr('tab1.timeout_el_servidor_no_respondio_en', {p1: timeoutMs / 1000})
       : tr('tab1.error_de_red', {message: e.message});
@@ -4917,9 +4927,15 @@ function _ripTimelineHTML(a, sesion) {
 registrarDetalleDeTrabajo('rip', async (a) => {
   // El log del rip ya está en la sesión y llega por WebSocket a la consola.
   // Aquí se pide el estado, que es lo que funciona con el proyecto cerrado.
-  const s = await apiFetch(`/api/sessions/${a.id}`, { silent: true }).catch(() => null);
+  const est = {};
+  const s = await apiFetch(`/api/sessions/${a.id}`,
+                           { silent: true, estado: est }).catch(() => null);
+  // Un timeout NO es «se borró». Ver el adaptador de CMv4.0: `sinDatos` le
+  // dice al armazón que conserve la vista que ya tiene en vez de sustituirla
+  // por esta, que viene a medias.
+  if (!s && est.status !== 404) return { sinDatos: true };
   return {
-    // Sin sesión, el proyecto se borró y su log con él.
+    // Sin sesión y con un 404 de verdad, el proyecto se borró y su log con él.
     sinDetalle: s ? '' : 'borrado',
     titulo: s?.mkv_name || a.que,
     sub: s?.iso_path || '',

@@ -390,13 +390,19 @@ console.log(JSON.stringify({{ html }}));
 
     def test_su_vista_es_su_propio_modal(self):
         """Devuelve null: el contrato del armazón para «ya lo he enseñado yo».
-        Sin eso, se montaría el modal genérico encima."""
+        Sin eso, se montaría el modal genérico encima.
+
+        Aquí se comprueba **el lado del pre-flight**, que es de quien va este
+        fichero. Que el armazón HONRE el null se comprueba ejecutándolo, en
+        `test_modal_de_trabajo_bajo_carga`: buscar la forma exacta del `if`
+        en el fuente era un recordatorio frágil —se rompió al abrir el modal
+        antes de pedir el detalle, sin que el comportamiento cambiara— y la
+        regla del proyecto ya dice que eso no es un test.
+        """
         i = JS.index("registrarDetalleDeTrabajo('preflight'")
         bloque = JS[i:JS.index("});", i)]
         self.assertIn("abrirPreflightCMv40", bloque)
         self.assertIn("return null", bloque)
-        j = JS.index("async function _trabajoModalAbrir(")
-        self.assertIn("=== null) return", JS[j:JS.index("\n}\n", j)])
 
 
 class TestLoInteractivoLoDeclaraElBackend(ApiTestCase):
