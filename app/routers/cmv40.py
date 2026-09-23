@@ -113,6 +113,10 @@ def _separador_de_fase(fase: str) -> str:
     return f"━━━ {nombre} ━━━"
 
 
+# El prefijo genérico cuando la fase no está en la tabla. Mismo estatus que
+# ella: es el TROZO del marcador, no un rótulo, así que no se traduce.
+_FASE_CORTA_GENERICA = "Fase"
+
 _FASE_CORTA = {
     "analyze_source": "Fase A", "target_rpu_path": "Fase B",
     "target_rpu_drive": "Fase B", "target_rpu_mkv": "Fase B",
@@ -848,7 +852,7 @@ async def _run_cmv40_phase_locked(
                 porque = _porque_de_fase(session, phase_name,
                                          plan=resolve_plan(session))
                 if porque:
-                    await _cmv40_log(session, f"[{_FASE_CORTA.get(phase_name, 'Fase')}] {porque}")
+                    await _cmv40_log(session, f"[{_FASE_CORTA.get(phase_name, _FASE_CORTA_GENERICA)}] {porque}")
             except Exception as e:      # noqa: BLE001 — nunca cuesta la fase
                 _logger.warning("No se pudo componer el porqué de %s: %s",
                                 phase_name, e)

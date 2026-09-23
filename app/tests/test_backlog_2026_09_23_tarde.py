@@ -234,7 +234,9 @@ const api = new Function([
   src.slice(src.indexOf('const CMV40_ZOOM_MIN_SEG'),
             src.indexOf(';', src.indexOf('const CMV40_ZOOM_MIN_SEG')) + 1),
   grab('_cmv40Encuadrar'), grab('_cmv40FrameATiempo'), grab('_cmv40TiempoAFrame'),
-  'return { _cmv40Encuadrar, _cmv40FrameATiempo, _cmv40TiempoAFrame, CMV40_ZOOM_MIN_SEG };',
+  grab('_cmv40RangoPorDefecto'),
+  'return { _cmv40Encuadrar, _cmv40FrameATiempo, _cmv40TiempoAFrame,'
+  + ' _cmv40RangoPorDefecto, CMV40_ZOOM_MIN_SEG };',
 ].join('\n'))();
 const casos = JSON.parse(fs.readFileSync(0, 'utf8'));
 process.stdout.write(JSON.stringify(casos.map(c => api[c.fn](...c.args))));
@@ -366,6 +368,12 @@ process.stdout.write(JSON.stringify(globalThis.__puesto));
         r = self._preset("_cmv40ZoomFuera", None, 40 * m, 44 * m)
         self.assertEqual((r["start"] / m, r["end"] / m), (38, 46))
 
+    def test_el_grafico_se_abre_con_la_pelicula_ENTERA(self):
+        """Eran los primeros 30 s, y abrir con un recorte que nadie pidió
+        deja «¿y el resto?» como primera pregunta. Decisión del usuario."""
+        [r] = self._llamar(("_cmv40RangoPorDefecto", [self.TOTAL]))
+        self.assertEqual((r["start"], r["end"]), (0, self.TOTAL))
+
     def test_ida_y_vuelta(self):
         for seg in (0, 1, 59, 60, 3599, 3600, 7199):
             [txt] = self._llamar(("_cmv40FrameATiempo", [seg * self.FPS, self.FPS]))
@@ -399,6 +407,15 @@ class TestElGraficoSeEncuadraArrastrando(unittest.TestCase):
 
     def test_un_clic_sin_arrastrar_no_encuadra_nada(self):
         self.assertIn("< 6", _codigo("_renderCMv40Chart"))
+
+    def test_el_encuadre_inicial_se_define_en_UN_sitio(self):
+        """Lo leían dos funciones con la constante escrita en cada una, que
+        es como se acaba con dos defaults distintos."""
+        for fn in ("_renderCMv40SyncControls", "_renderCMv40Chart"):
+            with self.subTest(fn):
+                cuerpo = _codigo(fn)
+                self.assertIn("_cmv40RangoPorDefecto(totalFrames)", cuerpo)
+                self.assertNotIn("30 * FPS", cuerpo)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -711,6 +728,169 @@ class TestElEsqueletoSeRecortaYNoSeDesborda(unittest.TestCase):
         i = self.css.index(".wb-esqueleto-filas {")
         regla = self.css[i:self.css.index("}", i)]
         self.assertIn("overflow: hidden", regla)
+
+
+# ════════════════════════════════════════════════════════════════════
+#  7 · La corrección del sync, por los DOS extremos
+# ════════════════════════════════════════════════════════════════════
+
+@unittest.skipUnless(NODE, "node no disponible")
+class TestElSyncSeCorrigePorLosDosExtremos(unittest.TestCase):
+    """Eran dos casillas y las dos tocaban el PRINCIPIO.
+
+    El desfase típico es un logo de estudio que el BD trae y la versión de
+    streaming no, y por eso el formulario ofrecía «quitar al inicio» y
+    «duplicar el primer frame». Pero hay másters donde lo que sobra o falta
+    está al final —créditos, un fundido más largo—, y ahí cuadrar el frame
+    count por delante **cuadra el número y desplaza la película entera**.
+    Reportado por el usuario el 2026-09-23.
+    """
+
+    _DRIVER = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.env.JS_CONCAT, 'utf8');
+function grab(n) {
+  const i = src.indexOf('function ' + n + '(');
+  const async_ = src.slice(Math.max(0, i - 6), i) === 'async ';
+  let d = 0, ab = false;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') { d++; ab = true; }
+    else if (src[j] === '}') {
+      d--;
+      if (ab && d === 0) return (async_ ? 'async ' : '') + src.slice(i, j + 1);
+    }
+  }
+  throw new Error('sin cerrar: ' + n);
+}
+const caso = JSON.parse(fs.readFileSync(0, 'utf8'));
+// DOM mínimo: las cuatro casillas con lo que el usuario escribió.
+globalThis.document = { getElementById: (id) => {
+  // Las largas PRIMERO: con `remove` delante, `cmv40-remove-fin-p1` casa
+  // con `remove` y las dos casillas leen el mismo valor. La app no tiene el
+  // problema —usa `getElementById` exacto— pero el arnés sí.
+  const m = id.match(/^cmv40-(remove-fin|remove|duplicate-fin|duplicate)-/);
+  return m ? { value: String(caso.ops[m[1]] ?? 0) } : null;
+} };
+globalThis.showToast = (msg) => { globalThis.__toast = msg; };
+globalThis.tr = (k) => k;
+globalThis.openCMv40Projects = [{
+  id: 'p1',
+  session: { target_frame_count: caso.total },
+  syncData: { target_frames: caso.total },
+  expandedPhases: {},
+}];
+globalThis.apiFetch = async (url, opts) => {
+  globalThis.__enviado = JSON.parse(opts.body).editor_config;
+  return null;                       // corta el flujo tras el POST
+};
+const api = new Function([
+  grab('_cmv40OpsDeSync'), grab('cmv40DoApplySync'),
+  'return { cmv40DoApplySync };',
+].join('\n'))();
+(async () => {
+  await api.cmv40DoApplySync('p1');
+  process.stdout.write(JSON.stringify(
+    {cfg: globalThis.__enviado ?? null, toast: globalThis.__toast ?? null}));
+})();
+"""
+
+    TOTAL = 1000
+
+    def _aplicar(self, **ops):
+        r = subprocess.run(
+            argv_node(self._DRIVER),
+            env={**os.environ, "JS_CONCAT": js_en_disco()},
+            input=json.dumps({"ops": ops, "total": self.TOTAL}),
+            capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(f"node falló: {r.stderr[-1500:]}")
+        return json.loads(r.stdout)
+
+    def test_quitar_al_inicio_sigue_siendo_el_primer_rango(self):
+        self.assertEqual(self._aplicar(**{"remove": 10})["cfg"],
+                         {"remove": ["0-9"]})
+
+    def test_quitar_al_final_cuenta_hacia_atras_desde_el_ultimo(self):
+        """Lo que no se podía hacer: el rango va al FINAL del target."""
+        self.assertEqual(self._aplicar(**{"remove-fin": 10})["cfg"],
+                         {"remove": ["990-999"]})
+
+    def test_duplicar_al_final_copia_el_ULTIMO_frame(self):
+        self.assertEqual(self._aplicar(**{"duplicate-fin": 3})["cfg"],
+                         {"duplicate": [{"source": 999, "offset": 1000,
+                                         "length": 3}]})
+
+    def test_duplicar_al_inicio_sigue_copiando_el_primero(self):
+        self.assertEqual(self._aplicar(**{"duplicate": 3})["cfg"],
+                         {"duplicate": [{"source": 0, "offset": 0,
+                                         "length": 3}]})
+
+    def test_los_dos_extremos_a_la_vez_no_se_solapan(self):
+        """Con un target corto, los dos rangos podrían pisarse."""
+        cfg = self._aplicar(**{"remove": 4, "remove-fin": 4})["cfg"]
+        self.assertEqual(cfg["remove"], ["0-3", "996-999"])
+
+    def test_y_con_un_target_diminuto_tampoco(self):
+        r = subprocess.run(
+            argv_node(self._DRIVER),
+            env={**os.environ, "JS_CONCAT": js_en_disco()},
+            input=json.dumps({"ops": {"remove": 6, "remove-fin": 6},
+                              "total": 8}),
+            capture_output=True, text=True, timeout=30)
+        cfg = json.loads(r.stdout)["cfg"]
+        # El rango del final arranca detrás de lo que ya se quita por
+        # delante: sin el `max`, saldría «2-7» y se solaparía con «0-5».
+        self.assertEqual(cfg["remove"], ["0-5", "6-7"])
+
+    def test_sin_saber_el_total_no_se_corrige_por_el_final(self):
+        """Inventarse el último frame es peor que decir que no se puede."""
+        r = subprocess.run(
+            argv_node(self._DRIVER),
+            env={**os.environ, "JS_CONCAT": js_en_disco()},
+            input=json.dumps({"ops": {"remove-fin": 5}, "total": 0}),
+            capture_output=True, text=True, timeout=30)
+        out = json.loads(r.stdout)
+        self.assertIsNone(out["cfg"], "no se debe mandar nada")
+        self.assertEqual(out["toast"], "tab3.sync_sin_total_no_hay_final")
+
+    def test_las_cuatro_a_cero_no_hacen_nada(self):
+        out = self._aplicar()
+        self.assertIsNone(out["cfg"])
+        self.assertEqual(out["toast"], "tab3.indica_un_valor_para_eliminar_o")
+
+
+class TestYaNoSeAdivinaDondeVaLaCorreccion(unittest.TestCase):
+    """El auto-relleno se fue con las dos casillas, y tenía que irse.
+
+    Con un solo sitio posible, el número determinaba la corrección entera y
+    prerrellenar era un atajo. Con dos extremos hay infinitas combinaciones
+    que dan el mismo Δ y la app **no puede saber cuál es la correcta**:
+    rellenar una por su cuenta sería adivinar, y adivinar aquí desplaza la
+    película. Lo que hace en su lugar es decir cuántos frames sobran o
+    faltan y que el sitio lo elige quien mira el gráfico.
+    """
+
+    def test_las_casillas_nacen_a_cero(self):
+        cuerpo = _codigo("_renderCMv40SyncControls")
+        self.assertNotIn("delta > 0 ? delta : 0", cuerpo)
+        self.assertIn('value="0"', cuerpo)
+
+    def test_y_el_desfase_se_ANUNCIA(self):
+        cuerpo = _codigo("_renderCMv40SyncControls")
+        for clave in ("tab3.sync_sobran_frames", "tab3.sync_faltan_frames"):
+            with self.subTest(clave):
+                self.assertIn(clave, cuerpo)
+
+    def test_el_aviso_solo_sale_si_hay_desfase(self):
+        """Con Δ=0 no hay nada que avisar y el bloque estorba."""
+        self.assertIn("delta === 0 ? ''", _codigo("_renderCMv40SyncControls"))
+
+    def test_el_gate_de_avance_sigue_siendo_del_backend(self):
+        """Lo que impide continuar con los frames descuadrados no cambia:
+        `sync_gate` lo resuelve el servidor y `mark-synced` da 409."""
+        cuerpo = _codigo("_renderCMv40SyncControls")
+        self.assertIn("d.sync_gate", cuerpo)
+        self.assertIn("canConfirm", cuerpo)
 
 
 # ════════════════════════════════════════════════════════════════════

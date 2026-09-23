@@ -36,11 +36,10 @@ import captura_castellano as captura  # noqa: E402
 from frontend_sources import rutas  # noqa: E402
 
 # Comparar contra ESTO es correcto: son tokens del código, no prosa.
-MARCADORES = ("[Fase", "[Pipeline]", "[Origen]", "[Audit]", "[Preflight]",
-              "[Pre-flight]", "[Validación]", "[sync-data]", "[workload]",
-              "━━━", "✓ Fase", "✗ Fase", "📋 Plan", "🎯 Resultado",
-              "🛑 Cancelado", "§§PROGRESS§§", "Progress:", "#GUI#progress",
-              "$ ", "⏱", "🧹", "ℹ️", "🤖", "⚠", "✓", "✗")
+# La lista vive en `captura_castellano` porque la usan los DOS guards: este
+# necesita saber qué no es prosa, y el de castellano suelto necesita lo mismo
+# para no señalar `[Fase A]` desde que «fase» entró en el vocabulario.
+MARCADORES = captura.MARCADORES
 
 # El literal contra el que se compara, en un `in`/`startswith`/`includes`.
 _COMPARA_PY = re.compile(

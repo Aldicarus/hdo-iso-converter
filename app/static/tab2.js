@@ -298,7 +298,7 @@ function openMkvProject(analysis) {
     _mkvRefreshSubTab(existente);
     switchMkvSubTab(existente.id);
     _renderMkvEditPanel(existente);
-    showToast(`MKV actualizado: ${analysis.file_name}`, 'success');
+    showToast(tr('tab2.mkv_actualizado_p1', {p1: analysis.file_name}), 'success');
     return existente;
   }
 

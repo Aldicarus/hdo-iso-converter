@@ -1600,7 +1600,7 @@ async function seriesCreateSessions() {
       const sn = String(c.season_number).padStart(2, '0');
       const en = String(c.episode_number).padStart(2, '0');
       const tStr = c.existing?.updated_at
-        ? ` · actualizado ${new Date(c.existing.updated_at).toLocaleDateString(localeActual())}`
+        ? tr('tab1.serie_actualizado_p1', {p1: new Date(c.existing.updated_at).toLocaleDateString(localeActual())})
         : '';
       return `S${sn}E${en}${c.episode_title ? ' — ' + c.episode_title : ''}${tStr}`;
     }).join('\n');

@@ -399,7 +399,16 @@ def vocabulario_solo_castellano() -> set[str]:
                 if not f.exists():
                     continue
                 for v in json.loads(f.read_text(encoding="utf-8")).values():
-                    acc |= set(re.findall(r"[a-záéíóúñü]{4,}", v.lower()))
+                    # **Los huecos NO son palabras.** `{origen}`, `{nombre}`,
+                    # `{fichero}` son nombres de parámetro y viajan idénticos
+                    # en los tres catálogos, así que sin quitarlos el lado
+                    # inglés «conoce» media docena de palabras castellanas y
+                    # cualquier literal cuya única pista sea una de ellas se
+                    # cuela. Pasó con «MKV origen (CMv2.9)», la leyenda del
+                    # gráfico de sync: la vio el usuario, no el guard
+                    # (2026-09-23).
+                    limpio = re.sub(r"\{[^}]*\}", " ", v.lower())
+                    acc |= set(re.findall(r"[a-záéíóúñü]{4,}", limpio))
         globals()["_ES_CRUDO"], globals()["_EN_CRUDO"] = es, en
         _VOCABULARIO = es - en
     return _VOCABULARIO
@@ -492,6 +501,23 @@ def es_id_o_selector(s: str) -> bool:
     return bool(_ID_O_SELECTOR.fullmatch(t)) or '="' in s
 
 
+# Los MARCADORES del log y del parser, en un solo sitio.
+#
+# Son contratos: el servidor los concatena en el código —fuera de la cadena
+# traducible— así que llegan idénticos en los tres idiomas y el frontend
+# puede compararlos. Lo que está prohibido es comparar contra PROSA, que sí
+# se traduce (`test_el_paso_no_se_adivina`).
+#
+# Viven aquí y no en aquel test porque los consumen los dos: el que prohíbe
+# comparar prosa necesita saber qué NO es prosa, y el que denuncia castellano
+# suelto necesita lo mismo para no señalar `[Fase A]`.
+MARCADORES = ("[Fase", "[Pipeline]", "[Origen]", "[Audit]", "[Preflight]",
+              "[Pre-flight]", "[Validación]", "[sync-data]", "[workload]",
+              "━━━", "✓ Fase", "✗ Fase", "📋 Plan", "🎯 Resultado",
+              "🛑 Cancelado", "§§PROGRESS§§", "Progress:", "#GUI#progress",
+              "$ ", "⏱", "🧹", "ℹ️", "🤖", "⚠", "✓", "✗")
+
+
 def es_rotulo(s: str) -> bool:
     """¿Es un rótulo castellano, aunque `es_frase` no lo vea?
 
@@ -520,6 +546,21 @@ def es_rotulo(s: str) -> bool:
     # `serie:{spath}:{temporada}`, con la que un trabajo entra en la cola.
     if re.fullmatch(r"[_a-z][a-z0-9_{}]*(?:[.:][a-z0-9_{}]*)*", t):
         return False
+    # **Un MARCADOR no es prosa**, y lo dice la lista canónica. `[Fase A]`,
+    # `✓ Fase` o `🎯 Resultado` son contratos del parser y de la
+    # persistencia: el prefijo se concatena en el código, fuera de la cadena
+    # traducible, así que llega igual en los tres idiomas. Hacía falta
+    # decirlo aquí desde que `fase` entró en el vocabulario —el inglés dice
+    # «phase»—, o los diez marcadores del pipeline se denuncian como
+    # castellano suelto. Es la MISMA lista que usa
+    # `test_el_paso_no_se_adivina`, no una copia.
+    if any(m in t for m in MARCADORES):
+        return False
+    # **Un identificador en MAYÚSCULAS tampoco.** `HDO_IDIOMA` es el nombre
+    # de una variable de entorno y `TAB_MKV` el de una constante; ninguno se
+    # lee en pantalla, y los dos llevan una palabra castellana dentro.
+    if re.fullmatch(r"[A-Z][A-Z0-9_]*", t):
+        return False
     palabras = set(re.findall(r"[a-záéíóúñü]{4,}", t.lower()))
     return bool(palabras & vocabulario_solo_castellano()
                 or {_sin_plural(p) for p in palabras} & vocabulario_sin_plural())
@@ -534,7 +575,14 @@ def es_rotulo(s: str) -> bool:
 # (`spanish: 'Castellano'`) y acaban en el nombre de las pistas del MKV, no
 # en la pantalla; que sigan el idioma de la app es una decisión distinta y va
 # con el bloque de selección de pistas, que está pendiente.
-_TABLAS_EXENTAS = {"LANGUAGE_MAP", "ISO639_TO_ENGLISH", "MKVMERGE_CODEC_TO_BDINFO"}
+#
+# `_FASE_CORTA` es otra cosa y por eso está aquí: no es un rótulo sino el
+# TROZO del marcador. El corchete se pone en el `f"[{...}] {porque}"` del
+# orquestador, así que el literal que queda es `Fase A` pelado y la lista de
+# `MARCADORES` —que busca `[Fase`— no lo reconoce. Lo que hace que sea un
+# marcador es dónde se usa, no cómo se escribe.
+_TABLAS_EXENTAS = {"LANGUAGE_MAP", "ISO639_TO_ENGLISH", "MKVMERGE_CODEC_TO_BDINFO",
+                   "_FASE_CORTA", "_FASE_CORTA_GENERICA"}
 
 
 
@@ -650,6 +698,18 @@ def _exentos_del_modulo(arbol: ast.AST) -> set[int]:
                     and n.func.id == nombre):
                 for h in ast.walk(n):
                     fuera.add(id(h))
+    # Y el PREFIJO del marcador del log, que es un contrato y no un rótulo.
+    # `set_fase_en_curso("Fase A")` alimenta el ContextVar del que sale el
+    # `[Fase A] ` que cada línea lleva delante; el corchete lo pone `_et()`,
+    # así que el literal queda pelado y `MARCADORES` —que busca `[Fase`— no
+    # lo reconoce. Se exime por la FUNCIÓN a la que se le pasa, que es lo
+    # que lo convierte en marcador: escribir las nueve letras a mano sería
+    # la lista blanca que este subsistema ya ha rehecho cuatro veces.
+    for n in ast.walk(arbol):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id == "set_fase_en_curso"):
+            for h in ast.walk(n):
+                fuera.add(id(h))
     fuera |= _nodos_de_dev_mode(arbol)
     return fuera
 

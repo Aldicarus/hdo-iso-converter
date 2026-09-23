@@ -47,6 +47,20 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── La corrección del sync pasa de dos casillas a una matriz
+    #    (2026-09-23, reportado por el usuario). Sólo se podía quitar al
+    #    inicio o duplicar el primer frame, y hay másters donde lo que sobra
+    #    o falta está al FINAL: cuadrar el frame count por delante cuadra el
+    #    número y desplaza la película entera.
+    "Eliminar N frames al inicio del target:":
+        "la etiqueta de una de las dos casillas viejas. Hoy son cuatro y el "
+        "sitio va en la cabecera de la columna: «Quitar frames» × «Al "
+        "inicio» / «Al final»",
+    "(remove ⟦⟧ · dup ⟦⟧ dejaría Δ=0)":
+        "la pista del auto-relleno, que se fue con él: con dos extremos hay "
+        "infinitas combinaciones que dan el mismo Δ y la app no puede saber "
+        "cuál es la correcta, así que las cuatro casillas nacen a cero y el "
+        "desfase se anuncia arriba",
     # ── El encuadre del gráfico de sync pasa de FRAMES a TIEMPO
     #    (2026-09-23). Nadie mira una película por frames, y para afinar al
     #    segundo escribir «69120» no sirve de nada.

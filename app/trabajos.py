@@ -40,6 +40,8 @@ import logging
 import re
 from typing import Callable
 
+from i18n import t
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,9 +73,13 @@ def nombre_de_trabajo(tmdb: dict | None = None, fichero: str = "",
     """
     if serie and serie.get("nombre"):
         cabeza = _con_anio(serie["nombre"], serie.get("anio"))
-        t, e = serie.get("temporada"), serie.get("episodio")
-        if t is not None and e is not None:
-            return f"{cabeza} · S{int(t):02d}E{int(e):02d}"
+        # `temp` y no `t`: `t` es el traductor, importado arriba. Un local
+        # homónimo lo sombrea y el próximo `t('clave')` de esta función
+        # fallaría de la forma más callada posible — es la colisión por la
+        # que el frontend llama `tr` al suyo.
+        temp, e = serie.get("temporada"), serie.get("episodio")
+        if temp is not None and e is not None:
+            return f"{cabeza} · S{int(temp):02d}E{int(e):02d}"
         return cabeza
     if tmdb and (tmdb.get("title") or "").strip():
         return _con_anio(tmdb["title"].strip(), tmdb.get("year"))
@@ -196,14 +202,23 @@ def _vacio(trabajo) -> dict:
     }
 
 
-# Cómo se llama cada fase encolada para el usuario. Es un subconjunto del
-# mapa de `routers/cmv40.py`, con la etiqueta corta: en una tarjeta de la cola
-# no cabe «Fase C — Extrayendo BL/EL y datos per-frame».
-_CHIP_FASE = {
-    "analyze_source": "Fase A", "target_rpu_path": "Fase B",
-    "target_rpu_drive": "Fase B", "target_rpu_mkv": "Fase B",
-    "extract": "Fase C", "correct_sync": "Fase E", "inject": "Fase F",
-    "remux": "Fase G", "validate": "Fase H",
+# Qué LETRA le toca a cada fase en la tarjeta de la cola. La etiqueta corta
+# porque ahí no cabe «Fase C — Extrayendo BL/EL y datos per-frame».
+#
+# La tabla guarda la letra y no el rótulo, por dos motivos que son el mismo:
+# la letra no tiene idioma —«Fase C» es «Phase C»— y **una tabla de rótulos
+# se evalúa AL IMPORTAR**, así que congelaría el idioma que hubiera al
+# arrancar el contenedor. Es la regla de `CMV40_FASES_DEF` y de las otras
+# ocho tablas que ya cayeron por esto.
+#
+# Ojo: se parece al `_FASE_CORTA` de `routers/cmv40.py` y NO es lo mismo.
+# Aquél es el trozo del MARCADOR del log (`[Fase C] …`), un contrato del
+# parser que no se traduce nunca; esto es un chip que el usuario lee.
+_LETRA_DE_FASE = {
+    "analyze_source": "A", "target_rpu_path": "B",
+    "target_rpu_drive": "B", "target_rpu_mkv": "B",
+    "extract": "C", "correct_sync": "E", "inject": "F",
+    "remux": "G", "validate": "H",
 }
 
 
@@ -215,8 +230,8 @@ def chips_de_lo_encolado(entrada: dict) -> list[str]:
     ahí sale lo que hace falta para no ver siete «Upgrade CMv4.0» iguales.
     """
     fase = ((entrada or {}).get("datos") or {}).get("fase") or ""
-    etiqueta = _CHIP_FASE.get(fase)
-    return [etiqueta] if etiqueta else []
+    letra = _LETRA_DE_FASE.get(fase)
+    return [t('trabajos.chip_fase', letra=letra)] if letra else []
 
 
 def progreso_de(trabajo) -> dict:

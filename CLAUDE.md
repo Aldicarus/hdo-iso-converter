@@ -442,6 +442,9 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Panel de confianza** basado en correlación de Pearson sobre MaxCLL (insensible a diferencias absolutas, sensible a desalineación temporal)
    - **Criterio para avanzar**: `Δ frames = 0` Y `confianza ≥ 85%`
 5. **Fase E — Aplicar corrección** (parte de D): `dovi_tool editor -j editor_config.json` con `remove`/`duplicate`. NO avanza de fase — el usuario sigue iterando hasta pulsar "Confirmar sync".
+   - **La corrección se aplica en los DOS extremos, y el sitio lo elige el usuario.** El formulario eran dos casillas —quitar al inicio, duplicar el primer frame— porque el desfase típico es un logo de estudio que el BD trae y la versión de streaming no. Pero hay másters donde lo que sobra o falta está al FINAL (créditos, un fundido más largo), y ahí cuadrar el frame count por delante **cuadra el número y desplaza la película entera**. Hoy es una matriz de cuatro: quitar/duplicar × inicio/final. `dovi_tool editor` ya lo admitía —`remove` es un rango cualquiera y `duplicate` lleva su `source`/`offset`—; lo que faltaba era ofrecerlo. Reportado el 2026-09-23.
+   - **Y por eso desaparece el auto-relleno.** Las casillas venían con el Δ ya escrito, lo cual con un solo sitio posible era un atajo correcto: el número determinaba la corrección entera. Con dos extremos hay infinitas combinaciones que dan el mismo Δ y la app **no puede saber cuál es la correcta**, así que rellenar una por su cuenta sería adivinar — y adivinar aquí desplaza la película. Las cuatro nacen a cero, y en su lugar **se anuncia el desfase**: «al target le SOBRAN N frames … el sitio lo eliges tú». Lo que impide continuar con los frames descuadrados no cambia: es el `sync_gate` del backend, con su 409 en `mark-synced`.
+   - Dos detalles del `editor_config` que tienen test: el rango del final se cuenta hacia atrás desde `T-1` y **arranca detrás de lo que se quita por delante** (con un target corto los dos se solapaban), y duplicar al final copia el **último** frame (`source: T-1, offset: T`), no el primero. Sin `target_frame_count` **no se corrige por el final**: inventarse el último frame es peor que decir que no se puede.
    - **`sync_verified` YA es «pasada la fase».** El corte de solo-lectura del formulario es `phaseIdx >= dDoneIdx`, no `>`: `mark-synced` escribe exactamente esa fase, así que con el `>` los campos de frames, «Aplicar corrección», «Volver al original» y «Confirmar» seguían vivos mientras corría la Fase F — pulsables cuando el RPU ya se está inyectando. Reportado el 2026-09-23. Dentro de la Fase D la sesión está en `extracted`, así que la edición sigue donde tiene que estar.
    - **Al terminar la Fase E se invalida `project.syncData`.** La fase regenera `per_frame_data.json` y de ese volcado salen el Δ, la confianza y el `sync_gate` que habilita «Confirmar sync». Se invalidaba solo al PULSAR «Aplicar» —cuando la fase aún no había corrido— así que seguía siendo el de antes hasta que algo más lo tirara: medido por el usuario, **más de 20 s** desde que el job queda en «necesita decisión» hasta que el botón se enciende. Hoy se tira en el flanco de bajada (`running_phase` era `correct_sync` y ya no), y solo en ese: hacerlo con cualquier fase pediría 24 MB de volcado tras cada una.
 6. **Fase F — Inyectar RPU**: `dovi_tool inject-rpu -i EL.hevc --rpu-in RPU_final.bin`.
@@ -3009,6 +3012,27 @@ legítimas: un botón citado frente a la misma palabra en prosa).
 **El que sí entró es exacto y da cero**: dos claves con el MISMO castellano
 tienen que tener la misma traducción. Es la versión sin heurística del
 detector de consistencia.
+
+**Un HUECO no es una palabra inglesa.** `vocabulario_solo_castellano` resta
+«lo que el catálogo `es` usa y el `en` no», y recogía los nombres de
+parámetro: `{origen}` viaja idéntico en los tres catálogos, así que el lado
+inglés «conocía» media docena de palabras castellanas y cualquier literal
+cuya única pista fuera una de ellas se colaba. Lo destapó el usuario viendo
+la leyenda del gráfico de sync —`MKV origen (CMv2.9)`, dibujada con
+`fillText`— el 2026-09-23. Con los `{…}` fuera salieron **once** más, entre
+ellas el chip de fase de la cola y dos avisos de la validación final.
+
+Y trajo su contrapartida: con `fase` ya en el vocabulario, los marcadores
+del log (`[Fase A]`, `✓ Fase`) se denuncian como castellano. La lista
+`MARCADORES` vive ahora en `captura_castellano` y la usan **los dos**
+guards: el que prohíbe comparar prosa necesita saber qué NO es prosa, y este
+lo mismo para no señalar un contrato. Lo que no tiene corchetes —el
+`"Fase A"` de `_FASE_CORTA`, el de `set_fase_en_curso(...)`— se exime por la
+TABLA o por la FUNCIÓN, no por el literal.
+
+**Ojo con el canvas**: `ctx.fillText` no lo alcanza ningún `data-i18n`, así
+que su texto tiene que venir ya resuelto de `tr()`. Es el único sitio de la
+app donde el marcado declarativo no llega.
 
 **Sustituir a máquina rompe cosas que no dan error.** Las cuatro que salieron:
 

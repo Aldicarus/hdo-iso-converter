@@ -3987,25 +3987,51 @@ select { appearance: none; cursor: pointer;
 }
 
 /* Sync controls */
-.cmv40-sync-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* La corrección del sync es una MATRIZ: quitar/duplicar × inicio/final.
+   Eran dos casillas en columna —quitar al inicio, duplicar el primero— y no
+   había forma de tocar el final, que es donde está el desfase en algunos
+   másters. En cuadrícula las cuatro se leen de un vistazo y se ve que son
+   dos decisiones, no cuatro campos sueltos. */
+.cmv40-sync-matriz {
+  border-collapse: collapse;
   font-size: var(--fs-md);
   color: var(--text-2);
 }
-.cmv40-sync-form label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.cmv40-sync-matriz th {
+  font-weight: 500;
+  text-align: left;
+  padding: 4px 14px 4px 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
 }
-.cmv40-sync-form input[type="number"] {
+.cmv40-sync-matriz thead th { text-align: center; padding-bottom: 6px; }
+.cmv40-sync-matriz tbody th { white-space: nowrap; }
+.cmv40-sync-matriz td { padding: 3px 6px 3px 0; }
+.cmv40-sync-matriz input[type="number"] {
+  width: 82px;
   background: var(--surface-2);
   border: 1px solid var(--sep);
   border-radius: var(--r-xs);
   padding: 4px 8px;
   color: var(--text-1);
   font-family: 'SF Mono', monospace;
+  text-align: center;
+}
+/* El aviso del desfase. Va ARRIBA de la matriz y no debajo: es lo que hay
+   que leer antes de escribir nada, porque dice cuántos frames hay que mover
+   y que el sitio no lo puede elegir la app. */
+.cmv40-sync-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--orange-dim);
+  border: 1px solid var(--orange-border);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.45;
 }
 
 /* Input editable del nombre de salida */

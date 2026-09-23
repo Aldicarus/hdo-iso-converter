@@ -1569,7 +1569,7 @@ function _cmv40PipelinePreviewHTML(info, provenance, retailAlternative, targetTy
       ? `<span class="cmv40-ph-arrow" aria-hidden="true">→</span>`
       : '';
     return `
-      <div class="cmv40-ph-pill cmv40-ph-${p.state}" data-tooltip="Fase ${p.k}: ${escHtml(p.label)}${p.mod ? ' · ' + escHtml(p.mod) : ''}">
+      <div class="cmv40-ph-pill cmv40-ph-${p.state}" data-tooltip="${escHtml(tr('tab3.pill_fase_k_label', {k: p.k, label: p.label}))}${p.mod ? ' · ' + escHtml(p.mod) : ''}">
         <span class="cmv40-ph-letter">${p.k}</span>
         <span class="cmv40-ph-label">${escHtml(p.label)}</span>
         ${modHtml}
@@ -3682,7 +3682,7 @@ async function _cmv40SaveOutputName(pid, newName) {
   });
   if (data) {
     _cmv40AssignSession(project, data);
-    showToast('Nombre actualizado', 'success');
+    showToast(tr('tab3.nombre_actualizado'), 'success');
   }
 }
 
@@ -4265,11 +4265,11 @@ function _cmv40BloqueHead(num, titulo, extra) {
 /** Los marcadores de `phases_skipped`, en nombres que signifiquen algo. */
 function _cmv40SkipLabel(marker) {
   return ({
-    demux_dual_layer:       'demux dual-layer (Fase C)',
-    mux_dual_layer:         'mux dual-layer (Fase G)',
+    demux_dual_layer:       tr('tab3.omitido_demux_dual_layer'),
+    mux_dual_layer:         tr('tab3.omitido_mux_dual_layer'),
     per_frame_data_skipped: tr('tab3.datos_per_frame_del_chart_fase'),
     sync_verification_pause:tr('tab3.revision_visual_de_sync_fases_d'),
-    merge_cmv40_transfer:   'merge CMv4.0 (Fase F)',
+    merge_cmv40_transfer:   tr('tab3.omitido_merge_cmv40'),
   })[marker] || marker;
 }
 
@@ -6685,10 +6685,7 @@ function _renderCMv40SyncControls(project) {
   // Framerate real del vídeo origen (fallback 23.976)
   const FPS = s.source_fps || 23.976;
   const totalFrames = d.source_frames || d.target_frames || 0;
-  if (!project.chartRange) {
-    // Default: primeros 30s — la zona típica donde hay logos y desfases
-    project.chartRange = { start: 0, end: Math.min(Math.round(30 * FPS), totalFrames) };
-  }
+  if (!project.chartRange) project.chartRange = _cmv40RangoPorDefecto(totalFrames);
   const currentRange = project.chartRange;
 
   // El preset activo es el que coincide en ANCHO, no en posición: desde que
@@ -6753,22 +6750,34 @@ function _renderCMv40SyncControls(project) {
         ? tr('tab3.estos_valores_se_sumaran_a_la')
         : tr('tab3.los_valores_se_aplican_desde_el')}
     </div>
-    <div class="cmv40-sync-form">
-      <label><span data-i18n="tab3.eliminar_n_frames_al_inicio_del"></span>
-        <input type="number" id="cmv40-remove-${pid}" value="${delta > 0 ? delta : 0}" min="0" style="width:80px"
-          oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})">
-      </label>
-      <label><span data-i18n="tab3.duplicar_primer_frame"></span>
-        <input type="number" id="cmv40-duplicate-${pid}" value="${delta < 0 ? Math.abs(delta) : 0}" min="0" style="width:80px"
-          oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})">
-      </label>
-    </div>
+    ${delta === 0 ? '' : `<div class="cmv40-sync-aviso">
+      <span data-icono="aviso"></span>
+      <span>${escHtml(delta > 0
+        ? tr('tab3.sync_sobran_frames', {n: delta})
+        : tr('tab3.sync_faltan_frames', {n: Math.abs(delta)}))}</span>
+    </div>`}
+    <table class="cmv40-sync-matriz">
+      <thead><tr><th></th>
+        <th data-i18n="tab3.sync_al_inicio"></th>
+        <th data-i18n="tab3.sync_al_final"></th></tr></thead>
+      <tbody>
+        <tr>
+          <th data-i18n="tab3.sync_quitar"></th>
+          ${['remove', 'remove-fin'].map(k => `<td><input type="number"
+             id="cmv40-${k}-${pid}" value="0" min="0"
+             oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})"></td>`).join('')}
+        </tr>
+        <tr>
+          <th data-i18n="tab3.sync_duplicar"></th>
+          ${['duplicate', 'duplicate-fin'].map(k => `<td><input type="number"
+             id="cmv40-${k}-${pid}" value="0" min="0"
+             oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})"></td>`).join('')}
+        </tr>
+      </tbody>
+    </table>
     <div style="margin-top:10px; padding:10px 12px; background:var(--surface-2); border-radius:6px; font-size:12px">
       <span style="color:var(--text-3)" data-i18n="tab3.delta_despues_de_aplicar"></span>
       <b id="cmv40-expected-delta-${pid}" style="margin-left:6px">—</b>
-      <span style="color:var(--text-3); margin-left:12px; font-size:11px">
-        ${tr('tab3.remove_p1_dup_p2_dejaria_0', {p1: delta > 0 ? delta : 0, p2: delta < 0 ? Math.abs(delta) : 0})}
-      </span>
     </div>
     <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap">
       <button class="btn btn-ghost btn-md" onclick="cmv40DoApplySync('${pid}')"><span data-icono="lapiz"></span> <span data-i18n="tab3.aplicar_correccion"></span></button>
@@ -6787,10 +6796,25 @@ function _renderCMv40SyncControls(project) {
   _cmv40UpdateExpectedDelta(pid, delta);
 }
 
+/** Lo que el usuario ha escrito en las cuatro casillas de la matriz. */
+function _cmv40OpsDeSync(pid) {
+  const n = (k) => parseInt(
+    document.getElementById(`cmv40-${k}-${pid}`)?.value) || 0;
+  return {
+    quitarInicio:   n('remove'),
+    quitarFinal:    n('remove-fin'),
+    duplicarInicio: n('duplicate'),
+    duplicarFinal:  n('duplicate-fin'),
+  };
+}
+
 function _cmv40UpdateExpectedDelta(pid, currentDelta) {
-  const r = parseInt(document.getElementById(`cmv40-remove-${pid}`)?.value) || 0;
-  const d = parseInt(document.getElementById(`cmv40-duplicate-${pid}`)?.value) || 0;
-  // Aplicar remove reduce delta; duplicate lo aumenta
+  const o = _cmv40OpsDeSync(pid);
+  const r = o.quitarInicio + o.quitarFinal;
+  const d = o.duplicarInicio + o.duplicarFinal;
+  // Aplicar remove reduce delta; duplicate lo aumenta. El SITIO no cambia la
+  // cuenta —quitar un frame es uno menos, esté donde esté— pero sí el
+  // resultado: por eso lo elige el usuario y no se infiere.
   const expected = currentDelta - r + d;
   const el = document.getElementById(`cmv40-expected-delta-${pid}`);
   if (!el) return;
@@ -6911,6 +6935,26 @@ function _cmv40AplicarRangoDeTiempos(pid) {
   _cmv40SetRange(pid, start, end);
 }
 
+/** El encuadre con el que se abre el gráfico: **la película entera**.
+ *
+ *  Eran los primeros 30 s, «la zona típica donde hay logos y desfases». Con
+ *  el zoom por selección eso deja de ser el sitio donde hay que empezar: se
+ *  abre con todo delante, se ve dónde está la diferencia y se arrastra sobre
+ *  ella. Al revés —abrir con un recorte que el usuario no pidió— la primera
+ *  pregunta que hay que contestar es «¿y el resto?». Decisión del usuario,
+ *  2026-09-23.
+ *
+ *  De paso, es **el encuadre que la primera petición ya trae**: un
+ *  `GET /sync-data` sin rango devuelve la película entera reducida a cubos,
+ *  así que abrir en «Todo» no cuesta una segunda vuelta al servidor.
+ *
+ *  Vive en una función porque lo leían DOS sitios con la constante escrita
+ *  en cada uno, que es como se acaba con dos defaults distintos.
+ */
+function _cmv40RangoPorDefecto(totalFrames) {
+  return { start: 0, end: totalFrames };
+}
+
 async function _cmv40SetRange(pid, start, end) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (!project) return;
@@ -6957,31 +7001,80 @@ async function cmv40DoResetSync(pid) {
   );
 }
 
+/** **La corrección se puede aplicar en los DOS extremos.**
+ *
+ *  Eran dos casillas —quitar al inicio, duplicar el primer frame— porque el
+ *  desfase típico es un logo de estudio que el BD trae y la versión de
+ *  streaming no. Pero hay másters donde lo que sobra o falta está al FINAL
+ *  (créditos, un fundido más largo), y con las dos casillas de antes la
+ *  única forma de cuadrar el frame count era quitando por delante — que
+ *  cuadra el número y **desplaza toda la película**. Reportado por el
+ *  usuario el 2026-09-23.
+ *
+ *  `dovi_tool editor` ya lo admitía: `remove` es un rango cualquiera y
+ *  `duplicate` lleva su `source`/`offset`. Lo que faltaba era ofrecerlo.
+ *
+ *  **Y por eso desaparece el auto-relleno.** Antes la casilla venía con el
+ *  Δ ya escrito, porque con un solo sitio posible el número lo determinaba
+ *  todo. Con dos extremos hay infinitas combinaciones que dan el mismo Δ y
+ *  la app **no puede saber cuál es la correcta**: rellenar una por su cuenta
+ *  sería adivinar, y adivinar aquí desplaza la película entera. Las cuatro
+ *  casillas nacen a cero, el desfase se anuncia arriba y lo reparte quien
+ *  está mirando el gráfico.
+ */
 async function cmv40DoApplySync(pid) {
-  const remove = parseInt(document.getElementById(`cmv40-remove-${pid}`).value) || 0;
-  const dup = parseInt(document.getElementById(`cmv40-duplicate-${pid}`).value) || 0;
+  const o = _cmv40OpsDeSync(pid);
+  const remove = o.quitarInicio + o.quitarFinal;
+  const dup = o.duplicarInicio + o.duplicarFinal;
   if (remove === 0 && dup === 0) {
     showToast(tr('tab3.indica_un_valor_para_eliminar_o'), 'warning');
     return;
   }
+  // El total del target AHORA, que es sobre lo que el editor cuenta: tras
+  // una corrección previa ya no es el de la sesión original.
+  const project = openCMv40Projects.find(p => p.id === pid);
+  const T = project?.session?.target_frame_count
+            || project?.syncData?.target_frames || 0;
+  if ((o.quitarFinal || o.duplicarFinal) && !T) {
+    showToast(tr('tab3.sync_sin_total_no_hay_final'), 'warning');
+    return;
+  }
   const config = {};
-  if (remove > 0) config.remove = [`0-${remove - 1}`];
-  if (dup > 0) config.duplicate = [{ source: 0, offset: 0, length: dup }];
+  const quitar = [];
+  if (o.quitarInicio > 0) quitar.push(`0-${o.quitarInicio - 1}`);
+  // Por el final se cuenta hacia atrás desde el último frame. Se resta
+  // primero lo que se quita por delante para que los dos rangos no se
+  // solapen cuando el target es corto.
+  if (o.quitarFinal > 0) {
+    const fin = T - 1;
+    const ini = Math.max(o.quitarInicio, T - o.quitarFinal);
+    if (ini <= fin) quitar.push(`${ini}-${fin}`);
+  }
+  if (quitar.length) config.remove = quitar;
+  const duplicar = [];
+  if (o.duplicarInicio > 0) {
+    duplicar.push({ source: 0, offset: 0, length: o.duplicarInicio });
+  }
+  // Duplicar el ÚLTIMO frame: se copia `T-1` y se inserta detrás de él.
+  if (o.duplicarFinal > 0) {
+    duplicar.push({ source: T - 1, offset: T, length: o.duplicarFinal });
+  }
+  if (duplicar.length) config.duplicate = duplicar;
   const data = await apiFetch(`/api/cmv40/${pid}/apply-sync`, {
     method: 'POST',
     body: JSON.stringify({ editor_config: config }),
   });
   if (data) {
     showToast(tr('tab3.correccion_aplicada_nuevo', {p1: data.sync_delta > 0 ? '+' : '', sync_delta: data.sync_delta}), 'success');
-    const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
       project.syncData = null;  // forzar recarga
       _cmv40AssignSession(project, data);
       if (!project.expandedPhases) project.expandedPhases = {};
       project.expandedPhases['D'] = true;  // mantener la fase D visible
       _updateCMv40Panel(project);
-      // Los inputs se re-renderizan pre-rellenados con el nuevo delta
-      // (evita aplicar dos veces el mismo valor por despiste)
+      // Las cuatro casillas vuelven a cero al repintarse, que es lo que hay
+      // que hacer tras aplicar: el desfase que queda es OTRO y se anuncia
+      // arriba con el número nuevo.
     }
   }
 }
@@ -7019,9 +7112,7 @@ function _renderCMv40Chart(project) {
   // y lanza "Maximum call stack size exceeded" con arrays grandes (155k frames).
   const totalFrames = project.syncData.source_frames
     || (allData.reduce((m, p) => Math.max(m, p.frame || 0), 0) + 1);
-  if (!project.chartRange) {
-    project.chartRange = { start: 0, end: Math.min(Math.round(30 * FPS), totalFrames) };
-  }
+  if (!project.chartRange) project.chartRange = _cmv40RangoPorDefecto(totalFrames);
   const { start, end } = project.chartRange;
   // Filtrar por número de frame real (no por índice del array)
   const data = allData.filter(p => p.frame >= start && p.frame < end);
@@ -7145,7 +7236,7 @@ function _renderCMv40Chart(project) {
   ctx.fillStyle = '#3b82f6';
   ctx.fillRect(padding.left + 10, 7, 14, 3);
   ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.fillText('RPU target (CMv4.0)', padding.left + 30, 12);
+  ctx.fillText(tr('ui.rpu_target_cmv4_0'), padding.left + 30, 12);
   ctx.strokeStyle = '#ef4444';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 3]);
@@ -7155,7 +7246,18 @@ function _renderCMv40Chart(project) {
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.fillText('MKV origen (CMv2.9)', padding.left + 202, 12);
+  // **El canvas se pinta con `fillText`, así que `data-i18n` no lo alcanza
+  // y el texto tiene que venir ya resuelto de `tr()`.** Esta leyenda se
+  // quedó en castellano con la app en inglés hasta que el usuario la vio
+  // (2026-09-23); el guard no la cazó porque `origen` viaja como nombre de
+  // PARÁMETRO (`{origen}`) en el catálogo inglés y el vocabulario lo daba
+  // por palabra inglesa. Ver `vocabulario_solo_castellano`.
+  //
+  // Las dos claves son las que YA usaba el modal de creación
+  // (`ui.mkv_origen_cmv2_9` / `ui.rpu_target_cmv4_0`): añadir un par propio
+  // dejaba la misma frase con dos traducciones al catalán —una con el
+  // apóstrofo recto y otra con el tipográfico— y eso lo caza un guard.
+  ctx.fillText(tr('ui.mkv_origen_cmv2_9'), padding.left + 202, 12);
   // Info de rango prominente (arriba a la derecha)
   const startSec = start / FPS, endSec = end / FPS;
   const fmtTime = (s) => {
@@ -7169,7 +7271,11 @@ function _renderCMv40Chart(project) {
                W - padding.right, 14);
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
   ctx.font = '10px sans-serif';
-  ctx.fillText(`(${(end - start).toLocaleString(localeActual())} de ${totalFrames.toLocaleString(localeActual())} frames · ${FPS.toFixed(2)} fps)`, W - padding.right, 28);
+  ctx.fillText(tr('tab3.rango_frames_de_total', {
+    n: (end - start).toLocaleString(localeActual()),
+    total: totalFrames.toLocaleString(localeActual()),
+    fps: FPS.toFixed(2),
+  }), W - padding.right, 28);
   ctx.textAlign = 'left';
 
   // ── Arrastrar para encuadrar ──────────────────────────────────────────

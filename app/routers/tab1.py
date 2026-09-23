@@ -3150,7 +3150,8 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                 status = "❌"
                 detail = tr('tab1.val_detalle_esperado_real',
                             esperado=exp_lang, real=lang_name)
-                warnings.append(f"Audio #{i+1}: idioma {lang_name} ≠ {exp_lang}")
+                warnings.append(tr('tab1.val_aviso_idioma', n=i + 1,
+                                   real=lang_name, esperado=exp_lang))
                 all_ok = False
 
             # Tier del codec: ¿el stream que quedó dentro es el que anuncia la
@@ -3166,7 +3167,8 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                 nom_esp = CODEC_TIER_NAMES.get(tier_esp, tier_esp)
                 nom_real = CODEC_TIER_NAMES.get(tier_real, tier_real)
                 status = "❌"
-                detail += f" (codec esperado: {nom_esp}, real: {nom_real})"
+                detail += tr('tab1.val_codec_esperado_real',
+                             esperado=nom_esp, real=nom_real)
                 warnings.append(
                     tr('tab1.audio_p1_la_etiqueta_dice_nom_esp', p1=i+1, nom_esp=nom_esp, nom_real=nom_real, codec=codec)
                 )
