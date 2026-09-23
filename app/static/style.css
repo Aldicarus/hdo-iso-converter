@@ -10141,6 +10141,40 @@ body.workbar-plegada .workbar-count.con-trabajo::after {
   animation: tab-running-pulse 1.6s ease-in-out infinite;
 }
 
+/* ── El esqueleto del detalle, mientras llega ──────────────────────
+   Bloques con la forma de lo que viene, para que el modal tenga su tamaño
+   definitivo desde el primer instante: antes se abría encogido —sin columna
+   ni cuerpo— y crecía de golpe diez segundos después.
+
+   Solo se sombrea lo que hay que ir a buscar. El título, la fase, la barra y
+   el transcurrido salen del registro del trabajo y son ciertos ya. */
+.wb-esqueleto { display: flex; flex-direction: column; gap: 8px; padding: 2px; }
+.wb-esq {
+  border-radius: var(--r-xs);
+  background: linear-gradient(90deg,
+    var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%;
+  animation: wb-esq-brillo 1.4s ease-in-out infinite;
+}
+.wb-esq-cartel { height: 96px; margin-bottom: 4px; }
+.wb-esq-fila   { height: 30px; }
+.wb-esq-linea  { height: 11px; }
+.wb-esqueleto-cuerpo { gap: 7px; }
+.wb-esq-aviso {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+@keyframes wb-esq-brillo {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+/* Un brillo que recorre la pantalla es justo lo que molesta a quien pide
+   menos movimiento; el bloque se queda, quieto. */
+@media (prefers-reduced-motion: reduce) {
+  .wb-esq { animation: none; background: var(--surface-2); }
+}
+
 /* ── Modal de detalle de un trabajo ────────────────────────────────
    La tira de fases: la misma para los cinco tipos, porque el objetivo del
    bloque es que no se noten saltos entre pestañas. */

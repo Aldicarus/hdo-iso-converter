@@ -4313,7 +4313,11 @@ async def cmv40_sync_data(session_id: str, desde: int | None = None,
         # aqui con running_phase != None es una llamada parasita del render
         # del frontend y regenerar superpone ~2 min de dovi_tool export
         # sobre la fase en curso (contamina Fase F inject).
-        if session.running_phase and resolve_plan(session).inputs.trust_effective:
+        # Sin la condición de trust: el motivo —no superponer ~2 min de
+        # `dovi_tool export` a la fase en curso— vale igual sea trusted o no,
+        # y con revisión manual el flujo se pausa en Fase D, así que una
+        # regeneración legítima nunca coincide con una fase corriendo.
+        if session.running_phase:
             raise HTTPException(
                 status_code=409,
                 detail=(tr('cmv40.per_frame_data_json_omitido_por')),

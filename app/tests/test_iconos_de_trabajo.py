@@ -150,7 +150,13 @@ class TestElAspectoSaleDeLaPaletaDeLaApp(unittest.TestCase):
     def test_se_respeta_prefers_reduced_motion(self):
         self.assertIn("prefers-reduced-motion", CSS)
         i = CSS.index("prefers-reduced-motion")
-        self.assertIn("icono-girando", CSS[i:i + 400])
+        # TODOS los bloques, no 400 bytes desde el primero: el corte por
+        # tamaño se rompió en cuanto otro componente ganó su propia regla de
+        # movimiento reducido, señalando a un CSS que seguía siendo correcto.
+        bloques = [CSS[m.end():CSS.index("}\n}", m.end()) + 3]
+                   for m in re.finditer(r"prefers-reduced-motion:\s*reduce", CSS)]
+        self.assertTrue(any("icono-girando" in b for b in bloques),
+                        "el aro que gira no para con movimiento reducido")
 
 
 class TestNoQuedanEmojiEnLaColumnaNiEnElModal(unittest.TestCase):

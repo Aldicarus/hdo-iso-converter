@@ -33,33 +33,30 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import argv_node, js_completo  # noqa: E402
+from frontend_sources import (argv_node, js_completo,  # noqa: E402
+                              maquinaria_del_modal_de_trabajo)
 
 NODE = shutil.which("node")
 JS = js_completo()
-
-PIEZAS = ("registrarDetalleDeTrabajo", "_trabajoModalProgramar",
-          "_trabajoModalParar", "_trabajoModalRefrescar", "_trabajoModalAbrir")
-
 
 def _fn(nombre: str) -> str:
     i = JS.index(f"function {nombre}(")
     return JS[JS.rindex("\n", 0, i) + 1:JS.index("\n}\n", i) + 3]
 
 
-def _estado() -> str:
-    """Las `let _trabajoModal*` del fuente, no escritas a mano: una variable
-    nueva rompería este arnés con un `ReferenceError` en vez de dejarlo
-    midiendo otra cosa."""
-    nombres = re.findall(r"^let (_trabajoModal\w+) = .*$", JS, re.M)
-    assert nombres, "no se encuentran las variables de estado del modal"
-    return "".join(f"let {n} = null;\n" for n in nombres)
-
-
 # Lo que el armazón usa y aquí no se mide: se sustituye por espías.
-STUBS = """
+# Lo que el CONJUNTO necesita ya al cargarse: sus tablas (`_CMV40_FIN`…)
+# interpolan `tr()` en el ámbito del módulo. Van como `function`, que se
+# eleva y no tiene zona muerta — con `const` el conjunto moría con «Cannot
+# access 'tr' before initialization».
+PREAMBULO = """
 'use strict';
-const tr = (k) => k;
+function tr(k) { return k; }
+function escHtml(t) { return String(t); }
+function icono() { return '<svg/>'; }
+"""
+
+STUBS = """
 const _workbarDetalles = {};
 let workbarEstado = { activo: null, cola: [] };
 const registro = { abre: 0, cierra: 0, pinta: [], orden: [] };
@@ -78,7 +75,16 @@ const espera = (ms) => new Promise(r => setTimeout(r, ms));
 
 
 def _node(guion: str) -> dict:
-    fuente = STUBS + _estado() + "".join(_fn(n) for n in PIEZAS) + guion
+    # El CONJUNTO, no una lista escrita aquí: al ganar el armazón sus dos
+    # funciones de esqueleto, un arnés que las enumerara se habría roto con
+    # un `ReferenceError` sin decir nada del comportamiento que mide. Es la
+    # lección de `sistema_de_iconos()`, y este fichero la repitió.
+    # Los espías van DESPUÉS del conjunto: una `function` redeclarada gana
+    # la última, así que puestos antes los pisaba el `_trabajoModalPinta` de
+    # verdad —que pide medio `workbar.js` para dibujar— y el arnés moría con
+    # un `ReferenceError` en vez de medir lo suyo.
+    fuente = (PREAMBULO + maquinaria_del_modal_de_trabajo()
+              + _fn("registrarDetalleDeTrabajo") + STUBS + guion)
     r = subprocess.run(argv_node(fuente), capture_output=True, text=True,
                        timeout=40)
     if r.returncode != 0:

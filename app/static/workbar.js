@@ -965,6 +965,29 @@ function cancelarTrabajoActivo(trabajo) {
 let _trabajoModalTimer = null;
 let _trabajoModalVivo = false;
 
+/** Los dos huecos que se van a buscar al servidor, mientras llegan.
+ *
+ *  Bloques con la forma de lo que viene —la cartela y unas filas de fase a
+ *  la izquierda, unas líneas de log a la derecha— para que el modal tenga
+ *  su tamaño definitivo desde el primer instante y no dé el respingo de
+ *  crecer cuando el detalle aparece.
+ */
+function _trabajoEsqueletoLateral() {
+  const filas = [0, 1, 2, 3, 4].map(() =>
+    '<div class="wb-esq wb-esq-fila"></div>').join('');
+  return '<div class="wb-esqueleto">'
+       + '<div class="wb-esq wb-esq-cartel"></div>' + filas + '</div>';
+}
+
+function _trabajoEsqueletoCuerpo() {
+  const anchos = [92, 78, 85, 60, 88, 71, 95, 66, 82, 74];
+  const lineas = anchos.map(w =>
+    `<div class="wb-esq wb-esq-linea" style="width:${w}%"></div>`).join('');
+  return '<div class="wb-esqueleto wb-esqueleto-cuerpo">'
+       + `<div class="wb-esq-aviso">${escHtml(tr('workbar.cargando_el_detalle'))}</div>`
+       + lineas + '</div>';
+}
+
 /** Programa el siguiente refresco del modal. **Encadenado, no `setInterval`.**
  *
  *  El callback es `async` y `setInterval` no espera a que termine: con el
@@ -1212,10 +1235,7 @@ function _trabajoModalPinta(a, vista) {
       : (fase.segundos ? _relojHTML(fase.segundos, tr('workbar.lleva') + ' ') : '');
   }
 
-  // `sinCuerpo`: el esqueleto que se pinta al abrir, antes de pedir el
-  // detalle, NO toca el log.
-  const cuerpo = vista.sinCuerpo ? null
-    : document.getElementById('trabajo-modal-cuerpo');
+  const cuerpo = document.getElementById('trabajo-modal-cuerpo');
   let pendiente = null;      // el ancla del log, a restaurar al final
   if (cuerpo) {
     const html = vista.cuerpo || '';
@@ -1490,9 +1510,24 @@ async function _trabajoModalAbrir(a) {
   // La vista del trabajo anterior no se hereda: son dos trabajos distintos.
   _trabajoModalVista = null;
   openModal('trabajo-modal');
-  // Solo el cromo: cabecera, barra y tiempos. El cuerpo lo escribe la
-  // primera vista de verdad, una sola vez.
-  _trabajoModalPinta(a, { ..._trabajoModalConResumen(a, {}), sinCuerpo: true });
+  // **El esqueleto conserva la forma del modal final.**
+  //
+  // Antes se pintaba solo el cromo, así que hasta que el detalle llegaba
+  // —diez segundos en una Fase F— el modal salía encogido, sin columna y
+  // sin cuerpo: parecía otro modal, y roto. Reportado el 2026-09-23.
+  //
+  // Lo que YA SE SABE no se dibuja como esqueleto: el título, la fase, la
+  // barra y el transcurrido salen del registro del trabajo y son ciertos
+  // desde el primer instante. Solo se sombrean los dos huecos que hay que
+  // ir a buscar al servidor —la timeline y el log—, que además reservan su
+  // sitio: el modal ya no cambia de tamaño al llegar el detalle.
+  _trabajoModalPinta(a, {
+    ..._trabajoModalConResumen(a, {}),
+    cargando: true,
+    lateral: _trabajoEsqueletoLateral(),
+    cuerpo: _trabajoEsqueletoCuerpo(),
+    conLog: false,
+  });
 
   // Un tipo con sitio PROPIO —el pre-flight, y un CMv4.0 que espera
   // respuesta— devuelve null: es el contrato de «ya lo he enseñado yo». Los

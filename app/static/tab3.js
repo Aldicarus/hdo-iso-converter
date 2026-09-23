@@ -3678,28 +3678,38 @@ async function _cmv40SaveOutputName(pid, newName) {
 function _renderCMv40PhaseStrip(s, pid) {
   const container = document.getElementById(`cmv40-phase-strip-${pid}`);
   if (!container) return;
-  const phases = [
-    { key: 'source_analyzed', icon: 'lupa', label: tr('tab3.analizar_origen') },
-    { key: 'target_provided', icon: 'diana', label: 'RPU target' },
-    { key: 'extracted',       icon: 'tijeras', label: tr('tab3.extraer_bl_el') },
-    { key: 'sync_verified',   icon: 'grafico', label: tr('tab3.paso_verificar_sync') },
-    { key: 'injected',        icon: 'inyectar', label: tr('tab3.paso_inyectar') },
-    { key: 'remuxed',         icon: 'caja', label: 'Remux' },
-    { key: 'validated',       icon: 'check', label: tr('tab3.paso_validar') },
-  ];
-  const currentIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
-  const isError = s.phase === 'error';
-  container.innerHTML = phases.map((ph, i) => {
-    const phaseIdx = CMV40_PHASES_ORDER.indexOf(ph.key);
-    let state = 'pending';
-    if (phaseIdx < currentIdx) state = 'done';
-    else if (phaseIdx === currentIdx) state = isError ? 'error' : 'active';
+  // Icono y rótulo de cada paso. La LISTA sale de `CMV40_FASES_DEF`, que es
+  // la misma que usan las cards: la tira tenía su propia copia con los siete
+  // `produces` escritos otra vez, y es donde se coló el desfase de abajo.
+  // Va dentro de la función porque lleva `tr()`: una tabla de rótulos en el
+  // ámbito del módulo se resuelve al cargar y congela el idioma.
+  const pinta = {
+    A: ['lupa', tr('tab3.analizar_origen')],
+    B: ['diana', 'RPU target'],
+    C: ['tijeras', tr('tab3.extraer_bl_el')],
+    D: ['grafico', tr('tab3.paso_verificar_sync')],
+    F: ['inyectar', tr('tab3.paso_inyectar')],
+    G: ['caja', 'Remux'],
+    H: ['check', tr('tab3.paso_validar')],
+  };
+  const hayError = !!s.error_message;
+  container.innerHTML = CMV40_FASES_DEF.map((fase, i) => {
+    const [ico, rotulo] = pinta[fase.key] || ['pendiente', fase.key];
+    // **El MISMO criterio que las cards** (`_cmv40PhaseState`).
+    //
+    // `s.phase` es la última fase COMPLETADA, no la que corre. La tira la
+    // tomaba por la actual y comparaba contra la clave del paso, así que
+    // con la Fase F en marcha —`phase` todavía en `sync_verified`— seguía
+    // parpadeando «verificar sync», que ya había terminado, y la F salía
+    // como pendiente. Un paso entero de desfase. Reportado el 2026-09-23.
+    let state = _cmv40PhaseState(s.phase, fase.produces, fase.startsFrom);
+    if (state === 'active' && hayError) state = 'error';
     return `
       <div class="cmv40-phase-step ${state}">
-        <div class="cmv40-phase-circle">${icono(ph.icon)}</div>
-        <div class="cmv40-phase-label">${ph.label}</div>
+        <div class="cmv40-phase-circle">${icono(ico)}</div>
+        <div class="cmv40-phase-label">${rotulo}</div>
       </div>
-      ${i < phases.length - 1 ? '<div class="cmv40-phase-conn"></div>' : ''}
+      ${i < CMV40_FASES_DEF.length - 1 ? '<div class="cmv40-phase-conn"></div>' : ''}
     `;
   }).join('');
 }
@@ -3977,9 +3987,14 @@ function _renderCMv40ActivePhase(project) {
   const dExpanded = project.expandedPhases['D'] !== undefined
     ? project.expandedPhases['D']
     : (faseDState === 'active');
+  // **`!s.running_phase` se fue.** Con una fase en marcha el gráfico no se
+  // cargaba nunca, así que la card de Fase D enseñaba un canvas negro
+  // durante toda la Fase F y no decía por qué — reportado el 2026-09-23. Lo
+  // caro no es leer el volcado (eso es un fichero que ya está y una
+  // reducción a cubos): es REGENERARLO, y de eso se encarga el guard del
+  // backend, que ahora rechaza la regeneración con cualquier fase corriendo.
   const shouldLoadChart = (faseDState === 'active' || faseDState === 'done')
                           && dExpanded
-                          && !s.running_phase
                           && !s.target_trust_ok;
   if (shouldLoadChart) {
     _loadCMv40SyncChart(project);
@@ -6425,8 +6440,11 @@ function _cmv40ResumenDeCorreccion(cfg) {
 function _cmv40ChartSinDatos(pid, est) {
   const wrap = document.getElementById(`cmv40-chart-wrap-${pid}`);
   if (!wrap) return;
-  const motivo = (est && est.status === 404)
-    ? tr('tab3.sync_sin_volcado') : tr('tab3.sync_no_se_pudo_leer');
+  const motivo = (est && est.status === 404) ? tr('tab3.sync_sin_volcado')
+    // 409: el volcado no está y hay una fase corriendo, así que el backend
+    // se niega a regenerarlo. No es un fallo, es un «ahora no».
+    : (est && est.status === 409) ? tr('tab3.sync_fase_en_marcha')
+    : tr('tab3.sync_no_se_pudo_leer');
   wrap.innerHTML = `<div class="banner info"><span class="banner-icon">`
     + icono('info') + `</span><span>${escHtml(motivo)}</span></div>`;
 }
