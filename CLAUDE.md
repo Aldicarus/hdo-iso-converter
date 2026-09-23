@@ -66,6 +66,8 @@ ISO2MKVFEL/
 ├── .github/workflows/
 │   └── publish-docker.yml      ← Publica imagen a ghcr.io en cada push a main
 ├── CLAUDE.md
+├── LICENSE                     ← MIT. El código de la app; las herramientas traen la suya
+├── THIRD-PARTY-NOTICES.md      ← Qué contiene la imagen, bajo qué licencia y dónde está su fuente
 ├── archive/                    ← Specs históricas (no spec activa)
 ├── docker/
 │   ├── Dockerfile
@@ -116,8 +118,11 @@ ISO2MKVFEL/
     ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
     │   ├── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
     │   └── api_harness.py    ← TestClient con /config aislado + espía de lanzamiento de fases (no es un test)
+    ├── static/licenses/     ← Textos completos (GPL-2/3, LGPL-3, Apache-2) + los dos inventarios que GENERA el build
+    ├── static/img/tmdb.svg  ← El logo de TMDb. Activo de marca, NO un glifo de `GLIFOS` (ver abajo)
     └── tools/
-        └── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
+        ├── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
+        └── generar_avisos_python.py  ← Emite el apéndice de licencias leyendo los metadatos INSTALADOS
 ```
 
 ## Volúmenes Docker
@@ -501,6 +506,8 @@ Los dos pasos grandes de Fase A recorren el vídeo entero y se estorbaban: medid
 Consecuencia contraintuitiva pero estructural: **ffmpeg termina bastante antes que el pipeline**. Medido en 5 jobs, la "cola" en la que `extract-rpu` sigue solo es el 23-38% de la fase (71s/263s · 119s/495s · 198s/519s · 201s/733s · 197s/863s). `source.hevc` queda con su mtime final mientras `RPU_source.bin` se escribe minutos después.
 
 **Para testear este camino, los binarios falsos tienen que entender que `pipe:1` es stdout.** El arnés lo trataba como una ruta: creaba un fichero llamado literalmente `pipe:1` en el cwd de la suite (llegó a commitearse uno), el pipe quedaba vacío, la función devolvía `False` y todos los tests de Fase A verificaban el camino en dos pasos — el que **no** corre en el NAS. Hay dos formas reales que el fake debe cubrir: el muxer `tee` (`[f=hevc]fichero|[f=hevc]pipe:1`) y `-f hevc pipe:1`. Y `dovi_tool extract-rpu -` lee de stdin: `-` no es una opción aunque empiece por guion. Las props del RPU viajan en la cabecera del stream, porque por un pipe no hay sidecar que consultar — sin eso el RPU extraído sale con los valores por defecto y el pipe *parece* funcionar mientras pierde el contenido. Cubierto por `test_pipe_fase_a.py`.
+
+**El arnés de Chrome tiene el mismo riesgo, y también mordió.** Escribe su página en `app/static/` —tiene que servirse por `file://` con los scripts al lado— y la borra en un `finally` que NO corre si al proceso lo matan antes. El 2026-09-23, al parar una suite lanzada en segundo plano, una quedó ahí y el `git add -A` siguiente se la llevó al repositorio: 1.579 líneas. Cerrado en `.gitignore` (`app/static/tmp*.html`), que es donde no depende de que nadie muera limpiamente.
 
 ### Progreso: medirlo, no estimarlo — y saber qué NO se puede medir
 
@@ -1610,9 +1617,10 @@ Medido: 24,1 MB → **0,38 MB** la película entera y 0,07 MB un zoom; la primer
 #### Las secciones salen de una TABLA, no del marcado
 
 El modal llegó a **ocho bloques en un solo scroll** y ya no se encontraba
-nada. Hoy son dos secciones —**General** (versión · idioma · aviso al
-terminar · mantenimiento) e **Integraciones** (TMDb · Google · repo
-DoviTools · sheet)— con navegación en el lateral izquierdo.
+nada. Hoy son cuatro —**General** (versión · aviso al terminar ·
+mantenimiento), **Aspecto e idioma** (tema · idioma), **Integraciones**
+(TMDb · Google · repo DoviTools · sheet) y **Acerca de** (licencias y
+avisos de terceros)— con navegación en el lateral izquierdo.
 
 **La partición no reordenó el HTML.** Cada `.settings-section` declara un
 `data-bloque` y `SECCIONES_AJUSTES` (en `settings.js`) dice a qué sección va
@@ -1761,6 +1769,12 @@ Cinco decisiones que la definen:
   viva?»— y antes contestaba «API key vacía», que no responde a nada. El
   endpoint distingue las dos y lo dice en el mensaje: un «válida» a secas
   sobre un campo vacío se lee como que lo escrito está bien.
+
+**Y TMDb exige atribución, que llevaba sin aparecer desde el primer día.**
+No basta con citar la fuente: piden una frase concreta, palabra por
+palabra, y su logo. Van en ⚙︎ → **Acerca de** y, además, en el bloque de
+TMDb de Integraciones, que es donde está quien configura la clave. Ver
+«Las licencias de terceros».
 
 **Ojo con `.settings-status.default`**: la clase la usaba ya el sheet y **no
 existía en el CSS** — caía al estilo base y se veía como texto suelto. Es la
@@ -2090,6 +2104,141 @@ Respuesta:
 ### UI
 
 Pill de aviso de nueva versión aparece en el header global (al lado de Help/Lookup/Settings) cuando `update_available=true`. La pill enlaza al `release_url` en GitHub. Clic en "ignorar" persiste `update_ignored_version` y oculta la pill hasta que haya un tag posterior.
+
+---
+
+## Las licencias de terceros
+
+La app **invoca** `ffmpeg`, `ffprobe`, `mkvmerge`, `mkvpropedit`,
+`mkvextract`, `mediainfo` y `dovi_tool` como **procesos independientes**, por
+línea de comandos y tuberías (`subprocess`, `os.pipe()`), y nunca enlaza
+contra sus librerías. Esa es la frontera de «programas separados»: su
+copyleft **no alcanza al código de la app**, que es MIT (`LICENSE`).
+
+Lo que sí obliga es **publicar la imagen**. Son dos cosas distintas y se
+confunden con facilidad: el repositorio no distribuye ningún binario y
+`ghcr.io/aldicarus/hdo-iso-converter` sí, así que conveyarla activa la
+GPLv2 §3 y la GPLv3 §6. Todo el detalle está en `THIRD-PARTY-NOTICES.md`,
+que **viaja dentro de la imagen** —el objeto es esa, no GitHub— y se sirve
+en `/static/`.
+
+Lo que contiene, comprobado en origen y no de memoria:
+
+| componente | licencia | de dónde sale el dato |
+|---|---|---|
+| **FFmpeg** (build estático de BtbN, `/usr/local/bin`) | **GPL-3.0-or-later** | su `variants/defaults-gpl.sh`: `--enable-gpl --enable-version3` y `LICENSE_FILE="COPYING.GPLv3"` |
+| **FFmpeg** (paquete de apt, respaldo en `/usr/bin`) | **GPL-3.0-or-later** | Ubuntu también lo compila con `--enable-gpl --enable-version3` |
+| **MKVToolNix** | **GPL-2.0** | su `COPYING` en codeberg |
+| **MediaInfo** | BSD-2-Clause | mediaarea.net, con frase literal obligatoria |
+| **dovi_tool** | MIT © 2026 quietvoid | su `LICENSE` |
+| **Ubuntu 22.04** + 42 paquetes de Python | mezcla; permisivas salvo `certifi` (MPL-2.0) | los metadatos instalados |
+
+**Sortable.js no cuenta**: va por CDN y no se redistribuye. Si algún día se
+vendoriza, pasa a necesitar su aviso.
+
+### Los inventarios se GENERAN en el build
+
+Los paquetes de apt **no están fijados a una versión** —`apt-get install
+mkvtoolnix` trae la que haya ese día—, así que una tabla escrita a mano
+diría la versión de otro build, y la fuente que hay que poder entregar es
+la del binario que se distribuye. El Dockerfile escribe dos ficheros en
+cada construcción:
+
+- `static/licenses/INSTALLED-PACKAGES.txt` ← `dpkg-query -W`. En la imagen
+  actual son **438 paquetes**, con `mkvtoolnix 88.0-0~ubuntu2204bunkus01`,
+  `ffmpeg 7:4.4.2-0ubuntu0.22.04.1` y `mediainfo 22.03-1`.
+- `static/licenses/PYTHON-DEPENDENCIES.md` ←
+  `tools/generar_avisos_python.py`, que lee los metadatos ya instalados: 42
+  paquetes con su licencia y su línea de copyright. Escribirlos a mano se
+  queda viejo en el primer `pip install` — es el patrón de `_ISO639`, que
+  se deriva de `ISO639_TO_ENGLISH` en vez de ser un subset propio.
+
+**`dpkg-query -W` va sin `-f` a propósito.** Un `${Package}` dentro de un
+`RUN` lo expande **Docker** como build-arg y, al no existir, lo sustituye
+por la cadena vacía sin dar ningún error; el formato por defecto ya es
+`paquete<TAB>versión`.
+
+### Las tres citas literales no pasan por el catálogo
+
+TMDb y MediaArea no piden «cita la fuente»: piden una frase concreta,
+palabra por palabra. Traducirla la invalida, así que son el único texto de
+la interfaz que se queda en inglés y **sin `data-i18n`**.
+
+Eso abre un hueco por los dos lados, y ninguno da error: si desaparecen no
+falla nada, y si alguien las «arregla» metiéndolas en el catálogo tampoco
+—los guards de i18n persiguen CASTELLANO suelto y un literal inglés no les
+dispara—. Por eso `test_atribucion_tmdb.py` es un guard **positivo**: exige
+que estén en el marcado, que **no** estén en ninguno de los tres catálogos,
+que el elemento que las contiene no declare traducción, y que se **lean en
+pantalla** (abre el modal en Chrome y activa «Acerca de»; estar en
+`index.html` no es estar a la vista, que es el fallo mudo que
+`test_secciones_de_ajustes` ya documenta).
+
+**El logo de TMDb va en `app/static/img/`, no en `GLIFOS`.** Es un activo
+de marca con su propio gradiente y su licencia prohíbe recolorearlo, así
+que no puede heredar `currentColor` como los 44 glifos. Misma familia
+aparte que las banderas, y hay un test que comprueba que no se cuela en el
+catálogo.
+
+### La oferta de fuentes, y el tag que no puede ser `v*`
+
+La GPLv2 §3 no admite «apunta a un tercero»: pide una **oferta escrita
+válida tres años** y extensible a cualquiera. Y el enlace natural caduca:
+**BtbN borra sus autobuilds** y solo conserva el último de cada mes, cosa
+que el Dockerfile ya documenta porque costó el build de la v2.8.0.
+
+Así que el binario de ffmpeg se identifica por dos commits permanentes
+—FFmpeg `1fdbca85aa` y FFmpeg-Builds `a99e8230`, que es el que fija la
+versión y la URL de cada una de sus **77 dependencias**— y los dos árboles
+se archivan en una release propia, `sources-ffmpeg-n7.1.5`.
+
+Dos cuidados al crearla, los dos comprobados en vivo:
+
+- **`--latest=false`.** `GET /api/version/check-updates` consulta
+  `/releases/latest`; si la de fuentes quedara marcada como la última, la
+  app anunciaría `sources-ffmpeg-n7.1.5` como versión disponible.
+- **`publish-docker.yml` disparaba con CUALQUIER release**, y
+  `metadata-action` añade siempre `type=raw,value=latest`: publicar la de
+  fuentes habría reconstruido la imagen y **reescrito `latest`** con un tag
+  que no es una versión — terminando en verde, sin señal. Hoy el job lleva
+  `if:` con `startsWith(github.event.release.tag_name, 'v')`, el mismo
+  criterio que el `--match 'v*'` del `git describe` del stage
+  version-detector. Verificado: el evento dispara la ejecución y el job
+  sale `skipped` con 0 steps.
+
+**Regla: al cambiar el pin de ffmpeg hay que subir una release `sources-*`
+nueva**, porque la oferta apunta a los commits de ESE binario. El guard
+avisa de que los avisos no cuadran; la release no se crea sola.
+
+### El variant LGPL de ffmpeg, descartado con números
+
+Se evaluó bajar a `lgpl` para estrechar la obligación, y no sale a cuenta:
+**solo caen 9 de las 77 dependencias** del build (x264, x265, xvid, davs2,
+xavs2, avisynth, frei0r, rubberband, vidstab) y, sobre todo, **no saca la
+GPLv3 de la imagen** — el `apt-get install ffmpeg` deja el de Ubuntu, que
+va con los mismos flags. Solo valdría la pena junto con quitar ese paquete,
+y costaría revalidar con discos reales un binario ya verificado bit a bit.
+
+### Los guards
+
+`test_licencias.py` (20) y `test_atribucion_tmdb.py` (15), verificados por
+mutación. El de más valor cruza las **versiones pineadas del Dockerfile**
+contra los avisos: subir `DOVI_TOOL_VERSION` o el build de ffmpeg y dejar
+el documento en la versión vieja es el fallo de la lista escrita dos veces.
+
+Dos trampas que costaron una mutación cada una, y que valen como recordatorio
+de cómo se ancla un guard sobre prosa:
+
+- comprobar que «LGPL-3.0» aparece **en el documento** no comprueba nada:
+  aparece igualmente en la lista de textos completos y en la oferta, así que
+  pasaba con los dos variants. Se mira **la fila** de ffmpeg de la tabla;
+- y esa fila se ancla por `| **FFmpeg**`, no por «cualquier línea que nombre
+  a BtbN» — el espejo de fuentes lo menciona también y el ancla dejó de ser
+  única en cuanto se escribió.
+
+La lista de herramientas **se deriva del código**, de las constantes
+`X_BIN = "..."`, así que un binario nuevo exige su aviso sin que nadie
+tenga que acordarse.
 
 ---
 
@@ -2446,6 +2595,8 @@ Los dos de `_ReadProgress` cubren la medición de progreso, la maquinaria que es
 
 Detalles que no son accidentales:
 - **Python 3.10**, la misma minor que el contenedor (`ubuntu:22.04`). En el Mac la suite corre sobre 3.12; fijar la del contenedor evita descubrir una incompatibilidad en producción.
+  - **Y no es una precaución teórica.** Una barra invertida dentro de la expresión de una f-string compila en 3.12 (PEP 701) y es `SyntaxError` en 3.10, así que el síntoma no es un test rojo: es un **build de Docker muerto**, y solo aparece construyendo desde cero. Pasó el 2026-09-23 en `tools/generar_avisos_python.py`. CI lo cazó, pero de rebote —lo destaparon dos guards que recorren el fuente por otros motivos— y **no falla en el Mac**, así que el bucle era «subir, esperar a CI, mirar por qué».
+  - Lo acorta `test_sintaxis_del_contenedor`, con la minor leída del propio workflow y no escrita a mano. Son **dos** comprobaciones porque una no basta: `ast.parse(..., feature_version=(3,10))` caza lo de nivel AST (`except*`, PEP 695) pero **NO ve esto**, porque PEP 701 cambió el TOKENIZADOR — el primer intento de guard pasó en verde con el bug delante, que es justo el modo de fallo que este repo persigue. La segunda mitad mira la EXPRESIÓN de cada hueco (una barra en la parte literal es legal desde siempre). Al ponerla aparecieron **tres casos latentes** en `tests/extraer_literales.py`, vivos desde la migración a tres idiomas e invisibles porque los dos guards que escanean el fuente llevan `FUERA = {"tests"}`.
 - **Node 20**, porque cuatro tests (`test_cmv40_plan_frontend`, `test_cmv40_overlay_bloqueante`, `test_cmv40_timeline_layout`, `test_cmv40_eta_sufijo`) evalúan las funciones reales de `app.js` en node y sin él se auto-saltan.
 - Wall time: **~56 s en CI** contra ~175 s en el Mac (los binarios falsos son scripts de Python y la suite paga un arranque de intérprete por cada llamada simulada).
 
