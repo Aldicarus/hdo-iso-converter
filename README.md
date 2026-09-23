@@ -492,4 +492,19 @@ echo "DEV_MODE=1" > .env.local
 
 ## Licencia
 
-MIT
+El código de esta aplicación se distribuye bajo la licencia **MIT** — ver
+[`LICENSE`](LICENSE).
+
+La imagen Docker contiene además software de terceros con licencias propias,
+entre ellas **GPL-2.0** (MKVToolNix) y **GPL-3.0** (FFmpeg). La aplicación
+invoca esas herramientas como procesos independientes y no enlaza contra sus
+librerías, así que su copyleft no alcanza al código de la app; pero
+distribuir la imagen sí conlleva obligaciones sobre esos binarios.
+
+Todo está en [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md): el inventario
+de componentes con su versión y licencia, los avisos de copyright requeridos,
+los textos completos en [`app/static/licenses/`](app/static/licenses/) y la
+oferta escrita de código fuente. En la app en marcha, lo mismo se sirve en
+`/static/licenses/` y se enlaza desde ⚙︎ Configuración → Acerca de.
+
+> This product uses the TMDB API but is not endorsed or certified by TMDB.

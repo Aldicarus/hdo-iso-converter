@@ -132,6 +132,11 @@ LABEL app.commit="${APP_COMMIT}"
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 LABEL org.opencontainers.image.revision="${APP_COMMIT}"
 
+# La imagen NO es solo MIT: lleva binarios GPL. El SPDX describe el conjunto,
+# que es lo que un escáner de cumplimiento espera encontrar aquí.
+LABEL org.opencontainers.image.licenses="MIT AND GPL-3.0-or-later AND GPL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND Apache-2.0 AND MPL-2.0"
+LABEL org.opencontainers.image.documentation="https://github.com/Aldicarus/hdo-iso-converter/blob/main/THIRD-PARTY-NOTICES.md"
+
 # La clave de TMDb con la que la app funciona sin configurar nada. NO está en
 # el repositorio: la inyecta el workflow de GHCR desde un secreto, así que
 # quien mire el código en GitHub no encuentra nada que descodificar. Queda
@@ -158,6 +163,26 @@ COPY --from=version-detector /VERSION /app/VERSION
 COPY --from=version-detector /COMMIT /app/COMMIT
 
 COPY app/ .
+
+# ── Avisos de terceros ────────────────────────────────────────────────────────
+# La obligación de la GPL es sobre el OBJETO que se distribuye, y el objeto es
+# ESTA IMAGEN, no el repositorio de GitHub: los avisos y la oferta de fuentes
+# tienen que viajar dentro. Ver THIRD-PARTY-NOTICES.md.
+#
+# Los dos ficheros se GENERAN aquí en vez de escribirse a mano porque los
+# paquetes de apt NO están fijados a una versión: cada build puede traer otra,
+# y la fuente que hay que poder entregar es la de esta imagen. Una lista
+# escrita a mano diría la versión de otro día — es el mismo fallo que un
+# subset de idiomas mantenido en paralelo.
+#
+# `dpkg-query -W` sin `-f` ya emite `paquete<TAB>versión`. Se evita el formato
+# explícito a propósito: un `${Package}` en un RUN lo expande DOCKER como
+# build-arg, y al no existir se sustituye por la cadena vacía sin dar error.
+COPY LICENSE THIRD-PARTY-NOTICES.md ./
+RUN cp THIRD-PARTY-NOTICES.md ./static/ \
+    && dpkg-query -W | sort > ./static/licenses/INSTALLED-PACKAGES.txt \
+    && python3 tools/generar_avisos_python.py > ./static/licenses/PYTHON-DEPENDENCIES.md \
+    && echo "Avisos: $(wc -l < ./static/licenses/INSTALLED-PACKAGES.txt) paquetes de sistema"
 
 # ── Volumes ───────────────────────────────────────────────────────────────────
 # Declaracion para `docker run` standalone. Con docker-compose los binds del
