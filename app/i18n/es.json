@@ -34,6 +34,8 @@
   "cmv40.fase_phase_name_ignorada_ya_hay_otra": "⏭ Fase {phase_name} ignorada — ya hay otra fase ({running}) en curso para este proyecto",
   "cmv40.fase_phase_name_omitida_el_proyecto_ya": "⏭ Fase {phase_name} omitida — el proyecto ya está en '{new_phase}': el trabajo de esta fase ya está hecho. (Para rehacerla, usa 🔄 Rehacer, que retrocede el estado.)",
   "cmv40.fase_preflight": "Validando el bin target",
+  "cmv40.fase_preflight_source": "Pre-flight — Analizando el MKV origen",
+  "cmv40.fase_preflight_target": "Pre-flight — Validando el bin target",
   "cmv40.fase_remux": "Fase G — Remuxando el MKV final",
   "cmv40.fase_target_rpu_drive": "Fase B — Descargando el RPU del repositorio",
   "cmv40.fase_target_rpu_mkv": "Fase B — Extrayendo el RPU de otro MKV",

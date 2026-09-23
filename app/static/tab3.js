@@ -5425,7 +5425,7 @@ function _cmv40PhaseToast(pid, msg) {
 }
 
 async function cmv40DoAnalyzeSource(pid) {
-  await apiFetch(`/api/cmv40/${pid}/analyze-source`, { method: 'POST' });
+  await _cmv40PostFase(`/api/cmv40/${pid}/analyze-source`);
   _cmv40PhaseToast(pid, tr('tab3.analizando_origen'));
   // Polling hasta que termine la fase
   _cmv40PollPhase(pid, 'source_analyzed', 'error');
@@ -5445,6 +5445,34 @@ const CMV40_POLL_PHASE_MS = 1500;
  * Si el proyecto tiene project.autoContinue === true y terminó la fase con
  * éxito, dispara la siguiente fase automáticamente (sin atravesar Fase D).
  */
+/** Arranca una fase, tolerando el 409 de «ya la arrancó el otro disparador».
+ *
+ *  El auto-pipeline tiene DOS disparadores —el orquestador del backend y
+ *  `_cmv40MaybeAutoAdvance`— y el servidor rechaza el segundo con un 409.
+ *  Eso es el guard haciendo su trabajo, no un fallo: lo que el usuario veía
+ *  era un toast ROJO de «ya hay una fase en curso» justo después de pulsar
+ *  Continuar, y el job continuando igualmente. Reportado el 2026-09-23 en la
+ *  Fase D y otra vez en la G.
+ *
+ *  **No se silencia el 409 entero**, que sería tapar dos avisos que sí
+ *  importan (la sesión con un error sin resolver, el gate de sync sin pasar).
+ *  Se mira la cabecera `X-Fase-Ya-En-Curso`, que el guard pone y el texto no
+ *  puede sustituir: el detalle está traducido y comparar prosa del catálogo
+ *  es lo que `test_el_paso_no_se_adivina` prohíbe.
+ */
+async function _cmv40PostFase(url, opts = {}) {
+  const est = {};
+  const r = await apiFetch(url, { ...opts, method: opts.method || 'POST',
+                                  silent: true, estado: est });
+  if (r) return r;
+  if (est.status === 409
+      && est.headers && est.headers.get('X-Fase-Ya-En-Curso') === '1') {
+    return { ya_en_curso: true };        // benigno: alguien llegó antes
+  }
+  if (est.detalle) showToast(tr('comun.error_p1', {p1: est.detalle}), 'error');
+  return null;
+}
+
 async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries = 600) {
   // Singleton por pid: se dispara desde varios sitios (analyze, target-provided,
   // inject…). Sin guard, dos llamadas para el mismo proyecto corrían bucles de
@@ -5502,6 +5530,12 @@ const AUTO_ADVANCE_RETRY_MS = 12000;
 function _cmv40MaybeAutoAdvance(project) {
   if (!project.autoContinue) return;
   const s = project.session;
+  // El aviso de pausa caduca al cambiar de fase. Va ANTES de los `return`
+  // de abajo: si no, rehacer una fase y volver a pararse en el mismo punto
+  // se quedaría sin aviso.
+  if (project._pausaAvisadaEn && project._pausaAvisadaEn !== s.phase) {
+    project._pausaAvisadaEn = null;
+  }
   if (s.running_phase || s.error_message || s.archived) return;
   // YA ESPERA TURNO. Desde que un turno de cola es el proyecto entero, entre
   // «encolado» y «corriendo» hay un hueco en el que `running_phase` sigue a
@@ -5645,7 +5679,16 @@ function _cmv40MaybeAutoAdvance(project) {
         // ON para que al pulsar "Confirmar sync" (o aplicar correccion) la
         // cadena retome automaticamente hacia Fase F.
         project._autoChaining = false;
-        showToast(tr('tab3.auto_pausado_en_fase_d_los'), 'info');
+        // **Una vez por llegada a la pausa.** Este brazo no avanza de fase:
+        // solo avisa. Y a `_cmv40MaybeAutoAdvance` la llaman el poller de
+        // fase, el de seguridad (cada 4 s) y el WS, así que mientras el job
+        // esperaba aquí el aviso salía una y otra vez — reportado el
+        // 2026-09-23. Los demás brazos no lo tenían porque avanzan, y al
+        // avanzar dejan de entrar.
+        if (project._pausaAvisadaEn !== s.phase) {
+          project._pausaAvisadaEn = s.phase;
+          showToast(tr('tab3.auto_pausado_en_fase_d_los'), 'info');
+        }
       }
       break;
     }
@@ -5696,7 +5739,7 @@ async function _cmv40AutoTargetMkv(pid, mkvPath) {
 }
 
 async function _cmv40AutoInject(pid) {
-  await apiFetch(`/api/cmv40/${pid}/inject`, { method: 'POST' });
+  await _cmv40PostFase(`/api/cmv40/${pid}/inject`);
   _cmv40PollPhase(pid, 'injected');
 }
 
@@ -5716,7 +5759,7 @@ function _cmv40SyncGateLocal(delta, confOk, confPct) {
 }
 
 async function _cmv40AutoMarkSynced(pid) {
-  await apiFetch(`/api/cmv40/${pid}/mark-synced`, { method: 'POST' });
+  await _cmv40PostFase(`/api/cmv40/${pid}/mark-synced`);
   _cmv40PollPhase(pid, 'sync_verified');
 }
 
@@ -5959,7 +6002,7 @@ async function cmv40DoTargetFromMkv(pid) {
 }
 
 async function cmv40DoExtract(pid) {
-  await apiFetch(`/api/cmv40/${pid}/extract`, { method: 'POST' });
+  await _cmv40PostFase(`/api/cmv40/${pid}/extract`);
   _cmv40PhaseToast(pid, tr('tab3.extrayendo_bl_el_y_datos_per'));
   _cmv40PollPhase(pid, 'extracted');
 }
@@ -5969,7 +6012,7 @@ async function cmv40DoInject(pid) {
     tr('tab3.inyectar_rpu_2'),
     tr('tab3.esto_creara_el_injected_hevc_has'),
     async () => {
-      await apiFetch(`/api/cmv40/${pid}/inject`, { method: 'POST' });
+      await _cmv40PostFase(`/api/cmv40/${pid}/inject`);
       _cmv40PhaseToast(pid, tr('tab3.inyectando_rpu'));
       _cmv40PollPhase(pid, 'injected');
     },
@@ -5978,13 +6021,13 @@ async function cmv40DoInject(pid) {
 }
 
 async function cmv40DoRemux(pid) {
-  await apiFetch(`/api/cmv40/${pid}/remux`, { method: 'POST' });
+  await _cmv40PostFase(`/api/cmv40/${pid}/remux`);
   _cmv40PhaseToast(pid, tr('tab3.toast_remuxando_a_mkv_final'));
   _cmv40PollPhase(pid, 'remuxed');
 }
 
 async function cmv40DoValidate(pid) {
-  await apiFetch(`/api/cmv40/${pid}/validate`, { method: 'POST' });
+  await _cmv40PostFase(`/api/cmv40/${pid}/validate`);
   _cmv40PhaseToast(pid, tr('tab3.toast_validando_mkv_final'));
   // Polling — Fase H dura varios minutos (move 42 GB), no se puede hacer síncrono
   _cmv40PollPhase(pid, 'done');
@@ -6709,7 +6752,7 @@ async function cmv40DoApplySync(pid) {
 }
 
 async function cmv40DoSkipSync(pid) {
-  const data = await apiFetch(`/api/cmv40/${pid}/mark-synced`, { method: 'POST' });
+  const data = await _cmv40PostFase(`/api/cmv40/${pid}/mark-synced`);
   if (data) {
     showToast(tr('tab3.toast_sync_confirmado'), 'success');
     const project = openCMv40Projects.find(p => p.id === pid);

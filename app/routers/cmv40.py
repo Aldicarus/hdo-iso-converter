@@ -90,6 +90,29 @@ relato.registrar(workload.TAB_CMV40, _resolver_relato)
 #: `phase_name` → el prefijo con el que el pipeline marca sus líneas. La
 #: justificación se emite con el MISMO, para que se lea como una línea más de
 #: la fase y no como un comentario suelto del orquestador.
+def _separador_de_fase(fase: str) -> str:
+    """La línea `━━━ … ━━━` que abre una fase en el log.
+
+    **El `━━━` es un contrato** —`_CMV40_LOG_FORCE_PERSIST_MARKERS` lo usa
+    para forzar el guardado, y el frontend para colorear—, así que el prefijo
+    no se toca; el texto de dentro sí.
+
+    Decía la CLAVE INTERNA (`━━━ Inicio fase: remux ━━━`), que no es ni el
+    número de fase ni el nombre que usa el resto de la aplicación: el log
+    hablaba de `remux` mientras las cards, la timeline y el relato decían
+    «Fase G». Y los dos pre-flight se llamaban los dos «preflight», así que
+    en el log parecía el mismo separador duplicado. Reportado el 2026-09-23.
+
+    Sale del MISMO catálogo que el relato (`cmv40.fase_{id}`), así que no
+    puede contar algo distinto de lo que la ficha enseña. Un id sin nombre
+    canónico cae a su clave antes que quedarse sin separador.
+    """
+    nombre = tr(f"cmv40.fase_{fase}")
+    if nombre == f"cmv40.fase_{fase}":      # `t` devuelve la clave si falta
+        nombre = fase
+    return f"━━━ {nombre} ━━━"
+
+
 _FASE_CORTA = {
     "analyze_source": "Fase A", "target_rpu_path": "Fase B",
     "target_rpu_drive": "Fase B", "target_rpu_mkv": "Fase B",
@@ -815,7 +838,7 @@ async def _run_cmv40_phase_locked(
             # fase debe emitirse siempre, aunque coincida con la última de
             # la fase anterior.
             _cmv40_last_progress.pop(session.id, None)
-            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_phase_name', phase_name=phase_name) + ' ━━━')
+            await _cmv40_log(session, _separador_de_fase(phase_name))
             # De dónde viene esta fase. Va AQUÍ y no en cada `run_phase_*` por
             # dos motivos: ninguna se puede quedar sin ella, y el texto sale
             # del mismo objeto que el resto del relato, así que no puede
@@ -1011,13 +1034,25 @@ def _cmv40_guard_no_duplicado(session: CMv40Session) -> None:
     El servidor es el único que sabe si ya hay una en marcha: el frontend
     decide sobre el snapshot de su último poll.
     """
+    #
+    # El 409 va MARCADO con una cabecera. Los dos disparadores pueden pedir
+    # la misma fase con segundos de diferencia, y entonces este rechazo es el
+    # guard funcionando: el trabajo sigue su curso. Lo que el usuario veía era
+    # un toast ROJO de «ya hay una fase en curso» justo después de pulsar
+    # Continuar, y el job continuando igualmente — reportado el 2026-09-23.
+    #
+    # La marca es una cabecera y no el texto porque el texto está traducido:
+    # comparar prosa del catálogo es justo lo que `test_el_paso_no_se_adivina`
+    # prohíbe. Y no se silencia el 409 entero: el de
+    # `_cmv40_guard_no_pending_error` SÍ tiene que verse.
+    DUPLICADA = {"X-Fase-Ya-En-Curso": "1"}
     if session.running_phase:
         raise HTTPException(
-            status_code=409,
+            status_code=409, headers=DUPLICADA,
             detail=tr('cmv40.ya_hay_una_fase_en_curso', running_phase=session.running_phase))
     if queue_manager.buscar(f"{queue_manager_mod.TIPO_FASE_CMV40}:{session.id}"):
         raise HTTPException(
-            status_code=409,
+            status_code=409, headers=DUPLICADA,
             detail=tr('cmv40.este_proyecto_ya_tiene_una_fase'))
 
 
@@ -1651,7 +1686,7 @@ async def _cmv40_correr_preflight(
         session.error_message = ""
         session.target_preflight_ok = False
         save_cmv40_session(session)
-        await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight') + ' ━━━')
+        await _cmv40_log(session, _separador_de_fase("preflight_target"))
 
         async def _log_cb(msg: str):
             await _cmv40_log(session, msg)
@@ -4052,7 +4087,7 @@ async def cmv40_preflight_source(session_id: str):
                 titulo=_titulo_wl, poster=_poster_wl)
             session.error_message = ""
             save_cmv40_session(session)
-            await _cmv40_log(session, '━━━ ' + tr('cmv40.inicio_fase_preflight_source_only') + ' ━━━')
+            await _cmv40_log(session, _separador_de_fase("preflight_source"))
 
             async def _log_cb(msg: str):
                 await _cmv40_log(session, msg)

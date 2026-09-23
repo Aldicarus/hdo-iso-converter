@@ -56,6 +56,8 @@ FUERA_DEL_CATALOGO = {
 # puede eximir por función —porque vive en el ámbito del módulo—. Mismo
 # mecanismo que `FUERA_DEL_CATALOGO_BACKEND`.
 FUERA_DEL_CATALOGO_JS: dict[str, str] = {
+    "X-Fase-Ya-En-Curso":
+        "el nombre de una CABECERA HTTP, no un rótulo. La pone el guard de\n         fases duplicadas para que el frontend distinga su 409 —benigno: lo\n         arrancó el otro disparador del auto-pipeline— del 409 de «la sesión\n         tiene un error sin resolver», que sí hay que enseñar. Va en una\n         cabecera y no en el texto justamente porque el texto está traducido\n         y comparar prosa del catálogo es lo que prohíbe\n         `test_el_paso_no_se_adivina`.",
     # El `LANGUAGE_MAP` de `core.js` se fue el 2026-09-17: el nombre del
     # idioma en PANTALLA sale ahora del catálogo (`langLiteral` →
     # `idioma.<lang>`) y el literal que va dentro del MKV lo escribe el
@@ -120,6 +122,8 @@ _CONSOLA = re.compile(r"console\.\w+\s*\(")
 # escribir por qué — es la misma regla que la lista de excepciones del guard
 # del event loop.
 FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
+    "X-Fase-Ya-En-Curso":
+        "el nombre de una CABECERA HTTP, no un rótulo. La pone el guard de\n         fases duplicadas para que el frontend distinga su 409 —benigno: lo\n         arrancó el otro disparador del auto-pipeline— del 409 de «la sesión\n         tiene un error sin resolver», que sí hay que enseñar. Va en una\n         cabecera y no en el texto justamente porque el texto está traducido\n         y comparar prosa del catálogo es lo que prohíbe\n         `test_el_paso_no_se_adivina`.",
     "window.__I18N = {idioma: %s, pista_preferida: %s, catalogo: %s};":
         "es JAVASCRIPT, no texto: la plantilla de la siembra del catálogo "
         "que sirve `/api/i18n/catalogo.js`. Los nombres de sus campos son "

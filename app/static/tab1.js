@@ -4852,10 +4852,11 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
   opts.signal = controller.signal;
   try {
     const resp = await fetch(url, opts);
-    if (estado) estado.status = resp.status;
+    if (estado) { estado.status = resp.status; estado.headers = resp.headers; }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
       const detalle = err.detail || resp.statusText;
+      if (estado) estado.detalle = detalle;
       if (!silent) showToast(tr('comun.error_p1', {p1: detalle}), 'error');
       console.warn(`[Error API] ${url}: ${detalle}`);
       return null;
