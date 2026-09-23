@@ -404,6 +404,18 @@ async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) ->
     except asyncio.TimeoutError:
         proc.kill()
         raise RuntimeError(tr('cmv40_pipeline.timeout_tras_s', timeout=timeout, p2=cmd[0]))
+    # **Cancelar no es fallar.** Al cancelar se le manda un SIGTERM al
+    # proceso, y el rc llega NEGATIVO (-15): los 36 sitios que comprueban el
+    # código lo tomaban por un fallo del pipeline y la fase acababa en
+    # «Fase remux FALLÓ: mkvmerge falló (código -15)» con su banner rojo.
+    # Reportado el 2026-09-23 cancelando una Fase G a mano.
+    #
+    # Se resuelve AQUÍ y no en los 36 sitios: el predicado ya se consulta
+    # antes de cada subproceso, y consultarlo también DESPUÉS convierte la
+    # muerte por cancelación en `CMv40Cancelled`, que el orquestador ya sabe
+    # registrar como cancelada y sin tocar `error_message`.
+    if proc.returncode not in (0, 1):
+        raise_if_cancelled()
     return (
         proc.returncode,
         stdout.decode("utf-8", errors="replace"),
@@ -970,6 +982,18 @@ async def _run_streaming(
             '[ffmpeg] ' + tr('cmv40_pipeline.i_total_de_warnings_dts_no', p1=suppressed_dts_warnings - 1)
         )
 
+    # **Cancelar no es fallar.** Al cancelar se le manda un SIGTERM al
+    # proceso, y el rc llega NEGATIVO (-15): los 36 sitios que comprueban el
+    # código lo tomaban por un fallo del pipeline y la fase acababa en
+    # «Fase remux FALLÓ: mkvmerge falló (código -15)» con su banner rojo.
+    # Reportado el 2026-09-23 cancelando una Fase G a mano.
+    #
+    # Se resuelve AQUÍ y no en los 36 sitios: el predicado ya se consulta
+    # antes de cada subproceso, y consultarlo también DESPUÉS convierte la
+    # muerte por cancelación en `CMv40Cancelled`, que el orquestador ya sabe
+    # registrar como cancelada y sin tocar `error_message`.
+    if proc.returncode not in (0, 1):
+        raise_if_cancelled()
     return proc.returncode
 
 

@@ -4048,8 +4048,11 @@ function _cmv40RenderFaseCard(pid, s, fase, state, isExpanded) {
           ${_cmv40FaseDoneBody(fase.key, pid, s)}
           ${s.archived ? '' : `
           <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--sep)">
-            <button class="btn btn-danger btn-sm" onclick="_cmv40Redo('${pid}','${fase.reset_to}','${fase.key}')"
-              data-i18n-tip="tab3.vuelve_a_esta_fase_las_fases"><span data-icono="refrescar"></span> <span data-i18n="tab3.rehacer_esta_fase_2"></span></button>
+            ${_cmv40Ocupado(s)
+              ? `<button class="btn btn-danger btn-sm" disabled
+              data-i18n-tip="tab3.no_se_puede_rehacer_ocupado"><span data-icono="refrescar"></span> <span data-i18n="tab3.rehacer_esta_fase_2"></span></button>`
+              : `<button class="btn btn-danger btn-sm" onclick="_cmv40Redo('${pid}','${fase.reset_to}','${fase.key}')"
+              data-i18n-tip="tab3.vuelve_a_esta_fase_las_fases"><span data-icono="refrescar"></span> <span data-i18n="tab3.rehacer_esta_fase_2"></span></button>`}
           </div>`}
         </div>`;
     } else {
@@ -5010,7 +5013,11 @@ function _cmv40FaseDoneBody(key, pid, s) {
     const syncConfigHtml = s.sync_config
       ? `<div style="margin-bottom:10px; font-size:12px">
           <span style="color:var(--text-3)" data-i18n="tab3.correccion_aplicada"></span>
-          <pre style="margin-top:6px; font-size:11px; background:var(--surface-2); padding:8px; border-radius:4px">${escHtml(JSON.stringify(s.sync_config, null, 2))}</pre>
+          <div style="margin-top:4px">${escHtml(_cmv40ResumenDeCorreccion(s.sync_config))}</div>
+          <details style="margin-top:6px">
+            <summary style="font-size:11px; color:var(--text-3); cursor:pointer" data-i18n="tab3.correccion_ver_json"></summary>
+            <pre style="margin-top:6px; font-size:11px; background:var(--surface-2); padding:8px; border-radius:4px">${escHtml(JSON.stringify(s.sync_config, null, 2))}</pre>
+          </details>
         </div>`
       : '<div style="font-size:12px; color:var(--text-3); margin-bottom:10px">' + tr('tab3.sincronizacion_confirmada_sin_correccion_2') + '</div>';
     return `
@@ -5460,6 +5467,22 @@ const CMV40_POLL_PHASE_MS = 1500;
  *  puede sustituir: el detalle está traducido y comparar prosa del catálogo
  *  es lo que `test_el_paso_no_se_adivina` prohíbe.
  */
+/** ¿Este proyecto tiene trabajo en marcha o esperando turno?
+ *
+ *  Rehacer una fase borra artefactos y rebobina el estado, así que con algo
+ *  en vuelo el backend lo rechaza con un 409. El botón se veía activo
+ *  igualmente y lo único que producía era un toast rojo — el mismo criterio
+ *  que ya se aplica al lanzador de la fase activa unas líneas más arriba:
+ *  un botón que solo sabe dar un error es peor que uno que no está.
+ *  Reportado el 2026-09-23.
+ *
+ *  Cuenta también la COLA: una fase esperando turno correría después contra
+ *  un estado rebobinado, que es la misma incoherencia con más retardo.
+ */
+function _cmv40Ocupado(s) {
+  return !!(s && (s.running_phase || s.cola));
+}
+
 async function _cmv40PostFase(url, opts = {}) {
   const est = {};
   const r = await apiFetch(url, { ...opts, method: opts.method || 'POST',
@@ -5973,7 +5996,7 @@ async function cmv40DoTargetFromPath(pid) {
     body: JSON.stringify({ rpu_path: rpuPath }),
   });
   if (data) {
-    showToast('RPU target cargado', 'success');
+    showToast(tr('tab3.rpu_target_cargado'), 'success');
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
       _cmv40AssignSession(project, data);
@@ -6369,6 +6392,45 @@ async function _cmv40DeleteFromSidebar(sid) {
 
 // ── Chart interactivo de sincronización (Fase D) ─────────────────
 
+/** «Quitados 72 frames · duplicados 0 · en 1 paso», y el JSON debajo.
+ *
+ *  La card enseñaba `JSON.stringify(sync_config, null, 2)` en un `<pre>`, que
+ *  es el dato de diagnóstico y no lo que alguien viene a leer. Se resume, y
+ *  el JSON se queda plegado para quien lo necesite — como 🔬 Datos ISO.
+ */
+function _cmv40ResumenDeCorreccion(cfg) {
+  if (!cfg) return '';
+  const pasos = Array.isArray(cfg.steps) ? cfg.steps.length
+              : (Object.keys(cfg).length ? 1 : 0);
+  return tr('tab3.correccion_resumen', {
+    quitados: _cmv40Num(cfg.total_removed || 0),
+    duplicados: _cmv40Num(cfg.total_duplicated || 0),
+    pasos: pasos === 1 ? tr('tab3.correccion_un_paso')
+                       : tr('tab3.correccion_n_pasos', {n: pasos}),
+  });
+}
+
+/** Un canvas sin datos se ve NEGRO y no dice nada.
+ *
+ *  `sync-data` lee `per_frame_data.json` del workdir, y ese volcado no
+ *  siempre está: la ruta drop-in no lo crea (`per_frame_data_skipped`) y la
+ *  limpieza de artefactos se lo lleva. El cargador hacía `if (!data) return`,
+ *  así que al abrir la card de Fase D de un proyecto ya pasado quedaba un
+ *  rectángulo negro con un «el gráfico se muestra en modo solo lectura» al
+ *  lado — y no se podía ver ni navegar nada. Reportado el 2026-09-23.
+ *
+ *  Es la misma regla que el resto del proyecto: antes que un hueco con
+ *  pinta de dato, decir qué pasa.
+ */
+function _cmv40ChartSinDatos(pid, est) {
+  const wrap = document.getElementById(`cmv40-chart-wrap-${pid}`);
+  if (!wrap) return;
+  const motivo = (est && est.status === 404)
+    ? tr('tab3.sync_sin_volcado') : tr('tab3.sync_no_se_pudo_leer');
+  wrap.innerHTML = `<div class="banner info"><span class="banner-icon">`
+    + icono('info') + `</span><span>${escHtml(motivo)}</span></div>`;
+}
+
 async function _loadCMv40SyncChart(project) {
   const pid = project.id;
   // Skip defensivo: si el canvas del chart no existe en el DOM (p.ej. Fase D
@@ -6384,8 +6446,10 @@ async function _loadCMv40SyncChart(project) {
     project._syncDataLoading = true;
     try {
       // Sin rango: el backend devuelve la película entera reducida a cubos.
-      const data = await apiFetch(`/api/cmv40/${pid}/sync-data`);
-      if (!data) return;
+      const est = {};
+      const data = await apiFetch(`/api/cmv40/${pid}/sync-data`,
+                                  { silent: true, estado: est });
+      if (!data) { _cmv40ChartSinDatos(pid, est); return; }
       project.syncData = data;
     } finally {
       project._syncDataLoading = false;

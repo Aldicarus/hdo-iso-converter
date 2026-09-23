@@ -524,7 +524,11 @@ class TestEsperandoTurnoNadieVuelveADispararLaFase(unittest.TestCase):
         i = cmv40.__file__
         src = Path(i).read_text(encoding="utf-8")
         j = src.index("def _cmv40_guard_no_duplicado(")
-        self.assertIn("queue_manager.buscar", src[j:j + 1400])
+        # Hasta el FINAL de la función, no 1.400 bytes: el corte por tamaño
+        # se rompió en cuanto el guard ganó un comentario, señalando a un
+        # código que seguía haciendo exactamente lo que este test pide.
+        cuerpo = src[j:src.index("\n\n\n", j)]
+        self.assertIn("queue_manager.buscar", cuerpo)
 
 
 @unittest.skipIf(__import__("shutil").which("node") is None, "sin node")

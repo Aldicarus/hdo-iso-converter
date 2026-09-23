@@ -73,7 +73,12 @@ RESPONDEN_AL_INSTANTE = {
 
 # `apiFetch('<url>'|`<url>`, {…}[, timeout])`. Se captura hasta el `)` que
 # cierra, contando llaves para no cortar en un `}` del cuerpo.
-_APIFETCH = re.compile(r"apiFetch\(\s*([`'\"])([^`'\"]+)\1")
+# `_cmv40PostFase` es un ENVOLTORIO de `apiFetch` —tolera el 409 de «ya la
+# arrancó el otro disparador»— así que sus llamadas cuentan igual. Sin esto,
+# pasar las nueve fases por él dejaba sus rutas como «exentas que ya no se
+# llaman».
+_APIFETCH = re.compile(
+    r"(apiFetch|_cmv40PostFase)\(\s*([`'\"])([^`'\"]+)\2")
 
 
 def _plantilla(url: str) -> str:
@@ -116,7 +121,7 @@ def _llamadas_pesadas():
             continue
         src = ruta.read_text(encoding="utf-8")
         for m in _APIFETCH.finditer(src):
-            plant = _plantilla(m.group(2))
+            plant = _plantilla(m.group(3))
             if plant not in por_patron:
                 continue
             args = _argumentos(src, m.start())
@@ -124,7 +129,11 @@ def _llamadas_pesadas():
             # Con varias rutas al mismo camino (GET/DELETE), se elige por el
             # `method:` que lleve la llamada; sin él, GET.
             met = re.search(r"method:\s*['\"](\w+)['\"]", args)
-            met = met.group(1).upper() if met else "GET"
+            # `_cmv40PostFase` pone `method: 'POST'` por defecto, así que sin
+            # `method:` explícito es POST y no GET. Con el default de
+            # `apiFetch` habría dejado las nueve fases sin cruzar.
+            por_defecto = "POST" if m.group(1) == "_cmv40PostFase" else "GET"
+            met = met.group(1).upper() if met else por_defecto
             elegida = next((r for r, mm in candidatos if mm == met), None)
             if elegida is None:
                 continue

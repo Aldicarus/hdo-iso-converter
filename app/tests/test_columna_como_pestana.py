@@ -246,7 +246,7 @@ def _medir() -> dict:
       pills:      r(q('.workbar-pills')),
       tabBar:     r(q('#tab-bar')),
       barVacia,
-      puntoDesplegada: getComputedStyle(q('.workbar-toggle'), '::after').content,
+      puntoDesplegada: getComputedStyle(q('.workbar-count'), '::after').content,
       tabActiva:  r(q('#tab-bar .tab.active')),
       tabInactiva:r(q('#tab-bar .tab:not(.active)')),
       franjaSidebar: r(q('#sidebar-tab-1 .sidebar-new-project-area')),
@@ -288,7 +288,7 @@ def _medir() -> dict:
     await new Promise(r => setTimeout(r, 30));
     out.plegada = r(q('#workbar'));
     out.tabPlegada = r(q('.workbar-tab'));
-    out.puntoPlegada = getComputedStyle(q('.workbar-toggle'), '::after').content;
+    out.puntoPlegada = getComputedStyle(q('.workbar-count'), '::after').content;
     out.franjaPlegada = r(q('.workbar-shelf'));
 
     document.getElementById('__out').textContent = JSON.stringify(out);

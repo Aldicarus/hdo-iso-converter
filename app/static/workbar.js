@@ -48,7 +48,15 @@ function _aplicarEstadoWorkbar() {
   // Un solo escritor —esta línea— y dos lectores en el CSS.
   document.body.classList.toggle('workbar-plegada', !abierta);
   if (btn) {
-    btn.textContent = abierta ? '›' : '‹';
+    // El glifo del catálogo, no un `›` de texto. Un carácter suelto lo dibuja
+    // la tipografía del sistema, no se lee como un control y —plegada la
+    // columna a 28 px— no había forma de saber que servía para expandir.
+    // Reportado el 2026-09-23.
+    if (btn.dataset.pintado !== 'si') {
+      btn.innerHTML = icono('chevron');
+      btn.dataset.pintado = 'si';
+    }
+    btn.classList.toggle('hacia-izquierda', !abierta);
     btn.setAttribute('aria-expanded', abierta ? 'true' : 'false');
   }
 }
@@ -404,8 +412,12 @@ function _workbarRender(st) {
   // La tira plegada: el contador va en el propio botón, para que cerrar la
   // columna no te deje sin saber que hay algo en marcha.
   const btn = document.getElementById('workbar-toggle');
+  // El punto de «hay trabajo» va en el CONTADOR, no en el botón. Colgado del
+  // botón, la tira plegada apilaba tres cosas —el número, el punto y la
+  // flecha— en tres alturas distintas y descuadradas. En el contador son una
+  // sola pieza: el número con su pulso.
+  if (cuenta) cuenta.classList.toggle('con-trabajo', total > 0);
   if (btn) {
-    btn.classList.toggle('con-trabajo', total > 0);
     btn.dataset.tooltip = total
       ? tr('workbar.trabajo_en_curso_abrir_la_columna', {total: total, p2: total === 1 ? '' : 's'})
       : tr('ui.mostrar_u_ocultar_la_columna_de');

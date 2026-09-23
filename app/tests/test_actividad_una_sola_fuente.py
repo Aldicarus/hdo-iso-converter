@@ -176,7 +176,9 @@ globalThis._workbarCargarHistorial = async () => {{}};
     peticiones: _peticiones,
     html: (_els['workbar-body'].innerHTML || '') + (_els['workbar-historial'].innerHTML || ''),
     cuenta: _els['workbar-count'].textContent,
-    conTrabajo: _els['workbar-toggle'].classList.has('con-trabajo'),
+    // El punto de «hay trabajo» se movió del botón al CONTADOR: plegada
+    // la columna, colgado del botón apilaba tres piezas a tres alturas.
+    conTrabajo: _els['workbar-count'].classList.has('con-trabajo'),
     estado: workbarEstado,
   }}));
 }})();

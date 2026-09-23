@@ -9744,6 +9744,14 @@ body.workbar-plegada .workbar-tab {
 body.workbar-plegada .workbar-tab-icono,
 body.workbar-plegada .workbar-tab-texto { display: none; }
 body.workbar-plegada .workbar-count { margin-left: 0; padding: 1px 5px; }
+/* Plegada la columna, la tira son DOS piezas centradas —el contador con su
+   pulso y el chevron— y no tres a distintas alturas. El botón lleva padding
+   simétrico porque en 28 px un píxel de más se ve. */
+body.workbar-plegada .workbar-toggle { padding: 3px; }
+.workbar-toggle svg { width: 15px; height: 15px; display: block;
+                      transition: transform var(--t-fast) var(--ease); }
+.workbar-toggle.hacia-izquierda svg { transform: rotate(180deg); }
+.workbar-count { position: relative; }
 
 /* ── Columna de trabajo ────────────────────────────────────────────
    La columna de la derecha, la misma en las tres pestañas porque la cola es
@@ -10122,7 +10130,7 @@ input.workbar-search-input {
    3 px en cuanto arrancaba un trabajo**. Lo cazó una mutación: sin
    `align-self: stretch` la pestaña seguía casando de alto, que es imposible
    salvo que algo la estuviera estirando por su cuenta. */
-body.workbar-plegada .workbar-toggle.con-trabajo::after {
+body.workbar-plegada .workbar-count.con-trabajo::after {
   content: '';
   position: absolute;
   top: -2px; right: -3px;

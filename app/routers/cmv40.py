@@ -3514,10 +3514,17 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
-    if session.running_phase:
+    # Y la COLA cuenta igual: una fase esperando turno se ejecutaría
+    # después contra un estado ya rebobinado. El guard solo miraba
+    # `running_phase`, así que ese hueco quedaba abierto.
+    en_cola = queue_manager.buscar(
+        f"{queue_manager_mod.TIPO_FASE_CMV40}:{session.id}")
+    if session.running_phase or en_cola:
         raise HTTPException(
             status_code=409,
-            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_2', running_phase=session.running_phase),
+            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_2',
+                      running_phase=session.running_phase
+                      or (en_cola.datos or {}).get("fase", "?")),
         )
 
     if session.archived:
