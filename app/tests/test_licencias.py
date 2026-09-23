@@ -241,6 +241,34 @@ class TestLosAvisosViajanEnLaImagen(unittest.TestCase):
         self.assertTrue((APP / "tools" / "generar_avisos_python.py").is_file())
 
 
+class TestLaReleaseDeFuentesNoRepublicaLaImagen(unittest.TestCase):
+    """Los avisos prometen las fuentes en una release `sources-*`, y
+    publicarla no puede tocar la imagen.
+
+    `publish-docker.yml` dispara con `release: [published]` sin filtrar el
+    tag, y `metadata-action` añade SIEMPRE `type=raw,value=latest`: sin el
+    filtro, crear la release de fuentes reconstruye la imagen y reescribe
+    `latest` con un tag que no es una versión. Y termina en verde, así que
+    no hay señal de que haya pasado.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.wf = (RAIZ / ".github" / "workflows"
+                  / "publish-docker.yml").read_text(encoding="utf-8")
+
+    def test_el_job_solo_corre_con_tags_de_version(self):
+        self.assertIn("startsWith(github.event.release.tag_name, 'v')",
+                      self.wf, (
+            "\nel workflow publicaría imagen con CUALQUIER release, "
+            "incluida la de fuentes GPL: reescribiría `latest`"))
+
+    def test_y_el_disparo_a_mano_sigue_funcionando(self):
+        """El filtro no puede cargarse `workflow_dispatch`, que es la
+        salida cuando una release falla al publicar (pasó con v2.8.0)."""
+        self.assertIn("github.event_name == 'workflow_dispatch'", self.wf)
+
+
 class TestLaOfertaDeFuentesEstaCompleta(unittest.TestCase):
     """La GPLv2 §3(b) no admite «apunta a un tercero»: pide una oferta
     escrita válida tres años y extensible a CUALQUIER tercero."""

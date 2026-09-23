@@ -15,6 +15,20 @@ env:
 
 jobs:
   build-and-push:
+    # Solo las releases de VERSIÓN publican imagen.
+    #
+    # `on: release: [published]` no filtra el tag y `metadata-action` añade
+    # SIEMPRE `type=raw,value=latest`, así que una release auxiliar —la de
+    # las fuentes GPL que exige THIRD-PARTY-NOTICES.md, por ejemplo—
+    # reconstruiría la imagen y, lo que es peor, **reescribiría `latest`**
+    # con un tag que no es una versión. Nadie se enteraría: el workflow
+    # termina en verde.
+    #
+    # Mismo criterio que el `--match 'v*'` del `git describe` del stage
+    # version-detector: un tag que no empieza por `v` no es un release.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
