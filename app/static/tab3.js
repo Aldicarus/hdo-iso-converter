@@ -3993,20 +3993,11 @@ function _renderCMv40ActivePhase(project) {
   const ackBannerHtml = _cmv40RenderCriticalAckBanner(pid, s);
   const html = ackBannerHtml + colaHtml + errorHtml + archivedHtml + doneHtml
              + cards.join('') + actionsFooterHtml;
-  // **No se repinta si no ha cambiado.** Con un job en marcha esto corría
-  // cada pocos segundos y reconstruía el panel entero para dejarlo igual;
-  // de paso cerraba los `<details>` que el usuario tuviera abiertos y le
-  // quitaba el foco a un input. Se compara contra la cadena que ESTE código
-  // escribió y no contra `container.innerHTML`, que el navegador devuelve
-  // normalizado y no coincide nunca — la trampa del `dataset.estado`.
-  if (html !== project._panelHTML) {
-    // Y cuando sí cambia, lo que el usuario había abierto se conserva: un
-    // repintado no puede deshacer un clic suyo.
-    const abiertos = anclajeDeDetalles(container);
-    container.innerHTML = html;
-    project._panelHTML = html;
-    restaurarAnclajeDeDetalles(container, abiertos);
-  }
+  // No se repinta si no ha cambiado —con un job en marcha esto corría cada
+  // pocos segundos para dejarlo igual—, y cuando cambia se conserva lo que
+  // el usuario tenía abierto o escrito. La firma vive en el `dataset` del
+  // elemento y no en el proyecto: ver `pintarSiCambia`.
+  pintarSiCambia(container, html);
 
   // Lanzar cargas asíncronas donde aplique. En Fase B el tab default es
   // "Repo DoviTools" — disparamos su loader; los otros tabs (path / MKV)
@@ -6750,10 +6741,7 @@ function _renderCMv40SyncControls(project) {
           ? tr('tab3.correccion_aplicada_en_su_dia')
           : tr('tab3.sincronizacion_confirmada_sin_correccion')}
       </div>`;
-    if (soloLectura !== project._syncControlesHTML) {
-      container.innerHTML = soloLectura;
-      project._syncControlesHTML = soloLectura;
-    }
+    pintarSiCambia(container, soloLectura);
     return;
   }
 
@@ -6808,23 +6796,14 @@ function _renderCMv40SyncControls(project) {
       ${canConfirm ? ' — <b style="color:var(--green)">' + tr('tab3.listo_para_continuar') + '</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
     </div>
   `;
-  // **Un repintado no puede borrar lo que estás escribiendo.**
-  //
-  // Esto se repinta con cada vuelta del poll —el gráfico se recarga, el Δ y
-  // la confianza pueden cambiar— y reemplazar el `innerHTML` devolvía las
-  // cuatro casillas de la corrección a cero a los dos segundos de teclear.
-  // Reportado el 2026-09-23.
-  //
-  // Dos medidas, y hacen falta las dos: no repintar cuando el HTML es el
-  // mismo —que es el caso normal y ahorra el parpadeo— y, cuando sí cambia,
-  // devolver lo tecleado con su foco y su cursor. Es exactamente lo que ya
-  // se hace con el scroll del log y con los `<details>` del panel.
-  if (htmlControles !== project._syncControlesHTML) {
-    const escrito = anclajeDeFormulario(container);
-    container.innerHTML = htmlControles;
-    project._syncControlesHTML = htmlControles;
-    restaurarAnclajeDeFormulario(container, escrito);
-  }
+  // No repinta si el HTML es el mismo —esto corre con cada vuelta del poll
+  // y devolvía a cero las cuatro casillas de la corrección a los dos
+  // segundos de teclear— y cuando sí cambia conserva lo escrito con su foco
+  // y su cursor. **Este contenedor lo recrea el repintado del PADRE**, así
+  // que la firma tiene que vivir en él y no en el proyecto: con la firma
+  // fuera, el elemento nuevo nacía vacío y se quedaba así — sin gráfico y
+  // sin botón de continuar, con el job listo para avanzar.
+  pintarSiCambia(container, htmlControles);
   // El Δ esperado se recalcula SIEMPRE, repinte o no: si no, tras restaurar
   // lo tecleado el resumen se quedaría con el número de la vuelta anterior.
   _cmv40UpdateExpectedDelta(pid, delta);

@@ -44,15 +44,20 @@ def _fn(nombre: str) -> str:
     raise AssertionError(f"{nombre}: no cierra")
 
 
-def _codigo(nombre: str) -> str:
+def _sin_comentarios(src: str) -> str:
     """El fuente sin las líneas de comentario.
 
     Los comentarios de este repo citan el nombre de lo que se acaba de
     quitar —«Sin `_workbarPasaFiltro`: …»—, así que un `assertNotIn` sobre
     el fuente crudo se dispara con su propia explicación.
     """
-    return "\n".join(l for l in _fn(nombre).splitlines()
+    return "\n".join(l for l in src.splitlines()
                       if not l.strip().startswith(("//", "*", "/*")))
+
+
+def _codigo(nombre: str) -> str:
+    """El cuerpo de una función, sin sus comentarios."""
+    return _sin_comentarios(_fn(nombre))
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -591,9 +596,10 @@ process.stdout.write(JSON.stringify(salida));
         self.assertFalse(out["soloElPrimero"])
 
     def test_el_panel_no_se_repinta_si_no_ha_cambiado(self):
-        cuerpo = _codigo("_renderCMv40ActivePhase")
-        self.assertIn("html !== project._panelHTML", cuerpo)
-        self.assertIn("anclajeDeDetalles(container)", cuerpo)
+        """Y conserva los `<details>`: las dos cosas las hace el helper."""
+        self.assertIn("pintarSiCambia(container",
+                      _codigo("_renderCMv40ActivePhase"))
+        self.assertIn("anclajeDeDetalles", _codigo("pintarSiCambia"))
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -994,9 +1000,10 @@ process.stdout.write(JSON.stringify(salida));
         self.assertEqual(self._correr()["marca"], "1")
 
     def test_el_formulario_del_sync_usa_las_dos_medidas(self):
-        cuerpo = _codigo("_renderCMv40SyncControls")
-        self.assertIn("htmlControles !== project._syncControlesHTML", cuerpo)
-        self.assertIn("anclajeDeFormulario(container)", cuerpo)
+        self.assertIn("pintarSiCambia(container",
+                      _codigo("_renderCMv40SyncControls"))
+        cuerpo = _codigo("pintarSiCambia")
+        self.assertIn("anclajeDeFormulario(el)", cuerpo)
         self.assertIn("restaurarAnclajeDeFormulario", cuerpo)
 
     def test_y_las_casillas_avisan_de_que_las_tocan(self):
@@ -1004,6 +1011,8 @@ process.stdout.write(JSON.stringify(salida));
         self.assertIn("marcarTocado(this)", cuerpo)
 
     def test_el_nombre_del_mkv_de_salida_igual(self):
+        """Éste NO pasa por `pintarSiCambia` —pinta varias zonas, no una—
+        así que lleva el anclaje a mano, con la restauración al final."""
         cuerpo = _codigo("_renderCMv40Info")
         self.assertIn("anclajeDeFormulario(container)", cuerpo)
         self.assertIn("restaurarAnclajeDeFormulario", cuerpo)
@@ -1170,6 +1179,116 @@ function _trabajoModalPinta() {}
         self.assertTrue(out["tras"], "«ver entero» no llegó a activarse")
         self.assertFalse(out["siguiente"],
                          "el flag se pegó al trabajo siguiente")
+
+
+@unittest.skipUnless(NODE, "node no disponible")
+class TestLaFirmaDelRepintadoViveEnElElemento(unittest.TestCase):
+    """El guard de «no repintar si no cambió» dejó un panel EN BLANCO.
+
+    La primera versión guardaba la firma en el proyecto
+    (`project._panelHTML`). Cuando el repintado del PADRE recrea el
+    elemento —el panel entero se reescribe y con él el `<div>` de los
+    controles del sync—, el nuevo nace vacío mientras la firma sigue
+    diciendo «esto ya está pintado». Resultado medido el 2026-09-23: un
+    proyecto que aplica la corrección, el servidor contesta
+    `sync_gate.ok = true` y el panel no enseña ni el gráfico ni el botón de
+    continuar. El job quedaba bloqueado con todo correcto por detrás.
+
+    Con la firma en `dataset`, un elemento recreado no la trae y se pinta.
+    Es el mismo motivo por el que el badge de trust compara
+    `dataset.estado` y no `innerHTML`.
+    """
+
+    _DRIVER = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.env.JS_CONCAT, 'utf8');
+function grab(n) {
+  const i = src.indexOf('function ' + n + '(');
+  let d = 0, ab = false;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') { d++; ab = true; }
+    else if (src[j] === '}') { d--; if (ab && d === 0) return src.slice(i, j + 1); }
+  }
+  throw new Error('sin cerrar: ' + n);
+}
+globalThis.CSS = { escape: (s) => s };
+globalThis.document = { activeElement: null };
+function nuevoDiv() {
+  return { dataset: {}, innerHTML: '',
+           querySelectorAll: () => [], querySelector: () => null };
+}
+const api = new Function([
+  grab('_hashCorto'), grab('anclajeDeDetalles'), grab('_claveDeDetalle'),
+  grab('restaurarAnclajeDeDetalles'), grab('anclajeDeFormulario'),
+  grab('restaurarAnclajeDeFormulario'), grab('pintarSiCambia'),
+  'return { pintarSiCambia };',
+].join('\n'))();
+
+const r = {};
+const a = nuevoDiv();
+r.primera  = api.pintarSiCambia(a, '<p>uno</p>');
+r.repetida = api.pintarSiCambia(a, '<p>uno</p>');
+r.cambia   = api.pintarSiCambia(a, '<p>dos</p>');
+r.contenido = a.innerHTML;
+// EL CASO DEL BUG: el padre recrea el elemento y se pide el MISMO html.
+const b = nuevoDiv();
+r.recreado = api.pintarSiCambia(b, '<p>dos</p>');
+r.contenidoRecreado = b.innerHTML;
+// Y sin elemento no revienta.
+r.sinElemento = api.pintarSiCambia(null, '<p>x</p>');
+process.stdout.write(JSON.stringify(r));
+"""
+
+    def _correr(self):
+        r = subprocess.run(argv_node(self._DRIVER),
+                           env={**os.environ, "JS_CONCAT": js_en_disco()},
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(f"node falló: {r.stderr[-1500:]}")
+        return json.loads(r.stdout)
+
+    def test_pinta_la_primera_vez_y_no_la_segunda(self):
+        out = self._correr()
+        self.assertTrue(out["primera"])
+        self.assertFalse(out["repetida"], "repintó sin que cambiara nada")
+        self.assertTrue(out["cambia"])
+        self.assertEqual(out["contenido"], "<p>dos</p>")
+
+    def test_UN_ELEMENTO_RECREADO_SE_PINTA_aunque_el_html_sea_el_mismo(self):
+        """El caso exacto del job bloqueado."""
+        out = self._correr()
+        self.assertTrue(out["recreado"],
+                        "el elemento nuevo se quedó vacío: es el bug")
+        self.assertEqual(out["contenidoRecreado"], "<p>dos</p>")
+
+    def test_sin_elemento_no_revienta(self):
+        self.assertFalse(self._correr()["sinElemento"])
+
+
+class TestNadieVuelveAGuardarLaFirmaFueraDelDOM(unittest.TestCase):
+    """El guard: una firma en el proyecto es el bug de vuelta."""
+
+    def test_los_tres_repintados_pasan_por_el_helper(self):
+        """Y NINGUNO escribe el `innerHTML` a mano.
+
+        Con un `assertIn` a secas no basta: `_renderCMv40SyncControls`
+        tiene dos ramas —la editable y la de solo lectura— así que
+        devolver UNA de ellas al `innerHTML` crudo deja la otra llamada
+        en su sitio y el guard pasa en verde. Lo que hay que fijar es la
+        ausencia, no la presencia.
+        """
+        for fn in ("_renderCMv40ActivePhase", "_renderCMv40SyncControls"):
+            with self.subTest(fn):
+                cuerpo = _codigo(fn)
+                self.assertIn("pintarSiCambia(container", cuerpo)
+                self.assertNotIn("container.innerHTML =", cuerpo)
+
+    def test_y_ninguno_guarda_la_firma_en_el_proyecto(self):
+        from frontend_sources import js_completo
+        js = _sin_comentarios(js_completo())
+        for aguja in ("_panelHTML", "_syncControlesHTML"):
+            with self.subTest(aguja):
+                self.assertNotIn(aguja, js)
 
 
 # ════════════════════════════════════════════════════════════════════

@@ -193,6 +193,51 @@ function restaurarAnclajeDeDetalles(contenedor, abiertos) {
   });
 }
 
+/** Repinta una zona **solo si su contenido ha cambiado**, conservando lo
+ *  que el usuario tenía abierto o escrito dentro.
+ *
+ *  Reemplazar el `innerHTML` de una zona que se repinta sola cuesta tres
+ *  cosas: parpadeo, los `<details>` abiertos y lo que se esté tecleando.
+ *  Comparar antes de escribir las evita, pero **la comparación tiene que
+ *  vivir en el ELEMENTO, no en un objeto de al lado**.
+ *
+ *  Esa es la lección, y costó un job bloqueado (2026-09-23). La primera
+ *  versión guardaba la firma en el proyecto (`project._panelHTML`). Cuando
+ *  el repintado del PADRE recrea el elemento —el panel entero se reescribe
+ *  y con él el `<div>` de los controles del sync—, el nuevo nace vacío
+ *  mientras la firma sigue diciendo «esto ya está pintado»: la zona se
+ *  queda **en blanco para siempre**. Lo que se vio es un proyecto que
+ *  aplica la corrección, el servidor le dice que puede continuar y el panel
+ *  no enseña ni el gráfico ni el botón.
+ *
+ *  Con la firma en `dataset`, un elemento recreado no la trae y se pinta.
+ *  Es el mismo motivo por el que el badge de trust compara `dataset.estado`
+ *  y no `innerHTML`: lo segundo el navegador lo devuelve normalizado y no
+ *  coincide nunca.
+ *
+ *  Se guarda un hash y no el HTML entero: la firma va al DOM y un panel son
+ *  decenas de KB.
+ */
+function pintarSiCambia(el, html) {
+  if (!el) return false;
+  const firma = _hashCorto(html);
+  if (el.dataset.firma === firma) return false;
+  const abiertos = anclajeDeDetalles(el);
+  const escrito = anclajeDeFormulario(el);
+  el.innerHTML = html;
+  el.dataset.firma = firma;
+  restaurarAnclajeDeDetalles(el, abiertos);
+  restaurarAnclajeDeFormulario(el, escrito);
+  return true;
+}
+
+/** djb2. No es criptografía: solo tiene que cambiar cuando el texto cambia. */
+function _hashCorto(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return String(h);
+}
+
 /** Lo que el usuario había ESCRITO dentro de un contenedor.
  *
  *  Hermana de `anclajeDeDetalles`, y por el mismo motivo: reemplazar el
