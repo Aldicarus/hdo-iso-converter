@@ -7,8 +7,8 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
   <!-- Lo primero de todo: aplica el tema antes de que se pinte nada.
        Bloqueante a propósito; ver `/api/tema.js` en `main.py`. -->
-  <script src="/api/tema.js?v=20260921f"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20260921f">
+  <script src="/api/tema.js?v=20260923a"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20260923a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -1387,6 +1387,7 @@
       <div class="settings-section-desc">
         <span data-i18n-html="ui.tmdb_no_hace_falta_configurar_nada"></span>
       </div>
+      <p class="lic-literal lic-literal-suelto">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
       <div class="settings-field-row">
         <input type="password" id="settings-tmdb-input"
           class="settings-input"
@@ -1463,6 +1464,63 @@
       </div>
       <div id="settings-cleanup-result" class="settings-cleanup-result"></div>
     </div>
+
+    <div class="settings-section" data-bloque="licencias">
+      <div class="settings-section-title">
+        <span data-icono="info"></span> <span data-i18n="ajustes.licencias.titulo"></span>
+      </div>
+      <div class="settings-section-desc" data-i18n-html="ajustes.licencias.desc"></div>
+
+      <div class="lic-grupo">
+        <div class="lic-grupo-tit" data-i18n="ajustes.licencias.la_app"></div>
+        <div class="lic-fila"><span class="lic-nombre">UHD Blu-ray Toolkit</span><span class="lic-lic">MIT</span></div>
+        <div class="lic-copy">Copyright (c) 2026 Aldicarus</div>
+      </div>
+
+      <div class="lic-grupo">
+        <div class="lic-grupo-tit" data-i18n="ajustes.licencias.herramientas"></div>
+        <div class="lic-fila"><span class="lic-nombre">FFmpeg</span><span class="lic-lic">GPL-3.0</span></div>
+        <div class="lic-fila"><span class="lic-nombre">MKVToolNix</span><span class="lic-lic">GPL-2.0</span></div>
+        <div class="lic-fila"><span class="lic-nombre">MediaInfo</span><span class="lic-lic">BSD-2-Clause</span></div>
+        <div class="lic-fila"><span class="lic-nombre">dovi_tool</span><span class="lic-lic">MIT</span></div>
+        <div class="lic-fila"><span class="lic-nombre">Ubuntu 22.04</span><span class="lic-lic">GPL · LGPL · BSD · MIT</span></div>
+      </div>
+
+      <div class="lic-grupo">
+        <div class="lic-grupo-tit" data-i18n="ajustes.licencias.atribuciones"></div>
+        <!-- OJO: estas tres frases NO llevan `data-i18n`, y es deliberado.
+             Son el texto que TMDb y MediaArea exigen LITERALMENTE; traducirlas
+             las invalida. Los guards de i18n persiguen castellano, así que un
+             literal inglés pasa sin que salte nada — por eso hay un guard
+             POSITIVO (`test_atribucion_tmdb.py`) que falla si desaparecen del
+             marcado o si aparecen como valor en cualquiera de los catálogos. -->
+        <a class="lic-tmdb" href="https://www.themoviedb.org/" target="_blank" rel="noreferrer">
+          <img src="/static/img/tmdb.svg?v=20260923a" alt="The Movie Database (TMDB)" width="180" height="13">
+        </a>
+        <p class="lic-literal">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        <p class="lic-literal">This product uses MediaInfo library, Copyright (c) 2002-2026 MediaArea.net SARL.</p>
+        <p class="lic-literal">dovi_tool — MIT License, Copyright (c) 2026 quietvoid</p>
+      </div>
+
+      <div class="lic-grupo">
+        <div class="lic-grupo-tit" data-i18n="ajustes.licencias.codigo_fuente"></div>
+        <div class="settings-section-desc" data-i18n="ajustes.licencias.oferta"></div>
+      </div>
+
+      <div class="settings-field-row">
+        <a class="btn btn-secondary btn-sm" href="/static/THIRD-PARTY-NOTICES.md" target="_blank" rel="noreferrer"><span data-icono="libro"></span> <span data-i18n="ajustes.licencias.ver_avisos"></span></a>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/Aldicarus/hdo-iso-converter" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span> GitHub</a>
+      </div>
+
+      <div class="lic-textos">
+        <span data-i18n="ajustes.licencias.textos_completos"></span>
+        <a href="/static/licenses/GPL-2.0.txt" target="_blank" rel="noreferrer">GPL-2.0</a>
+        <a href="/static/licenses/GPL-3.0.txt" target="_blank" rel="noreferrer">GPL-3.0</a>
+        <a href="/static/licenses/LGPL-3.0.txt" target="_blank" rel="noreferrer">LGPL-3.0</a>
+        <a href="/static/licenses/Apache-2.0.txt" target="_blank" rel="noreferrer">Apache-2.0</a>
+        <a href="/static/licenses/PYTHON-DEPENDENCIES.md" target="_blank" rel="noreferrer">Python</a>
+      </div>
+    </div>
       </div><!-- /settings-panel -->
     </div><!-- /settings-cuerpo -->
 
@@ -1491,15 +1549,15 @@
 <!-- El catálogo ANTES de todo: un `<script src>` clásico es síncrono, así
      que `tr()` ya funciona cuando se parsean las constantes de módulo.
      El idioma lo decide el servidor, que es donde vive el ajuste. -->
-<script src="/api/i18n/catalogo.js?v=20260921f"></script>
-<script src="/static/i18n.js?v=20260921f"></script>
-<script src="/static/core.js?v=20260921f"></script>
-<script src="/static/workbar.js?v=20260921f"></script>
-<script src="/static/settings.js?v=20260921f"></script>
-<script src="/static/cmv40_modals.js?v=20260921f"></script>
-<script src="/static/tab1.js?v=20260921f"></script>
-<script src="/static/tab2.js?v=20260921f"></script>
-<script src="/static/tab3.js?v=20260921f"></script>
-<script src="/static/browser.js?v=20260921f"></script>
+<script src="/api/i18n/catalogo.js?v=20260923a"></script>
+<script src="/static/i18n.js?v=20260923a"></script>
+<script src="/static/core.js?v=20260923a"></script>
+<script src="/static/workbar.js?v=20260923a"></script>
+<script src="/static/settings.js?v=20260923a"></script>
+<script src="/static/cmv40_modals.js?v=20260923a"></script>
+<script src="/static/tab1.js?v=20260923a"></script>
+<script src="/static/tab2.js?v=20260923a"></script>
+<script src="/static/tab3.js?v=20260923a"></script>
+<script src="/static/browser.js?v=20260923a"></script>
 </body>
 </html>

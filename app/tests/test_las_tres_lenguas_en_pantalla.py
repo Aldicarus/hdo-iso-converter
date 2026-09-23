@@ -1176,6 +1176,31 @@ NI_TRADUCIBLE_NI_FUGA = {
     # lenguas, como «Blu-ray» o «Dolby Vision». Sale desde que el cromo de la
     # app se mide: es la cabecera.
     "toolkit": "el nombre de la app, que no se traduce",
+    # ── Acerca de: licencias y avisos de terceros ─────────────────────────
+    # Las frases de TMDb y MediaArea son el texto que sus licencias exigen
+    # LITERALMENTE: traducirlas las invalida, así que no llevan `data-i18n`
+    # y por tanto no cambian de lengua. Que estén y que NO se traduzcan lo
+    # comprueba `test_atribucion_tmdb.py`, un guard positivo — este de aquí
+    # solo necesita saber que la coincidencia es deliberada.
+    "endorsed": "cita literal que TMDb exige palabra por palabra",
+    "certified": "ídem",
+    # Identificadores SPDX y nombres de licencia. Son códigos, no prosa: una
+    # «GPL-3.0» traducida no identificaría ninguna licencia.
+    "license": "«MIT License», parte del identificador de la licencia",
+    "apache": "identificador SPDX de licencia",
+    "clause": "de «BSD-2-Clause» / «BSD-3-Clause», identificadores SPDX",
+    "lgpl": "identificador SPDX de licencia",
+    # La línea de copyright se reproduce tal cual: es lo que MIT y BSD
+    # obligan a conservar, y «Copyright (c) 2026 Aldicarus» no tiene
+    # traducción.
+    "copyright": "línea de copyright, que se conserva literal",
+    "aldicarus": "el titular del copyright",
+    "product": "de «This product uses…», las dos citas literales",
+    "sarl": "MediaArea.net SARL, la forma societaria del titular",
+    "quietvoid": "el autor de dovi_tool",
+    "mkvtool": "MKVToolNix, nombre propio de la herramienta",
+    "ubuntu": "nombre propio de la distribución base",
+    "python": "nombre propio del lenguaje",
     "caja": "nombre de glifo", "diana": "nombre de glifo",
     "icon": "clave de objeto", "warn": "clave de objeto",
     "blurb": "clave de objeto",
@@ -1354,8 +1379,13 @@ class TestLaListaDeNoTraducibleNoSeQuedaVieja(unittest.TestCase):
     """Una exención que ya no corresponde a nada parece cobertura."""
 
     def test_cada_palabra_sigue_apareciendo_en_el_codigo_o_en_el_dato(self):
-        from frontend_sources import rutas
+        # `rutas()` son los NUEVE SCRIPTS, no el marcado. Sin `index.html`
+        # aquí, una exención cuyo único hogar sea el HTML —las citas
+        # literales de licencia, por ejemplo— se denuncia como fantasma
+        # aunque esté viva y a la vista. El guard miraba medio frontend.
+        from frontend_sources import rutas, INDEX
         fuente = " ".join(Path(r).read_text(encoding="utf-8") for r in rutas())
+        fuente += INDEX.read_text(encoding="utf-8")
         fuente += json.dumps(SESION_CMV40, ensure_ascii=False)
         fuente += json.dumps(SESION_TAB1, ensure_ascii=False)
         bajo = fuente.lower()

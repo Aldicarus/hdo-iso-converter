@@ -6730,6 +6730,71 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   .settings-nav-desc { display: none; }
 }
 
+/* ── Acerca de: licencias y avisos de terceros ─────────────────────────────
+   El logo de TMDb es un ACTIVO de marca, no un icono del catálogo: lleva su
+   gradiente propio y su licencia prohíbe alterarle el color, así que no
+   puede heredar `currentColor` como los 44 glifos. Misma familia aparte que
+   las banderas. Y va más pequeño que la marca de la app, que es lo que las
+   condiciones de TMDb piden. */
+.lic-grupo { margin-top: 14px; }
+.lic-grupo-tit {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.lic-fila {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--sep);
+  font-size: var(--fs-sm);
+}
+.lic-fila:last-of-type { border-bottom: none; }
+.lic-nombre { color: var(--text-1); }
+.lic-lic {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  text-align: right;
+}
+.lic-copy {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin-top: 4px;
+}
+.lic-tmdb { display: inline-block; margin: 2px 0 8px; }
+.lic-tmdb img { display: block; width: 180px; height: auto; }
+
+/* Las frases obligatorias van en su tipografía, no como prosa: se leen como
+   lo que son, una cita literal que no se puede tocar. */
+.lic-literal {
+  margin: 0 0 6px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.lic-literal-suelto {
+  margin-top: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--sep-strong);
+}
+.lic-textos {
+  margin-top: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+.lic-textos a { color: var(--blue-text); text-decoration: none; }
+.lic-textos a:hover { text-decoration: underline; }
+
 /* La bandera del selector de idioma. No hereda `currentColor` —lleva sus
    colores— así que es una familia aparte de los iconos; ver `BANDERAS` en
    core.js. El borde la separa del fondo cuando la bandera tiene blanco. */

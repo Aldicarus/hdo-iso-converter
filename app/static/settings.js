@@ -68,6 +68,13 @@ const SECCIONES_AJUSTES = [
     tieneClaves: true,
     bloques: ['tmdb', 'google', 'drive', 'sheet'],
   },
+  {
+    id: 'acerca',
+    icono: 'info',
+    // Las atribuciones de TMDb y MediaInfo son obligatorias y tienen que
+    // verse: esta es la sección de créditos que sus licencias piden.
+    bloques: ['licencias'],
+  },
 ];
 
 // Qué sección se está viendo. En memoria y no en `localStorage` a propósito:

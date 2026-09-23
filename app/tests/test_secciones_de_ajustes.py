@@ -309,12 +309,13 @@ class TestElModalSeParteDeVerdad(unittest.TestCase):
         self.assertNotIn("error", self.m, self.m.get("error"))
         self.assertEqual(self.m["errores"], [])
 
-    def test_la_navegacion_trae_las_tres_secciones_traducidas(self):
+    def test_la_navegacion_trae_las_secciones_traducidas(self):
         nav = self.m["nav"]
         self.assertEqual([n["id"] for n in nav],
-                         ["general", "aspecto", "integraciones"])
+                         ["general", "aspecto", "integraciones", "acerca"])
         self.assertEqual([n["txt"] for n in nav],
-                         ["General", "Aspecto e idioma", "Integraciones"])
+                         ["General", "Aspecto e idioma", "Integraciones",
+                          "Acerca de"])
         for n in nav:
             with self.subTest(seccion=n["id"]):
                 self.assertTrue(n["desc"], "la descripción no se pintó")
@@ -326,6 +327,7 @@ class TestElModalSeParteDeVerdad(unittest.TestCase):
         self.assertEqual(self.m["aspecto"], ["tema", "idioma"])
         self.assertEqual(self.m["integraciones"],
                          ["tmdb", "google", "drive", "sheet"])
+        self.assertEqual(self.m["acerca"], ["licencias"])
 
     def test_ningun_bloque_se_queda_fuera_del_panel(self):
         """El reparto mueve nodos: uno que no encuentre su sección se
