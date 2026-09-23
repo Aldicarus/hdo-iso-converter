@@ -640,7 +640,11 @@ def mensajes_con_parametros(ruta: Path, area: str, catalogo: dict[str, str]
             if limpio in usadas:
                 clave = usadas[limpio]
             else:
-                base = f"{area}.{slug(re.sub(r'\\{\\w+\\}', ' ', limpio))}"
+                # El `re.sub` va FUERA de la f-string: lleva una barra invertida y eso
+                # solo se admite dentro de la expresión desde Python 3.12 (PEP 701).
+                # El contenedor va con la 3.10 de ubuntu:22.04.
+                sin_huecos = re.sub(r'\\{\\w+\\}', ' ', limpio)
+                base = f"{area}.{slug(sin_huecos)}"
                 clave, j = base, 2
                 while clave in catalogo:
                     clave = f"{base}_{j}"
@@ -716,7 +720,11 @@ def mensajes_con_parametros_uno(ruta: Path, area: str, catalogo: dict,
             if limpio in usadas:
                 clave = usadas[limpio]
             else:
-                base = f"{area}.{slug(re.sub(r'[{]\\w+[}]', ' ', limpio))}"
+                # El `re.sub` va FUERA de la f-string: lleva una barra
+                # invertida y eso solo se admite dentro de la expresión
+                # desde Python 3.12 (PEP 701). El contenedor va con la 3.10.
+                sin_huecos = re.sub(r'[{]\\w+[}]', ' ', limpio)
+                base = f"{area}.{slug(sin_huecos)}"
                 clave, j = base, 2
                 while clave in catalogo:
                     clave = f"{base}_{j}"
@@ -848,7 +856,11 @@ def mensajes_sin_marcado(ruta: Path, area: str, catalogo: dict[str, str],
         if limpio in usadas:
             clave = usadas[limpio]
         else:
-            base = f"{area}.{slug(re.sub(r'[{]\w+[}]', ' ', limpio))}"
+            # El `re.sub` va FUERA de la f-string: lleva una barra invertida y eso
+            # solo se admite dentro de la expresión desde Python 3.12 (PEP 701).
+            # El contenedor va con la 3.10 de ubuntu:22.04.
+            sin_huecos = re.sub(r'[{]\w+[}]', ' ', limpio)
+            base = f"{area}.{slug(sin_huecos)}"
             clave, j = base, 2
             while clave in catalogo:
                 clave, j = f"{base}_{j}", j + 1

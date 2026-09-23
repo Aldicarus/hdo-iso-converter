@@ -110,8 +110,12 @@ def main() -> int:
     print("|---|---|---|---|")
     for nombre in sorted(dists, key=str.lower):
         d = dists[nombre]
-        print(f"| `{nombre}` | {d.version} | {_licencia(d)} "
-              f"| {_copyright(d).replace('|', '\\|')} |")
+        # La barra invertida va FUERA de la f-string: dentro solo se
+        # admite desde Python 3.12 (PEP 701) y el contenedor va con la
+        # 3.10 de ubuntu:22.04. En el Mac (3.12) compila y en la imagen
+        # revienta con SyntaxError — lo destapó un build desde cero.
+        copia = _copyright(d).replace("|", "\\|")
+        print(f"| `{nombre}` | {d.version} | {_licencia(d)} | {copia} |")
     return 0
 
 
