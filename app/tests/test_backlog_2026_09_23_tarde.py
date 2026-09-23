@@ -893,6 +893,128 @@ class TestYaNoSeAdivinaDondeVaLaCorreccion(unittest.TestCase):
         self.assertIn("canConfirm", cuerpo)
 
 
+@unittest.skipUnless(NODE, "node no disponible")
+class TestUnRepintadoNoBorraLoQueEstasEscribiendo(unittest.TestCase):
+    """Las cuatro casillas del sync volvían a cero a los dos segundos.
+
+    El panel se repinta con cada vuelta del poll y reemplazar el
+    `innerHTML` devuelve los campos a su valor de plantilla. **Antes no se
+    notaba** porque la casilla se auto-rellenaba con el Δ: el repintado la
+    dejaba en el mismo número. Al quitar el auto-relleno —que había que
+    quitarlo, porque con dos extremos la app no puede adivinar dónde va la
+    corrección— el borrado quedó a la vista. Reportado el 2026-09-23.
+
+    Es la tercera vez que aparece la misma trampa: el scroll del log, los
+    `<details>` del panel y ahora lo tecleado.
+    """
+
+    _DRIVER = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.env.JS_CONCAT, 'utf8');
+function grab(n) {
+  const i = src.indexOf('function ' + n + '(');
+  let d = 0, ab = false;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') { d++; ab = true; }
+    else if (src[j] === '}') { d--; if (ab && d === 0) return src.slice(i, j + 1); }
+  }
+  throw new Error('sin cerrar: ' + n);
+}
+// DOM mínimo: campos con id, valor, dataset y foco.
+globalThis.CSS = { escape: (s) => s };
+function campo(id, valor, tocado) {
+  return { id, value: valor, dataset: tocado ? {tocado: '1'} : {},
+           selectionStart: 1, selectionEnd: 1,
+           focus() { globalThis.__foco = this.id; },
+           setSelectionRange() {} };
+}
+function caja(campos) {
+  return { _c: campos,
+           querySelectorAll: () => campos.filter(c => c.id),
+           querySelector: (sel) => campos.find(c => '#' + c.id === sel) || null };
+}
+globalThis.document = { activeElement: null };
+const api = new Function([grab('anclajeDeFormulario'),
+  grab('restaurarAnclajeDeFormulario'), grab('marcarTocado'),
+  'return { anclajeDeFormulario, restaurarAnclajeDeFormulario, marcarTocado };',
+].join('\n'))();
+
+const salida = {};
+// El usuario escribe en dos de las cuatro casillas.
+const a = campo('cmv40-remove-p1', '0', false);
+const b = campo('cmv40-remove-fin-p1', '24', true);
+const c = campo('cmv40-duplicate-p1', '0', false);
+const nombre = campo('cmv40-output-name-p1', 'lo que escribí', true);
+globalThis.document.activeElement = b;
+const ancla = api.anclajeDeFormulario(caja([a, b, c, nombre]));
+salida.guardados = Object.keys(ancla).sort();
+// El repintado: campos NUEVOS, con el valor de plantilla.
+const a2 = campo('cmv40-remove-p1', '0', false);
+const b2 = campo('cmv40-remove-fin-p1', '0', false);
+const c2 = campo('cmv40-duplicate-p1', '0', false);
+const n2 = campo('cmv40-output-name-p1', 'el del servidor', false);
+api.restaurarAnclajeDeFormulario(caja([a2, b2, c2, n2]), ancla);
+salida.tras = [a2.value, b2.value, c2.value, n2.value];
+salida.foco = globalThis.__foco || null;
+salida.siguenTocados = [b2.dataset.tocado, a2.dataset.tocado || null];
+// Y sin nada tocado no se ancla nada: el servidor manda.
+salida.sinTocar = api.anclajeDeFormulario(caja([campo('x', '1', false)]));
+// `marcarTocado` es lo que pone la marca.
+const m = campo('y', '', false); api.marcarTocado(m);
+salida.marca = m.dataset.tocado;
+process.stdout.write(JSON.stringify(salida));
+"""
+
+    def _correr(self):
+        r = subprocess.run(argv_node(self._DRIVER),
+                           env={**os.environ, "JS_CONCAT": js_en_disco()},
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(f"node falló: {r.stderr[-1500:]}")
+        return json.loads(r.stdout)
+
+    def test_lo_tecleado_sobrevive_al_repintado(self):
+        out = self._correr()
+        self.assertEqual(out["tras"][1], "24", "la casilla volvió a cero")
+        self.assertEqual(out["tras"][3], "lo que escribí")
+
+    def test_y_el_foco_y_el_cursor_tambien(self):
+        """Conservar el valor y perder el teclado es el mismo problema."""
+        self.assertEqual(self._correr()["foco"], "cmv40-remove-fin-p1")
+
+    def test_lo_que_NO_has_tocado_lo_manda_el_servidor(self):
+        """Un campo que el servidor repinta con un valor nuevo —el nombre
+        tras un renombrado— tiene que poder cambiar."""
+        out = self._correr()
+        self.assertEqual(out["guardados"],
+                         ["cmv40-output-name-p1", "cmv40-remove-fin-p1"])
+        self.assertIsNone(out["sinTocar"])
+
+    def test_la_marca_la_pone_marcarTocado(self):
+        self.assertEqual(self._correr()["marca"], "1")
+
+    def test_el_formulario_del_sync_usa_las_dos_medidas(self):
+        cuerpo = _codigo("_renderCMv40SyncControls")
+        self.assertIn("htmlControles !== project._syncControlesHTML", cuerpo)
+        self.assertIn("anclajeDeFormulario(container)", cuerpo)
+        self.assertIn("restaurarAnclajeDeFormulario", cuerpo)
+
+    def test_y_las_casillas_avisan_de_que_las_tocan(self):
+        cuerpo = _codigo("_renderCMv40SyncControls")
+        self.assertIn("marcarTocado(this)", cuerpo)
+
+    def test_el_nombre_del_mkv_de_salida_igual(self):
+        cuerpo = _codigo("_renderCMv40Info")
+        self.assertIn("anclajeDeFormulario(container)", cuerpo)
+        self.assertIn("restaurarAnclajeDeFormulario", cuerpo)
+        self.assertIn("marcarTocado(this)", cuerpo)
+
+    def test_y_al_guardar_deja_de_estar_pendiente(self):
+        """Si no, el valor tecleado ganaría para siempre al del servidor."""
+        self.assertIn("delete campo.dataset.tocado",
+                      _codigo("_cmv40SaveOutputName"))
+
+
 # ════════════════════════════════════════════════════════════════════
 #  3 y 6 · Lo que se ha retirado sigue retirado
 # ════════════════════════════════════════════════════════════════════

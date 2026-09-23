@@ -3228,6 +3228,12 @@ function _renderCMv40Info(s, pid) {
   const canAuto = s.phase !== 'done' && !s.archived;
   const tmdbCardHtml = renderTmdbCardHTML(s.tmdb_info,
     { tipo: 'cmv40', id: s.id, nombre: s.source_mkv_name || '' });
+  // Un repintado no puede borrar lo que estás escribiendo, y aquí vive el
+  // nombre del MKV de salida: se guarda al perder el foco, así que un
+  // repintado a mitad de teclear se llevaba lo tecleado. Misma medida que
+  // en el formulario del sync, y la restauración va al FINAL de la función
+  // —después del último `innerHTML`— porque este render pinta varias zonas.
+  const escritoInfo = anclajeDeFormulario(container);
   container.innerHTML = `
     ${tmdbCardHtml}
     <div class="section-card">
@@ -3262,7 +3268,8 @@ function _renderCMv40Info(s, pid) {
             ${canEditName
               ? `<input type="text" id="cmv40-output-name-${pid}" class="cmv40-output-name-input"
                     value="${escHtml(s.output_mkv_name)}"
-                    onblur="_cmv40SaveOutputName('${pid}', this.value)"
+                    oninput="marcarTocado(this)"
+                    onblur="_cmv40SaveOutputName('${pid}', this.value, this)"
                     onkeydown="if(event.key==='Enter'){this.blur()}">`
               : `<div style="font-weight:600">${escHtml(s.output_mkv_name)}</div>`}
             <div style="font-size:11px; color:var(--text-3); margin-top:4px">
@@ -3293,6 +3300,7 @@ function _renderCMv40Info(s, pid) {
     if (project) project._sheetLookupTried = true;
     _cmv40HydrateSheetClient(pid);
   }
+  restaurarAnclajeDeFormulario(container, escritoInfo);
 }
 
 /**
@@ -3671,7 +3679,11 @@ function _cmv40WorkflowLabel(wf) {
   }[wf] || wf;
 }
 
-async function _cmv40SaveOutputName(pid, newName) {
+async function _cmv40SaveOutputName(pid, newName, campo) {
+  // Guardado: lo que el usuario escribió ya es lo que hay, así que deja de
+  // ser «pendiente de conservar» y el próximo repintado puede traer el
+  // valor del servidor sin pelearse con él.
+  if (campo) delete campo.dataset.tocado;
   const project = openCMv40Projects.find(p => p.id === pid);
   if (!project) return;
   const trimmed = (newName || '').trim();
@@ -6731,17 +6743,21 @@ function _renderCMv40SyncControls(project) {
 
   // Read-only: solo zoom/rango, sin form de corrección.
   if (readOnly) {
-    container.innerHTML = `
+    const soloLectura = `
       ${zoomRowHtml}
       <div style="margin-top:10px; padding:8px 12px; background:var(--surface-2); border-radius:6px; font-size:11px; color:var(--text-3)">
         ${hasSyncConfig
           ? tr('tab3.correccion_aplicada_en_su_dia')
           : tr('tab3.sincronizacion_confirmada_sin_correccion')}
       </div>`;
+    if (soloLectura !== project._syncControlesHTML) {
+      container.innerHTML = soloLectura;
+      project._syncControlesHTML = soloLectura;
+    }
     return;
   }
 
-  container.innerHTML = `
+  const htmlControles = `
     ${zoomRowHtml}
 
     <div class="section-subtitle" style="margin-top:16px; margin-bottom:4px">${tr(hasSyncConfig ? 'tab3.correccion_adicional' : 'tab3.correccion_manual')}</div>
@@ -6765,13 +6781,13 @@ function _renderCMv40SyncControls(project) {
           <th data-i18n="tab3.sync_quitar"></th>
           ${['remove', 'remove-fin'].map(k => `<td><input type="number"
              id="cmv40-${k}-${pid}" value="0" min="0"
-             oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})"></td>`).join('')}
+             oninput="marcarTocado(this); _cmv40UpdateExpectedDelta('${pid}', ${delta})"></td>`).join('')}
         </tr>
         <tr>
           <th data-i18n="tab3.sync_duplicar"></th>
           ${['duplicate', 'duplicate-fin'].map(k => `<td><input type="number"
              id="cmv40-${k}-${pid}" value="0" min="0"
-             oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})"></td>`).join('')}
+             oninput="marcarTocado(this); _cmv40UpdateExpectedDelta('${pid}', ${delta})"></td>`).join('')}
         </tr>
       </tbody>
     </table>
@@ -6792,7 +6808,25 @@ function _renderCMv40SyncControls(project) {
       ${canConfirm ? ' — <b style="color:var(--green)">' + tr('tab3.listo_para_continuar') + '</b>' : ' — <b style="color:var(--orange)">' + confirmReason + '</b>'}
     </div>
   `;
-  // Inicializar preview del Δ esperado
+  // **Un repintado no puede borrar lo que estás escribiendo.**
+  //
+  // Esto se repinta con cada vuelta del poll —el gráfico se recarga, el Δ y
+  // la confianza pueden cambiar— y reemplazar el `innerHTML` devolvía las
+  // cuatro casillas de la corrección a cero a los dos segundos de teclear.
+  // Reportado el 2026-09-23.
+  //
+  // Dos medidas, y hacen falta las dos: no repintar cuando el HTML es el
+  // mismo —que es el caso normal y ahorra el parpadeo— y, cuando sí cambia,
+  // devolver lo tecleado con su foco y su cursor. Es exactamente lo que ya
+  // se hace con el scroll del log y con los `<details>` del panel.
+  if (htmlControles !== project._syncControlesHTML) {
+    const escrito = anclajeDeFormulario(container);
+    container.innerHTML = htmlControles;
+    project._syncControlesHTML = htmlControles;
+    restaurarAnclajeDeFormulario(container, escrito);
+  }
+  // El Δ esperado se recalcula SIEMPRE, repinte o no: si no, tras restaurar
+  // lo tecleado el resumen se quedaría con el número de la vuelta anterior.
   _cmv40UpdateExpectedDelta(pid, delta);
 }
 

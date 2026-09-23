@@ -1121,6 +1121,22 @@ Un armazón para los cinco: cabecera, tira de fases, barra, transcurrido/ETA,
 cuerpo y cancelar. Cada pestaña registra qué poner dentro con
 `registrarDetalleDeTrabajo(clave, fn)`.
 
+- **Ni borrar lo que está escribiendo.** Es el mismo caso con otra forma:
+  `_renderCMv40SyncControls` se repinta con cada vuelta del poll y devolvía
+  las cuatro casillas de la corrección del sync a cero **a los dos segundos
+  de teclear**. Antes no se notaba porque la casilla se auto-rellenaba con
+  el Δ y el repintado la dejaba en el mismo número; al quitar el
+  auto-relleno el borrado quedó a la vista (2026-09-23). Lo resuelven
+  `anclajeDeFormulario` / `restaurarAnclajeDeFormulario` (en `core.js`),
+  que guardan **el valor, el foco y la posición del cursor** — conservar el
+  valor y perder el teclado es el mismo problema para quien escribe.
+  - **Solo se restaura lo que el usuario TOCÓ** (`data-tocado`, que pone
+    `marcarTocado(this)` en el `oninput`). Restaurarlo todo dejaría un valor
+    viejo encima de uno nuevo: el nombre del MKV de salida tiene que poder
+    cambiar cuando el servidor lo devuelve renombrado, y por eso
+    `_cmv40SaveOutputName` **borra la marca al guardar**.
+  - Afecta a los dos sitios del panel donde se escribe: la matriz del sync y
+    el nombre del MKV de salida de la cabecera.
 - **Un repintado no puede deshacer un clic del usuario.** Reemplazar el
   `innerHTML` de un panel recrea sus `<details>` CERRADOS, así que con un job
   en marcha abrir «ver el JSON aplicado» duraba lo que tardaba el siguiente

@@ -193,6 +193,68 @@ function restaurarAnclajeDeDetalles(contenedor, abiertos) {
   });
 }
 
+/** Lo que el usuario había ESCRITO dentro de un contenedor.
+ *
+ *  Hermana de `anclajeDeDetalles`, y por el mismo motivo: reemplazar el
+ *  `innerHTML` de una zona que se repinta sola borra lo que el usuario
+ *  llevaba tecleado. Con la corrección del sync se vio en su forma peor —
+ *  escribes los frames, el panel se repinta a los dos segundos y los cuatro
+ *  campos vuelven a cero. Reportado el 2026-09-23.
+ *
+ *  Antes no se notaba porque las casillas se auto-rellenaban con el Δ: el
+ *  repintado las devolvía al mismo número y parecía que nada pasaba. Quitar
+ *  el auto-relleno —que había que quitarlo, porque con dos extremos la app
+ *  no puede adivinar dónde va la corrección— dejó el borrado a la vista.
+ *
+ *  Se guarda también el FOCO y la posición del cursor: sin eso el campo se
+ *  queda con su valor pero el teclado se va a otra parte, que para quien
+ *  está escribiendo es el mismo problema.
+ *
+ *  Solo se restaura lo que el usuario tocó (`_tocado`), no todo lo que
+ *  tenga `id`: un campo que el servidor repinta con un valor nuevo —el
+ *  nombre del MKV tras un renombrado— tiene que poder cambiar.
+ */
+function anclajeDeFormulario(contenedor) {
+  if (!contenedor) return null;
+  const vivo = document.activeElement;
+  const campos = {};
+  contenedor.querySelectorAll('input[id], select[id], textarea[id]')
+    .forEach(el => {
+      if (!el.dataset.tocado) return;
+      campos[el.id] = {
+        valor: el.value,
+        foco: el === vivo,
+        ini: el.selectionStart, fin: el.selectionEnd,
+      };
+    });
+  return Object.keys(campos).length ? campos : null;
+}
+
+function restaurarAnclajeDeFormulario(contenedor, ancla) {
+  if (!contenedor || !ancla) return;
+  for (const [id, c] of Object.entries(ancla)) {
+    const el = contenedor.querySelector(`#${CSS.escape(id)}`);
+    if (!el) continue;
+    el.value = c.valor;
+    el.dataset.tocado = '1';
+    if (!c.foco) continue;
+    el.focus();
+    // `setSelectionRange` lanza en un `input[type=number]`, que no expone
+    // selección. El valor y el foco ya están puestos, que es lo que importa.
+    try { el.setSelectionRange(c.ini, c.fin); } catch (e) { /* number */ }
+  }
+}
+
+/** Marca un campo como «lo ha tocado el usuario», para `anclajeDeFormulario`.
+ *
+ *  Va en el `oninput` del campo. Sin la marca no se distingue lo que alguien
+ *  está escribiendo de lo que el servidor acaba de pintar, y restaurarlo
+ *  todo dejaría un valor viejo encima de uno nuevo.
+ */
+function marcarTocado(el) {
+  if (el) el.dataset.tocado = '1';
+}
+
 // ── Helpers de proyecto ───────────────────────────────────────────
 
 /** Devuelve el proyecto activo, o null si no hay ninguno. */
