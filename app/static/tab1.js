@@ -1724,7 +1724,10 @@ async function seriesCreateSessions() {
   // fallidos, saltados, reemplazados). Sin esto el usuario veía solo el
   // count de creados aunque hubiera saltado o reemplazado N.
   const extras = [];
-  if (replacedIds.length) extras.push(`${replacedIds.length} reemplazado${replacedIds.length === 1 ? '' : 's'}`);
+  if (replacedIds.length) extras.push(tr(
+    replacedIds.length === 1 ? 'tab1.reemplazado_uno'
+                             : 'tab1.reemplazado_varios',
+    {p1: replacedIds.length}));
   // Dos claves, no un sufijo: `{p3}` = 'n'/'' pluraliza en castellano y en
   // inglés no hay ninguna palabra que se pluralice con una `n`.
   if (skippedExisting.length) extras.push(tr(
@@ -1733,8 +1736,8 @@ async function seriesCreateSessions() {
     {p1: skippedExisting.length}));
   const extrasStr = extras.length ? ` · ${extras.join(' · ')}` : '';
   if (failed.length) {
-    const failWord = failed.length === 1 ? tr('tab1.fallo') : 'fallaron';
-    showToast(`${created.length} ${okWord} · ${failed.length} ${failWord}${extrasStr}. Revisa el log del servidor.`, 'warning');
+    const failWord = failed.length === 1 ? tr('tab1.fallo') : tr('tab1.fallaron');
+    showToast(`${created.length} ${okWord} · ${failed.length} ${failWord}${extrasStr}. ${tr('tab1.revisa_el_log_del_servidor')}`, 'warning');
   } else if (created.length === 0 && skippedExisting.length > 0) {
     showToast(tr('tab1.sin_novedades_los_episodios_ya_existian', {p1: skippedExisting.length}), 'info');
   } else {

@@ -1390,6 +1390,23 @@ let _fichaDestino = null;   // { tipo: 'rip'|'cmv40', id, nombre }
 let _fichaCandidatos = [];
 
 /** Abre el selector, con el título del proyecto ya escrito. */
+/** Vacía un campo del selector de ficha y le devuelve el foco.
+ *
+ *  La caja `.cmv40-lookup-input-*` reserva 28 px a la derecha para este
+ *  botón: sin él quedaba el hueco y ningún botón dentro.
+ */
+function _limpiarCampoDeFicha(id) {
+  const campo = document.getElementById(id);
+  if (!campo) return;
+  campo.value = '';
+  campo.focus();
+  if (id === 'ficha-titulo') {
+    const res = document.getElementById('ficha-resultados');
+    if (res) res.innerHTML = '';
+    _fichaCandidatos = [];
+  }
+}
+
 function abrirSelectorDeFicha(tipo, id, nombre) {
   _fichaDestino = { tipo, id, nombre: nombre || '' };
   _fichaCandidatos = [];

@@ -65,18 +65,39 @@ class TestNoQuedaCastellanoEnLasPlantillas(unittest.TestCase):
     def setUpClass(cls):
         cls.cat = _catalogo()
 
-    def _sueltas(self, cont: str, fichero: str, fuera: list) -> None:
+    @staticmethod
+    def _castellano(s: str) -> bool:
+        """`es_frase` es prosa estricta y aquí casi todo son RÓTULOS.
+
+        Con solo `es_frase` este guard no veía «mejor match», «Configurada»
+        ni «~12:34 restantes»: dos palabras sin acento no son una frase, y
+        el criterio para eso —`es_rotulo`, por vocabulario— estaba escrito y
+        aplicado solo a las propiedades de objeto. Se añade aquí, con el
+        filtro de ids y selectores para no denunciar `paso-ico paso-${x}`.
+        """
+        return (bool(s) and not captura.es_id_o_selector(s)
+                and (captura.es_frase(s) or captura.es_rotulo(s))
+                and s not in ACEPTADO)
+
+    def _sueltas(self, cont: str, fichero: str, fuera: list,
+                 fn: str = "") -> None:
+        # Exención POR FUNCIÓN, como el resto de los guards: los volcados de
+        # diagnóstico se leen contra el log y contra la hoja de DoviTools.
+        # Una plantilla no cruza fronteras de función, así que basta con el
+        # nombre de la que envuelve a la región de nivel superior.
+        if fn in captura.VOLCADOS_DE_DIAGNOSTICO:
+            return
         for m in re.finditer(
                 rf'\b({"|".join(ATRIBUTOS)})="([^"]+)"', cont):
             v = " ".join(m.group(2).split())
-            if v and captura.es_frase(v) and v not in ACEPTADO:
+            if self._castellano(v):
                 fuera.append(f"{fichero}: [{m.group(1)}] {v[:60]}")
         for t in captura._del_html(captura.sin_huecos(cont)):
             n = " ".join(t.split())
-            if n and captura.es_frase(n) and n not in ACEPTADO:
+            if self._castellano(n):
                 fuera.append(f"{fichero}: [texto] {n[:60]}")
         for _, _, dentro in captura.regiones_de_plantilla(cont):
-            self._sueltas(dentro, fichero, fuera)
+            self._sueltas(dentro, fichero, fuera, fn)
         # Y el marcado que viaja dentro de una CADENA metida en un `${…}`.
         #
         # Dentro de una plantilla las comillas son texto, no delimitadores, así
@@ -93,15 +114,16 @@ class TestNoQuedaCastellanoEnLasPlantillas(unittest.TestCase):
                     r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"", expr):
                 dentro = m.group(1) or m.group(2) or ""
                 if "<" in dentro:
-                    self._sueltas(dentro, fichero, fuera)
+                    self._sueltas(dentro, fichero, fuera, fn)
 
     def test_ni_texto_ni_atributos_castellanos_en_el_html_generado(self):
         fuera = []
         for r in rutas():
             src = Path(r).read_text(encoding="utf-8")
             plantillas = [(a, b) for a, b, _ in captura.regiones_de_plantilla(src)]
-            for _, _, cont in captura.regiones_de_plantilla(src):
-                self._sueltas(cont, Path(r).name, fuera)
+            for a, _, cont in captura.regiones_de_plantilla(src):
+                self._sueltas(cont, Path(r).name, fuera,
+                              captura.funcion_de(src, a))
             # Una cadena entrecomillada con marcado dentro es marcado.
             #
             # `TestNoQuedaCastellanoSuelto` la mira COMO CADENA, y `es_frase`
@@ -117,7 +139,8 @@ class TestNoQuedaCastellanoEnLasPlantillas(unittest.TestCase):
                     continue     # dentro de una plantilla ya lo ve la recursión
                 dentro = m.group(1) or m.group(2) or ""
                 if "<" in dentro and ">" in dentro:
-                    self._sueltas(dentro, Path(r).name, fuera)
+                    self._sueltas(dentro, Path(r).name, fuera,
+                                  captura.funcion_de(src, m.start()))
         fuera = sorted(set(fuera))
         self.assertEqual(fuera, [], (
             f"\n{len(fuera)} sitio(s) con castellano en el HTML que genera el "

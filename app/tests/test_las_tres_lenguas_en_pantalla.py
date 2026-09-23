@@ -1302,6 +1302,20 @@ class TestNingunaPalabraFuncionCastellanaEnLaPantallaInglesa(
             "tiene menos de cuatro letras:\n  · " + "\n  · ".join(malas)))
 
 
+def _pinta_marcado(cuerpo: str) -> bool:
+    """¿Esta función produce marcado que haya que medir en pantalla?
+
+    `innerHTML = ''` **vacía** un contenedor, no pinta nada: contarlo metía
+    en el censo funciones que solo limpian —`_limpiarCampoDeFicha`— y no
+    hay pantalla que medir en ellas. Basta con que UNA de las asignaciones
+    escriba algo que no sea la cadena vacía.
+    """
+    if re.search(r"return\s*`?\s*<", cuerpo):
+        return True
+    return any(not re.match(r"''|\"\"|``", resto.lstrip())
+               for resto in re.split(r"innerHTML\s*=\s*", cuerpo)[1:])
+
+
 class TestLaCoberturaDeLaSondaNoBaja(unittest.TestCase):
     """Los tres criterios son buenos; lo que fallaba era CUÁNTO miran.
 
@@ -1342,7 +1356,7 @@ class TestLaCoberturaDeLaSondaNoBaja(unittest.TestCase):
             for k, (i, fn) in enumerate(pos):
                 j = pos[k + 1][0] if k + 1 < len(pos) else len(src)
                 cuerpo[fn] = src[i:j]
-                if re.search(r"return\s*`?\s*<|innerHTML\s*=", src[i:j]):
+                if _pinta_marcado(src[i:j]):
                     emite.add(fn)
         sonda = Path(__file__).read_text(encoding="utf-8")
         alcanzado = {fn for fn in cuerpo

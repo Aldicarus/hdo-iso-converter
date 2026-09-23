@@ -1474,7 +1474,8 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo, comparacion = null) 
                 ? `· ${(dv.quality_l8_unique_count / dv.quality_scene_cuts).toFixed(2)} combos/shot`
                 : ''}
               ${dv.quality_l8_neutral_pct != null
-                ? ` · ${Math.round(dv.quality_l8_neutral_pct * 100)}% frames neutros`
+                ? ' · ' + tr('tab2.frames_neutros_p1',
+                                  {p1: Math.round(dv.quality_l8_neutral_pct * 100)})
                 : ''}
               ${dv.quality_l8_has_mid_contrast ? ' · <code>mid_contrast</code>' : ''}
               ${dv.quality_l8_has_clip_trim ? ' · <code>clip_trim</code>' : ''}

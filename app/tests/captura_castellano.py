@@ -382,6 +382,8 @@ _CODIGO_ROTULO = re.compile(
     r"[:;]\s*[\w.#-]+\s*[;{]|\b(px|rem|vh|vw)\b|^https?:")
 
 _VOCABULARIO: set[str] | None = None
+_ES_CRUDO: set[str] = set()
+_EN_CRUDO: set[str] = set()
 
 
 def vocabulario_solo_castellano() -> set[str]:
@@ -398,8 +400,96 @@ def vocabulario_solo_castellano() -> set[str]:
                     continue
                 for v in json.loads(f.read_text(encoding="utf-8")).values():
                     acc |= set(re.findall(r"[a-záéíóúñü]{4,}", v.lower()))
+        globals()["_ES_CRUDO"], globals()["_EN_CRUDO"] = es, en
         _VOCABULARIO = es - en
     return _VOCABULARIO
+
+
+def _sin_plural(p: str) -> str:
+    """`restantes` → `restante`. El vocabulario sale del propio catálogo, así
+    que solo conoce la forma EXACTA que alguien ya tradujo: «Restante {p1}»
+    está, y el `restantes` del código no casaba con ella. Un literal que se
+    quedó sin traducir es justo el que no aporta su forma al vocabulario —
+    el criterio es circular y esto le quita una vuelta.
+    """
+    for suf in ("es", "s"):
+        if p.endswith(suf) and len(p) - len(suf) >= 4:
+            return p[:-len(suf)]
+    return p
+
+
+_VOCABULARIO_SIN_PLURAL: set[str] | None = None
+
+
+def vocabulario_sin_plural() -> set[str]:
+    """Igual que `vocabulario_solo_castellano` pero sobre las formas sin
+    plural, y **normalizando LOS DOS lados antes de restar**.
+
+    Normalizar la diferencia no vale y da falsos positivos de libro:
+    «errores» es castellano y no está en el catálogo inglés, pero su forma
+    sin plural es «error», que sí lo es. Restando después, «Error» pasaba a
+    denunciarse en quince sitios.
+    """
+    global _VOCABULARIO_SIN_PLURAL
+    if _VOCABULARIO_SIN_PLURAL is None:
+        vocabulario_solo_castellano()          # llena _ES_CRUDO / _EN_CRUDO
+        _VOCABULARIO_SIN_PLURAL = ({_sin_plural(p) for p in _ES_CRUDO}
+                                   - {_sin_plural(p) for p in _EN_CRUDO})
+    return _VOCABULARIO_SIN_PLURAL
+
+
+def funcion_de(src: str, pos: int) -> str:
+    """Nombre de la función JS que envuelve una posición del fuente.
+
+    Vivía como `staticmethod` de una clase de test y la usan cuatro guards:
+    es lo que permite eximir POR FUNCIÓN —que es como CLAUDE.md pide las
+    exenciones— en vez de por cadena.
+    """
+    m = list(re.finditer(r"^(?:async )?function (\w+)\(", src[:pos], re.M))
+    return m[-1].group(1) if m else ""
+
+
+# Funciones cuyo texto NO es interfaz: volcados de diagnóstico que se leen
+# contra el log y contra la hoja de DoviTools, las dos en inglés, y que el
+# usuario pega en un informe. Exentas por FUNCIÓN y con su motivo, nunca por
+# la forma de la cadena.
+VOLCADOS_DE_DIAGNOSTICO = {
+    "showRawAnalysisData":         "el modal 🔬 Datos ISO de Tab 1",
+    "showRawMkvData":              "su equivalente en Tab 2",
+    "_rgrfCopyToClipboard":        "el Markdown de la radiografía DV+HDR",
+    "_cmv40GateDiagnosticoTexto":  "el texto de Validaciones que se copia",
+    "_cmv40GateBloque2": "detalle técnico de la card de Validaciones",
+    "_cmv40GateBloque3": "detalle técnico de la card de Validaciones",
+    "_cmv40GateBloque4": "detalle técnico de la card de Validaciones",
+    "_cmv40GateBloque5": "detalle técnico de la card de Validaciones",
+    "_cmv40RenderGateCardBC": "cabecera de la card de Validaciones",
+}
+
+# Un id del DOM, un selector CSS o una query no llevan mayúscula inicial ni
+# acento; un rótulo de interfaz sí. Sin esta regla el criterio por
+# vocabulario denuncia 150 `progress-modal-poster` y `.paso-ico`.
+_ID_O_SELECTOR = re.compile(r"^[a-z0-9 _.#\[\]:>~+*^$=\"'/()&?-]+$")
+
+# Texto plano: solo palabras y espacios simples. Es lo que separa «mejor
+# match» de «paso-ico paso-», que las dos son minúsculas y con espacio — sin
+# esto el filtro se comía justo los rótulos de dos palabras que hay que
+# cazar, que es como «mejor match» sobrevivió.
+_SOLO_PALABRAS = re.compile(r"^[a-záéíóúñü]+(?: [a-záéíóúñü]+)*$")
+
+
+def es_id_o_selector(s: str) -> bool:
+    """¿Es código y no texto? Ids, selectores, querys y trozos de atributo.
+
+    El `="` cubre lo que el extractor de nodos de texto NO sabe separar:
+    cuando una plantilla construye un atributo por partes, el trozo llega
+    como si fuera texto y lleva palabras castellanas dentro de los nombres.
+    """
+    t = s.replace("⟦⟧", "").strip()
+    if not t:
+        return True
+    if _SOLO_PALABRAS.fullmatch(t):
+        return False                  # dos palabras y un espacio: es texto
+    return bool(_ID_O_SELECTOR.fullmatch(t)) or '="' in s
 
 
 def es_rotulo(s: str) -> bool:
@@ -430,8 +520,9 @@ def es_rotulo(s: str) -> bool:
     # `serie:{spath}:{temporada}`, con la que un trabajo entra en la cola.
     if re.fullmatch(r"[_a-z][a-z0-9_{}]*(?:[.:][a-z0-9_{}]*)*", t):
         return False
-    return bool(set(re.findall(r"[a-záéíóúñü]{4,}", t.lower()))
-                & vocabulario_solo_castellano())
+    palabras = set(re.findall(r"[a-záéíóúñü]{4,}", t.lower()))
+    return bool(palabras & vocabulario_solo_castellano()
+                or {_sin_plural(p) for p in palabras} & vocabulario_sin_plural())
 
 
 

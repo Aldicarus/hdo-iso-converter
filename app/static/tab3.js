@@ -700,7 +700,8 @@ function _cmv40EnsureTimerTick() {
         // y el aviso de estimación provisional no llegaba a verse nunca.
         const sufijo = el.dataset.etaSufijo || '(auto)';
         remainEl.textContent = remaining > 0
-          ? `~${_cmv40FmtClock(remaining)} restantes ${sufijo}`
+          ? tr('tab3.eta_restantes',
+                 {reloj: _cmv40FmtClock(remaining), sufijo})
           : tr('tab3.casi_listo');
       }
     });
@@ -730,7 +731,8 @@ function _cmv40SufijoEta(s) {
 
 function _cmv40TextoRestante(secs, s) {
   if (secs <= 0) return tr('tab3.casi_listo');
-  return `~${_cmv40FmtClock(secs)} restantes ${_cmv40SufijoEta(s)}`;
+  return tr('tab3.eta_restantes',
+            {reloj: _cmv40FmtClock(secs), sufijo: _cmv40SufijoEta(s)});
 }
 
 /** ¿El job está en un estado terminal? Con done/error el porcentaje no debe
@@ -1163,7 +1165,7 @@ function _cmv40TableRow(key, value, link, opts = {}) {
   const valueClass = opts.mono ? 'cmv40-rec-row-value mono' : 'cmv40-rec-row-value';
   const linkHtml = link
     ? `<a class="cmv40-rec-row-link" href="${escHtml(link)}" target="_blank" rel="noreferrer noopener"
-         data-tooltip="Abrir: ${escHtml(link)}"><span data-i18n="tab1.abrir"></span> <span data-icono="enlaceExterno"></span></a>`
+         data-tooltip="${escHtml(tr('comun.abrir_p1', {p1: link}))}"><span data-i18n="tab1.abrir"></span> <span data-icono="enlaceExterno"></span></a>`
     : '';
   return `
     <div class="cmv40-rec-row">
@@ -1258,7 +1260,7 @@ function _cmv40RenderRecommendation(data, containerId) {
 
   const matchTitleHtml = data.match_title
     ? (data.title_link
-        ? `<a class="cmv40-rec-match-title linked" href="${escHtml(data.title_link)}" target="_blank" rel="noreferrer noopener" data-tooltip="Abrir: ${escHtml(data.title_link)}">${escHtml(data.match_title)} <span class="chip-arrow" data-icono="enlaceExterno"></span></a>`
+        ? `<a class="cmv40-rec-match-title linked" href="${escHtml(data.title_link)}" target="_blank" rel="noreferrer noopener" data-tooltip="${escHtml(tr('comun.abrir_p1', {p1: data.title_link}))}">${escHtml(data.match_title)} <span class="chip-arrow" data-icono="enlaceExterno"></span></a>`
         : `<span class="cmv40-rec-match-title">${escHtml(data.match_title)}</span>`)
     : '';
 
@@ -1814,7 +1816,7 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
         <div class="cmv40-repo-card-head">
           <span class="cmv40-repo-card-tag ${tagMeta.cls}">${icono(tagMeta.icon)} ${tagMeta.label}</span>
           ${provTag}
-          ${isBest ? '<span class="cmv40-repo-card-best"><span data-icono="diana"></span> mejor match</span>' : ''}
+          ${isBest ? '<span class="cmv40-repo-card-best"><span data-icono="diana"></span> <span data-i18n="comun.mejor_match"></span></span>' : ''}
           <span class="cmv40-repo-card-score">${Math.round(c.score * 100)}%</span>
           <span class="cmv40-repo-card-size">${sizeMb} MB</span>
         </div>
@@ -3880,7 +3882,7 @@ function _renderCMv40ActivePhase(project) {
     );
     const retryBtn = activeFase
       ? `<button class="btn btn-warning btn-sm" onclick="_cmv40RetryActivePhase('${pid}','${activeFase.key}')"
-            data-tooltip="Vuelve a ejecutar ${escHtml(activeFase.title)}"><span data-icono="refrescar"></span> <span data-i18n="tab2.reintentar"></span></button>`
+            data-tooltip="${escHtml(tr('tab3.vuelve_a_ejecutar_p1', {p1: activeFase.title}))}"><span data-icono="refrescar"></span> <span data-i18n="tab2.reintentar"></span></button>`
       : '';
     errorHtml = `
       <div class="section-card cmv40-card-error" style="margin-top:12px">
@@ -5840,7 +5842,7 @@ async function _cmv40LoadRepoForPanel(pid) {
         <div class="cmv40-repo-card-head">
           <span class="cmv40-repo-card-tag ${tagMeta.cls}">${icono(tagMeta.icon)} ${tagMeta.label}</span>
           ${provTag}
-          ${isBest ? '<span class="cmv40-repo-card-best"><span data-icono="diana"></span> mejor match</span>' : ''}
+          ${isBest ? '<span class="cmv40-repo-card-best"><span data-icono="diana"></span> <span data-i18n="comun.mejor_match"></span></span>' : ''}
           <span class="cmv40-repo-card-score">${Math.round(c.score * 100)}%</span>
           <span class="cmv40-repo-card-size">${sizeMb} MB</span>
         </div>
@@ -6573,7 +6575,7 @@ function _renderCMv40SyncControls(project) {
         <input type="number" id="cmv40-remove-${pid}" value="${delta > 0 ? delta : 0}" min="0" style="width:80px"
           oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})">
       </label>
-      <label>Duplicar primer frame N veces:
+      <label><span data-i18n="tab3.duplicar_primer_frame"></span>
         <input type="number" id="cmv40-duplicate-${pid}" value="${delta < 0 ? Math.abs(delta) : 0}" min="0" style="width:80px"
           oninput="_cmv40UpdateExpectedDelta('${pid}', ${delta})">
       </label>

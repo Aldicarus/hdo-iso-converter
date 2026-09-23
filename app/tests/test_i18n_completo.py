@@ -330,22 +330,10 @@ def _llamadas_a_tr(src: str) -> list[tuple[str, int, int]]:
 # `── Pistas descartadas ──`— y se leen igual en cualquier idioma, como los
 # markers del log. Traducirlas añadiría ~38 claves que nadie mira salvo cuando
 # algo va mal, y cambiaría el texto que un usuario pega en un informe.
-VOLCADOS_DE_DIAGNOSTICO = {
-    "showRawAnalysisData":         "el modal 🔬 Datos ISO de Tab 1",
-    "showRawMkvData":              "su equivalente en Tab 2",
-    "_rgrfCopyToClipboard":        "el Markdown de la radiografía DV+HDR",
-    "_cmv40GateDiagnosticoTexto":  "el texto de Validaciones que se copia",
-    # Los cinco bloques de la card 🛡️ Validaciones y su cabecera. Son el
-    # detalle técnico de los trust gates —`cuerpo 97,4%`, `· sync +16`,
-    # `source ok`, `VARIABLE · 0,0/0,0`— que se lee contra el log y contra la
-    # hoja de DoviTools, las dos en inglés. Traducirlos no ayudaría a nadie a
-    # entender un gate y cambiaría el texto que se pega en un informe.
-    "_cmv40GateBloque2": "detalle técnico de la card de Validaciones",
-    "_cmv40GateBloque3": "detalle técnico de la card de Validaciones",
-    "_cmv40GateBloque4": "detalle técnico de la card de Validaciones",
-    "_cmv40GateBloque5": "detalle técnico de la card de Validaciones",
-    "_cmv40RenderGateCardBC": "cabecera de la card de Validaciones",
-}
+# Las exenciones POR FUNCIÓN viven en `captura_castellano`: las usan
+# cuatro guards y una segunda copia es lo que deja a uno mirando la
+# lista de ayer.
+VOLCADOS_DE_DIAGNOSTICO = captura.VOLCADOS_DE_DIAGNOSTICO
 
 # Rótulos cortos que se quedan en castellano por otro motivo, con el suyo.
 CORTOS_ACEPTADOS = {
@@ -458,10 +446,8 @@ class TestNoQuedaNingunFragmentoCortoSuelto(unittest.TestCase):
             cls.vocabulario |= {
                 w.lower() for w in re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{4,}", v)}
 
-    @staticmethod
-    def _funcion_de(src: str, pos: int) -> str:
-        m = list(re.finditer(r"^(?:async )?function (\w+)\(", src[:pos], re.M))
-        return m[-1].group(1) if m else ""
+    # El helper vive en `captura_castellano`: lo usan cuatro guards.
+    _funcion_de = staticmethod(captura.funcion_de)
 
     def test_ninguna_cadena_corta_con_hueco_se_queda_en_castellano(self):
         import bisect

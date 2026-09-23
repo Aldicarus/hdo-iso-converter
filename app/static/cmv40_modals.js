@@ -144,7 +144,11 @@ function _cmv40CleanupUpdateSummary() {
   const btn = document.getElementById('cmv40-cleanup-execute-btn');
   if (summaryEl) {
     summaryEl.innerHTML = count > 0
-      ? `<strong>${count}</strong> proyecto${count === 1 ? '' : 's'} · liberables <strong>${_cleanupFmtBytes(totalBytes)}</strong>`
+      // Dos claves y no un sufijo `s`: el plural no se resuelve igual en
+      // las tres lenguas y el valor lleva marcado dentro (va por innerHTML).
+      ? tr(count === 1 ? 'cmv40_modals.liberables_uno'
+                       : 'cmv40_modals.liberables_varios',
+           {n: count, bytes: _cleanupFmtBytes(totalBytes)})
       : '<span style="color:var(--text-3)">' + tr('cmv40_modals.selecciona_al_menos_un_proyecto') + '</span>';
   }
   if (btn) {
@@ -275,7 +279,7 @@ async function _cmv40HelpHydrateDriveLink() {
     const df = s?.drive_folder || {};
     const apiKey = s?.google || {};
     if (df.configured) {
-      statusEl.innerHTML = icono('check') + ` Configurada <span style="font-size:11px; font-weight:500; color:var(--text-3)">${tr('cmv40_modals.folder_p1', {p1: escHtml(df.folder_id_last6 || '??????')})}</span>`;
+      statusEl.innerHTML = icono('check') + ` ${tr('cmv40_modals.carpeta_configurada')} <span style="font-size:11px; font-weight:500; color:var(--text-3)">${tr('cmv40_modals.folder_p1', {p1: escHtml(df.folder_id_last6 || '??????')})}</span>`;
       statusEl.style.color = 'var(--green-text)';
       const srcLabel = df.source === 'settings' ? tr('cmv40_modals.configurada_desde_configuracion')
         : df.source === 'env' ? tr('cmv40_modals.configurada_por_variable_de_entorno_del')
@@ -509,7 +513,7 @@ function _cmv40LookupRenderResults(container, rec, repo, tmdb) {
           <div class="cmv40-lookup-cand-head">
             <span class="cmv40-lookup-tag ${tagMeta.cls}">${icono(tagMeta.icon)} ${tagMeta.label}</span>
             ${provTag}
-            ${isBest ? '<span class="cmv40-lookup-best"><span data-icono="diana"></span> mejor match</span>' : ''}
+            ${isBest ? '<span class="cmv40-lookup-best"><span data-icono="diana"></span> <span data-i18n="comun.mejor_match"></span></span>' : ''}
             <span class="cmv40-lookup-score">${tr('cmv40_modals.score_similitud', {score: score})}</span>
             <span class="cmv40-lookup-size">${sizeMb} MB</span>
           </div>
