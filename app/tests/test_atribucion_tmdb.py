@@ -138,9 +138,19 @@ class TestElLogoEstaYEsElOficial(unittest.TestCase):
         h = INDEX.read_text(encoding="utf-8")
         self.assertRegex(h, r'src="/static/img/tmdb\.svg')
 
-    def test_no_se_coló_en_el_catalogo_de_glifos(self):
-        core = (APP_DIR / "static" / "core.js").read_text(encoding="utf-8")
-        self.assertNotIn("tmdb:", core.split("const GLIFOS")[-1][:20000])
+    def test_no_se_colo_en_el_catalogo_de_glifos(self):
+        # Por `js_completo()` y no leyendo core.js a pelo: el frontend son
+        # nueve scripts y su orden lo manda `index.html`. Una ruta escrita
+        # aquí se desincroniza en el primer cambio y el test seguiría en
+        # verde midiendo otra cosa. Lo exige `test_frontend_troceado`.
+        from frontend_sources import js_completo
+        js = js_completo()
+        tras = js.split("const GLIFOS")[-1]
+        self.assertNotEqual(tras, js, "no se encuentra el catálogo GLIFOS")
+        self.assertNotIn("tmdb:", tras[:20000], (
+            "el logo de TMDb no puede ser un glifo del catálogo: lleva su "
+            "gradiente y su licencia prohíbe recolorearlo, así que no puede "
+            "heredar `currentColor` como los demás"))
 
 
 @unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")

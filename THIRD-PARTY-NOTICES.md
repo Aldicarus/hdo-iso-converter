@@ -79,10 +79,19 @@ abre una incidencia en el enlace de arriba.
 
 ### Espejo de las fuentes
 
-Los autobuilds de BtbN **se borran**: solo sobrevive el último de cada mes.
-Para que esta oferta siga siendo cierta, las fuentes de los componentes cuyo
-origen no es permanente están archivadas en las *releases* de este
-repositorio, bajo el tag `sources-<versión>`.
+Los autobuilds de BtbN **se borran**: solo sobrevive el último de cada mes,
+así que apuntar a su release como única fuente convertiría esta oferta en un
+enlace roto. El binario de ffmpeg queda identificado por dos commits, los
+dos permanentes:
+
+| qué | commit |
+|---|---|
+| FFmpeg | [`1fdbca85aaea513c9cc6c14d347f76543346d3da`](https://github.com/FFmpeg/FFmpeg/commit/1fdbca85aaea513c9cc6c14d347f76543346d3da) (30-jul-2026) |
+| BtbN/FFmpeg-Builds (los scripts que lo compilan, y que fijan la versión y la URL de cada dependencia) | [`a99e8230eae00d1cee38f23076a7a1f55cd984e2`](https://github.com/BtbN/FFmpeg-Builds/commit/a99e8230eae00d1cee38f23076a7a1f55cd984e2) (29-jul-2026) |
+
+Los dos árboles están además archivados en las *releases* de este
+repositorio, bajo el tag `sources-ffmpeg-n7.1.5`, por si alguno de los dos
+repositorios de origen desapareciera.
 
 Las de Ubuntu y MKVToolNix no se archivan: Canonical y mkvtoolnix.download
 mantienen sus fuentes de forma duradera y los enlaces de la tabla apuntan

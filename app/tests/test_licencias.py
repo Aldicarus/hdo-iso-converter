@@ -135,14 +135,40 @@ class TestLasVersionesDelDockerfileEstanEnLosAvisos(unittest.TestCase):
 
     def test_el_variant_declarado_coincide_con_el_que_se_baja(self):
         """El ffmpeg de BtbN es GPLv3 en el variant `gpl` y LGPLv3 en el
-        `lgpl`. Si algún día se cambia el ARG y no los avisos, el documento
-        anunciaría una licencia que el binario no tiene."""
+        `lgpl` (sus `variants/defaults-*.sh`: el primero añade
+        `--enable-gpl` y apunta a COPYING.GPLv3, el segundo no). Cambiar el
+        ARG sin tocar los avisos haría que el documento anunciara una
+        licencia que el binario no tiene.
+
+        Se mira LA FILA de ffmpeg, no el documento entero: «LGPL-3.0»
+        aparece de todos modos en la lista de textos completos y en la
+        oferta escrita, así que un `assertIn` global pasa con cualquiera de
+        los dos variants y no comprueba nada. Lo destapó una mutación.
+        """
         build = self._arg("FFMPEG_BUILD")
         es_gpl = "-gpl" in build and "-lgpl" not in build
+
+        # Ancla estrecha: la FILA DEL COMPONENTE de la tabla, no cualquier
+        # línea que nombre a BtbN — el espejo de las fuentes lo menciona
+        # también y el ancla dejó de ser única en cuanto se añadió.
+        filas = [l for l in self.avisos.splitlines()
+                 if l.startswith("| **FFmpeg**") and "BtbN" in l]
+        self.assertEqual(len(filas), 1, (
+            "\nno se identifica la fila del build de BtbN en la tabla de "
+            "componentes"))
+        fila = filas[0]
+
         if es_gpl:
-            self.assertIn("GPL-3.0", self.avisos)
+            self.assertIn("GPL-3.0-or-later", fila)
+            self.assertNotIn("LGPL", fila, (
+                "\nel Dockerfile baja el variant `gpl` (GPLv3) y la fila "
+                "dice LGPL"))
+            self.assertIn("--enable-gpl", fila)
         else:
-            self.assertIn("LGPL-3.0", self.avisos)
+            self.assertIn("LGPL-3.0", fila, (
+                "\nel Dockerfile baja el variant `lgpl` y la fila sigue "
+                "anunciando la GPL completa"))
+            self.assertNotIn("--enable-gpl ", fila)
 
 
 class TestLasDependenciasPythonTienenAviso(unittest.TestCase):
