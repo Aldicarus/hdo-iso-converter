@@ -38,10 +38,14 @@ _CHROME_CANDIDATOS = [
 ]
 CHROME = next((c for c in _CHROME_CANDIDATOS if c and Path(c).exists()), None)
 
-# Los cuatro, con lo que hay que hacer para llegar a cada uno.
+# Los tres, con lo que hay que hacer para llegar a cada uno.
+#
+# Eran cuatro: el del comparador A/B de luminancia se fue con el comparador
+# el 2026-09-23 («no aporta nada»). El test se queda porque el motivo por el
+# que existe no era el comparador sino la regla: los selectores de MKV
+# enseñan LOS TRES sitios, y eso solo se ve abriéndolos.
 SELECTORES = {
     "abrir_mkv":       "_openMkvBrowserNow()",
-    "comparador":      "abrirComparadorLuminancia()",
     "nuevo_cmv40":     "openNewCMv40Modal()",
     "cambiar_origen":  "openCMv40SourceBrowser()",
 }
@@ -109,7 +113,7 @@ def _medir() -> dict:
 
 
 @unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")
-class TestLosCuatroEnsenanLosTresSitios(unittest.TestCase):
+class TestLosTresEnsenanLosTresSitios(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):

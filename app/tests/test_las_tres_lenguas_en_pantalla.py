@@ -592,11 +592,6 @@ _CUERPO = """
   // escriben en ids prefijados por el id del proyecto, así que sin la
   // sub-pestaña en el DOM no hay dónde leer.
   X.mkv.dovi = DV;
-  // La forma REAL de `project.comparacion` (ver `_mkvCompararCon`): con
-  // otras claves la tabla de deltas sale entera a `undefined`.
-  const CMP = {serie: DV.per_scene_max_cll, etiqueta: 'another copy.mkv',
-               stats: DV.l1_stats, duracion: 5904.0,
-               fichero: '/mnt/output/another copy.mkv'};
   const PM = {id: 'm1', fileName: X.mkv.file_name, filePath: X.mkv.file_path,
               analysis: X.mkv, originalAnalysis: JSON.parse(JSON.stringify(X.mkv)),
               dirty: false, comparacion: null};
@@ -682,8 +677,7 @@ _CUERPO = """
                                     const e = document.getElementById('mkv-chapters-list-' + PM.id);
                                     return e ? e.innerHTML : ''; },
     'tab2·radiografia':     () => _renderMkvDvRadiography(
-                                    X.mkv, DV, X.mkv.tracks[0], X.mkv.tracks[1], CMP),
-    'tab2·comparacion':     () => _mkvTablaComparacionHtml(DV, X.mkv, CMP),
+                                    X.mkv, DV, X.mkv.tracks[0], X.mkv.tracks[1]),
     'tab2·recientes':       () => { _mkvRecientes = X.recientes;
                                     _renderMkvRecientes();
                                     const e = document.getElementById('mkv-recientes-list');
@@ -875,7 +869,7 @@ _CUERPO = """
     'tab2·radiografia': 'dv-detail',  'tab2·mastering':    'dv-detail',
     'tab2·stats_l1':    'dv-detail',  'tab2·sparkline':    'dv-detail',
     'tab2·l5':          'dv-detail',  'tab2·gamut':        'dv-detail',
-    'tab2·distribucion':'dv-detail',  'tab2·comparacion':  'dv-detail',
+    'tab2·distribucion':'dv-detail',
     'tab2·auditoria':   'dv-detail',
     'browser·modal':    'file-browser-modal-box',
     'ui·toast':         'toast-container',

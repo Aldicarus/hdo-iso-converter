@@ -99,6 +99,9 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "comun.error":
+        "«Error» se escribe igual en las tres lenguas. Es la etiqueta de la "
+        "fila del resumen de un trabajo terminado en el modal de la columna",
     "ajustes.seccion.general":
         "«General» se escribe igual en castellano y en inglés; en catalán "
         "también. Es el rótulo de la primera sección del modal de "

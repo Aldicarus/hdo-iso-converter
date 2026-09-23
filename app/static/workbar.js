@@ -76,9 +76,18 @@ function onWorkbarPill(el) {
     .forEach(b => b.classList.toggle('active', b === el));
   _workbarFiltroTab = el.dataset.tab || 'all';
   _workbarRender(workbarEstado);
+  // El pill filtra también el historial, y eso lo hace el servidor. Sin
+  // esperar: un clic es una intención, no se escribe letra a letra.
+  _workbarRefiltrarHistorial();
 }
 
-function filtrarWorkbar() { _workbarRender(workbarEstado); }
+function filtrarWorkbar() {
+  _workbarRender(workbarEstado);
+  // El historial se filtra en el servidor, así que cambiar el filtro es
+  // volver a pedirlo. Las tres secciones de arriba se filtran en memoria y
+  // ya las ha repintado `_workbarRender`.
+  _workbarRefiltrarHistorial();
+}
 
 function _workbarBusqueda() {
   const v = document.getElementById('workbar-search')?.value || '';
@@ -494,19 +503,67 @@ function _workbarRender(st) {
 const _WORKBAR_HISTORIAL_PASO = 25;
 let _workbarTopeHistorial = _WORKBAR_HISTORIAL_PASO;
 let _workbarHayMasHistorial = false;
+/** Con qué filtro se pidió lo que hay en pantalla. */
+let _workbarFiltroDelHistorial = '';
+let _workbarFiltroTimer = null;
 
+/** `q=…&tab=…` del filtro activo, o cadena vacía. */
+function _workbarFiltroQS() {
+  const q = document.getElementById('workbar-search')?.value?.trim() || '';
+  const t = _workbarFiltroTab !== 'all' ? _workbarFiltroTab : '';
+  return (q ? `&q=${encodeURIComponent(q)}` : '')
+       + (t ? `&tab=${encodeURIComponent(t)}` : '');
+}
+
+/** **El historial lo filtra el SERVIDOR.**
+ *
+ *  Las tres secciones de arriba —en curso, en segundo plano, en cola— caben
+ *  en memoria y se filtran aquí con `_workbarPasaFiltro`. El historial no:
+ *  la columna pide 25 líneas para que abrirla sea instantáneo y el fichero
+ *  tiene cientos, así que filtrar sobre lo cargado buscaba en 25 de 600. El
+ *  síntoma que reportó el usuario el 2026-09-23 es exactamente eso: una
+ *  búsqueda normal salía vacía, «Ver más» no parecía hacer nada y tras
+ *  varios clics aparecía una coincidencia — cada clic traía 25 más, casi
+ *  todas descartadas otra vez.
+ *
+ *  Con `q`/`tab` en la petición se cumplen las dos cosas que el usuario
+ *  pedía a la vez: la carga sigue siendo de 25 y la búsqueda es sobre el
+ *  todo. El `hay_mas` lo dice el servidor, que es el único que sabe si
+ *  quedaban candidatos detrás.
+ */
 async function _workbarCargarHistorial(rev) {
-  const r = await apiFetch(`/api/historial?limite=${_workbarTopeHistorial}`,
+  const filtro = _workbarFiltroQS();
+  const r = await apiFetch(`/api/historial?limite=${_workbarTopeHistorial}${filtro}`,
                            { silent: true }).catch(() => null);
   if (!r || !Array.isArray(r.trabajos)) return;   // se conserva lo anterior
   // La revisión se apunta al CARGAR, no al pedir: si la petición falla, la
   // vuelta siguiente lo reintenta en vez de quedarse con el historial viejo
   // hasta el próximo cambio.
   if (rev !== undefined) _workbarUltimaRevHistorial = rev;
-  // Si vino justo el tope pedido, es que puede haber más.
-  _workbarHayMasHistorial = r.trabajos.length >= _workbarTopeHistorial;
+  // Lo dice el servidor. Deducirlo de «han venido justo `limite`» falla
+  // cuando el total es un múltiplo exacto del paso: el botón se quedaba
+  // ofreciendo una página que no existe.
+  _workbarHayMasHistorial = !!r.hay_mas;
+  _workbarFiltroDelHistorial = filtro;
   workbarEstado.recientes = r.trabajos;
   _workbarRenderHistorial();
+}
+
+/** Al cambiar el filtro se vuelve a pedir desde el principio.
+ *
+ *  Sin volver al paso 1, una búsqueda heredaría el tope al que hubiera
+ *  llegado el usuario a base de «Ver más» y pediría 300 líneas para pintar
+ *  dos.
+ */
+function _workbarRefiltrarHistorial() {
+  if (_workbarFiltroQS() === _workbarFiltroDelHistorial) return;
+  _workbarTopeHistorial = _WORKBAR_HISTORIAL_PASO;
+  // **Con espera.** El buscador llama en cada tecla (`oninput`), así que sin
+  // esto escribir «predator» serían ocho peticiones y la que pintara la
+  // última podría ser la de «pred». 250 ms es lo que tarda una tecla más:
+  // no se nota y agrupa la palabra entera.
+  clearTimeout(_workbarFiltroTimer);
+  _workbarFiltroTimer = setTimeout(() => _workbarCargarHistorial(), 250);
 }
 
 function verMasHistorial() {
@@ -539,7 +596,11 @@ function _workbarHace(iso) {
 function _workbarRenderHistorial() {
   const caja = document.getElementById('workbar-historial');
   if (!caja) return;
-  const items = (workbarEstado.recientes || []).filter(_workbarPasaFiltro);
+  // Sin `_workbarPasaFiltro`: lo que hay en `recientes` ya viene filtrado por
+  // el servidor. Volver a filtrarlo aquí no quitaría nada, pero sí escondería
+  // el hecho de que el filtro es de la petición — y el próximo que añada un
+  // criterio lo pondría en el sitio equivocado.
+  const items = workbarEstado.recientes || [];
   if (!items.length) {
     caja.innerHTML = _workbarFiltrando()
       ? '<div class="workbar-vacio">' + tr('workbar.nada_terminado_coincide_con_el_filtro') + '</div>'
@@ -966,27 +1027,70 @@ function cancelarTrabajoActivo(trabajo) {
 let _trabajoModalTimer = null;
 let _trabajoModalVivo = false;
 
-/** Los dos huecos que se van a buscar al servidor, mientras llegan.
+/** El armazón de la columna y del cuerpo mientras el detalle no ha llegado.
  *
- *  Bloques con la forma de lo que viene —la cartela y unas filas de fase a
- *  la izquierda, unas líneas de log a la derecha— para que el modal tenga
- *  su tamaño definitivo desde el primer instante y no dé el respingo de
- *  crecer cuando el detalle aparece.
+ *  **Cada bloque ocupa el sitio de lo que va a aparecer ahí**, que es la
+ *  única forma de que un esqueleto sirva de algo: si son rectángulos sueltos
+ *  por el medio, el usuario no aprende dónde va a salir nada y el modal da
+ *  igualmente el respingo de recolocarse. La primera versión pintaba un
+ *  bloque de cartela DENTRO de la timeline —donde van las fases, no la
+ *  cartela— y una decena de líneas que no llegaban ni a la mitad del alto
+ *  del log. Reportado con captura el 2026-09-23.
+ *
+ *  Por eso los dos usan los **contenedores reales** (`cmv40-running-timeline`
+ *  y `cmv40-log`) y heredan su padding, sus bordes y su `flex`. Y se
+ *  generan de más para después recortar con `overflow:hidden`: el alto
+ *  depende de la ventana y no se puede saber al componer la cadena.
+ *
+ *  **La lista NO lleva `cmv40-tl-steps`**, aunque sus filas sí lleven
+ *  `cmv40-tl-step`: esa clase es el ancla con la que la timeline de verdad
+ *  se busca a sí misma (`tlWrap.querySelector('.cmv40-tl-steps')`) y con la
+ *  que dos tests esperan a que el detalle haya llegado. Con ella puesta, el
+ *  esqueleto pasaba por la timeline buena — que es justo lo que un
+ *  esqueleto no puede hacer.
+ *
+ *  Lo que se SABE no se dibuja en gris. El título, la fase, la barra, el
+ *  transcurrido y —desde el 2026-09-23— **la cartela** salen del registro
+ *  del trabajo (`/api/trabajos` ya trae `titulo` y `poster`), así que son
+ *  ciertos desde el primer instante y se pintan de verdad.
  */
-function _trabajoEsqueletoLateral() {
-  const filas = [0, 1, 2, 3, 4].map(() =>
-    '<div class="wb-esq wb-esq-fila"></div>').join('');
-  return '<div class="wb-esqueleto">'
-       + '<div class="wb-esq wb-esq-cartel"></div>' + filas + '</div>';
+function _trabajoEsqueletoLateral(a) {
+  // Tantas filas como fases tenga el trabajo: diez en un CMv4.0, cinco en un
+  // rip. Con un número fijo la columna se quedaba corta o larga y al llegar
+  // el detalle todo saltaba de sitio.
+  const n = Math.max(3, Math.min(a?.fases_total || 6, 14));
+  const filas = Array.from({ length: n }, () => `
+    <li class="cmv40-tl-step cmv40-tl-pending">
+      <div class="cmv40-tl-rail"><span class="wb-esq wb-esq-punto"></span></div>
+      <div class="cmv40-tl-body">
+        <div class="wb-esq wb-esq-linea" style="width:78%"></div>
+        <div class="wb-esq wb-esq-linea wb-esq-tenue" style="width:46%"></div>
+      </div>
+    </li>`).join('');
+  return `
+    <aside class="cmv40-running-timeline wb-esqueleto-lateral">
+      <div class="cmv40-tl-header">
+        <div class="wb-esq wb-esq-linea" style="width:56%; height:13px"></div>
+        <div class="wb-esq wb-esq-barra"></div>
+      </div>
+      <ul class="wb-esqueleto-filas">${filas}</ul>
+    </aside>`;
 }
 
 function _trabajoEsqueletoCuerpo() {
-  const anchos = [92, 78, 85, 60, 88, 71, 95, 66, 82, 74];
-  const lineas = anchos.map(w =>
-    `<div class="wb-esq wb-esq-linea" style="width:${w}%"></div>`).join('');
-  return '<div class="wb-esqueleto wb-esqueleto-cuerpo">'
-       + `<div class="wb-esq-aviso">${escHtml(tr('workbar.cargando_el_detalle'))}</div>`
-       + lineas + '</div>';
+  // Anchos irregulares, como un log de verdad. Se emiten 40 y el
+  // `overflow:hidden` de la caja se queda con las que quepan.
+  const anchos = [92, 78, 85, 60, 88, 71, 95, 66, 82, 74, 90, 63, 87, 76, 94,
+                  69, 81, 58, 91, 73];
+  const lineas = Array.from({ length: 40 }, (_, i) =>
+    `<div class="wb-esq wb-esq-linea" style="width:${anchos[i % anchos.length]}%"></div>`
+  ).join('');
+  return `
+    <div class="wb-esq-aviso">
+      <span class="cmv40-running-spinner wb-esq-aviso-spinner"></span>
+      <span>${escHtml(tr('workbar.cargando_el_detalle'))}</span>
+    </div>
+    <div class="cmv40-log wb-esqueleto wb-esqueleto-cuerpo">${lineas}</div>`;
 }
 
 /** Programa el siguiente refresco del modal. **Encadenado, no `setInterval`.**
@@ -1232,7 +1336,7 @@ function _trabajoModalPinta(a, vista) {
     // Terminado el reloj se para: es un dato, no un contador. Y al terminar
     // lo que interesa es lo que costó el TRABAJO, no la última fase.
     tiemposEl.innerHTML = a.terminal
-      ? (a.segundos ? `Duró ${escHtml(_workbarTiempo(a.segundos))}` : '')
+      ? (a.segundos ? escHtml(tr('workbar.duro_p1', {p1: _workbarTiempo(a.segundos)})) : '')
       : (fase.segundos ? _relojHTML(fase.segundos, tr('workbar.lleva') + ' ') : '');
   }
 
@@ -1332,10 +1436,10 @@ function _trabajoModalConResumen(a, vista) {
     conLog: false,
     cuerpo: _trabajoKvHTML([
       [tr('workbar.resultado'), _CMV40_FIN[h.estado] || h.estado || '—'],
-      ['Empezó', fecha(h.inicio)],
+      [tr('workbar.empezo'), fecha(h.inicio)],
       [tr('workbar.termino'), fecha(h.fin)],
       [tr('tab1.duracion'), _workbarTiempo(h.segundos || a.segundos)],
-      ['Error', h.error || '—'],
+      [tr('comun.error'), h.error || '—'],
     ]) + `<div class="trabajo-detalle-nota">${escHtml(_MOTIVO_SIN_LOG[
       vista.sinDetalle] || _MOTIVO_SIN_LOG.desconocido)}</div>`,
   };
@@ -1525,7 +1629,18 @@ async function _trabajoModalAbrir(a) {
   _trabajoModalPinta(a, {
     ..._trabajoModalConResumen(a, {}),
     cargando: true,
-    lateral: _trabajoEsqueletoLateral(),
+    // **La cartela NO espera al servidor.** `titulo` y `poster` viajan en
+    // `/api/trabajos` desde que el trabajo se encoló, así que la película se
+    // puede enseñar en el mismo tick en que se abre el modal. Antes se
+    // dejaba en gris hasta que respondía el adaptador —diez segundos en una
+    // Fase F— y era justo el dato que dice de qué job estamos hablando.
+    // Cuando llegue el detalle, su cartela (con año, duración y géneros)
+    // sustituye a esta.
+    cartel: a.titulo
+      ? { url: a.poster || '', titulo: a.titulo, meta: '',
+          icono: iconoDeTrabajo(a.tipo, a.tab, 'icono-chip-lg') }
+      : null,
+    lateral: _trabajoEsqueletoLateral(a),
     cuerpo: _trabajoEsqueletoCuerpo(),
     conLog: false,
   });

@@ -671,7 +671,7 @@ class TestElEndpoint(ApiTestCase):
 
     def test_vacio(self):
         self.assertEqual(self.client.get("/api/historial").json(),
-                         {"trabajos": []})
+                         {"trabajos": [], "hay_mas": False})
 
     def test_devuelve_lo_anotado_del_mas_reciente_al_mas_antiguo(self):
         self._anotar(id="viejo")

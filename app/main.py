@@ -1496,7 +1496,7 @@ async def app_trabajos(recientes: int = 8):
 
 
 @app.get("/api/historial", summary="Qué trabajo se ha hecho, en las tres pestañas")
-async def app_historial(limite: int = 200):
+async def app_historial(limite: int = 200, q: str = "", tab: str = ""):
     """Los últimos trabajos terminados, del más reciente al más antiguo.
 
     Complementa a `/api/activity`, que solo sabe del presente. Los dos
@@ -1504,12 +1504,24 @@ async def app_historial(limite: int = 200):
     Tab 3) siguen donde estaban con su detalle por fase; esto es la vista
     transversal, que además es la única que existe para Tab 2.
 
+    **`q` y `tab` filtran AQUÍ**, sobre el fichero entero. La columna pide 25
+    líneas para que abrirla sea instantáneo, así que filtrar en el navegador
+    buscaba sobre esas 25 y no sobre las 600 que hay: una búsqueda normal
+    salía vacía y «Ver más» parecía no hacer nada. Recorrer el fichero
+    descartando no cuesta nada —236 bytes por registro, rota a los 5 MB— y
+    así las dos cosas se cumplen a la vez: carga corta y búsqueda completa.
+
+    `hay_mas` dice si quedaban candidatos después del último devuelto, que es
+    lo que decide si se enseña «Ver más». Deducirlo de «han venido `limite`»
+    falla justo cuando el total es un múltiplo exacto del paso.
+
     Se lee en un thread: son unos cientos de KB y el guard del event loop
     prohíbe —con razón— la lectura de un fichero que crece dentro de una
     corrutina.
     """
     limite = max(1, min(limite, 1000))
-    return {"trabajos": await asyncio.to_thread(historial.leer, limite)}
+    trabajos, hay_mas = await asyncio.to_thread(historial.buscar, limite, q, tab)
+    return {"trabajos": trabajos, "hay_mas": hay_mas}
 
 
 @app.delete("/api/historial", summary="Quita una entrada del historial")

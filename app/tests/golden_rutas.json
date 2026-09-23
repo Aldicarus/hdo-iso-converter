@@ -221,6 +221,16 @@
           "limite",
           "query",
           false
+        ],
+        [
+          "q",
+          "query",
+          false
+        ],
+        [
+          "tab",
+          "query",
+          false
         ]
       ]
     },
@@ -273,16 +283,6 @@
     "GET /api/mkv/files-in-isos": {
       "body": [],
       "params": []
-    },
-    "GET /api/mkv/light-profile-cached": {
-      "body": [],
-      "params": [
-        [
-          "file_path",
-          "query",
-          false
-        ]
-      ]
     },
     "GET /api/mkv/quality-audit/progress": {
       "body": [],

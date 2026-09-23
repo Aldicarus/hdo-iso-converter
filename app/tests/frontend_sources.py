@@ -111,6 +111,43 @@ def maquinaria_del_modal_de_trabajo() -> str:
     return estado + "\n" + "\n".join(trozos) + "\n"
 
 
+def maquinaria_del_historial() -> str:
+    """El estado y TODAS las funciones del historial de la columna.
+
+    Misma historia que `maquinaria_del_modal_de_trabajo()`: los arneses las
+    enumeraban a mano y el día que el filtro se fue al servidor
+    —`_workbarFiltroQS` y `_workbarRefiltrarHistorial`, 2026-09-23— siete
+    tests murieron a la vez con un `ReferenceError` que no decía nada del
+    comportamiento que medían.
+
+    Se DERIVA del fuente: entran las variables `_workbar*Historial*` y
+    cualquier función cuyo nombre mencione el historial o el filtro. Un
+    arnés que quiera espiar una la redeclara después, que es lo que ya
+    hacían — la última declaración gana.
+    """
+    js = js_completo()
+    # Como `globalThis.X = v` y NO `let`: un `let` duplicado es un
+    # SyntaxError —igual que un `const`, y al revés que una `function`— y
+    # varios arneses ya declaran su propio `_workbarFiltroTab` para
+    # manipularlo. Así el que lo tenga lo sombrea y el que no, lo hereda.
+    estado = "".join(
+        f"globalThis.{n} = {v};\n" for n, v in
+        re.findall(r"^let (_workbar(?:\w*Historial\w*|Filtro\w*)) = (.*?);\s*$",
+                   js, re.M))
+    assert estado, "no se encuentra el estado del historial de la columna"
+    trozos = []
+    for m in re.finditer(r"^(?:async )?function "
+                         r"(_workbar\w*(?:Historial|Filtro)\w*|verMasHistorial)\(",
+                         js, re.M):
+        i = js.rindex("\n", 0, m.start()) + 1
+        trozos.append(js[i:js.index("\n}\n", m.start()) + 3])
+    assert trozos, "no se encuentra ninguna función del historial"
+    cte = re.search(r"^const (_WORKBAR_HISTORIAL_PASO) = (.*?);\s*$", js, re.M)
+    assert cte, "falta el paso del historial"
+    return (f"globalThis.{cte.group(1)} = {cte.group(2)};\n"
+            + estado + "\n" + "\n".join(trozos) + "\n")
+
+
 def sistema_de_iconos() -> str:
     """El sistema de iconos completo, para los arneses de node.
 

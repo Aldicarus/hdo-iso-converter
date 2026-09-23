@@ -330,7 +330,6 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 - `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
 - `POST /api/mkv/quality-audit` — **análisis extendido**: combos L8/L2 + perfil de luminancia, con una sola extracción del RPU. Cachea los dos. (La URL conserva el nombre viejo; `POST /api/mkv/light-profile` ya no existe.)
 - `POST /api/mkv/apply` — aplica ediciones (mkvpropedit). Soporta `copy_to_output: true` para MKVs de Library.
-- `GET /api/mkv/light-profile-cached` — perfil de luminancia YA cacheado de otro MKV, para el comparador A/B. No analiza.
 - `GET /api/mkv/apply/progress` — polling del progreso de la copia + edición.
 - `POST /api/mkv/apply/cancel` — solicita la cancelación cooperativa de la copia. Solo efectiva durante `step=copying`.
 
@@ -435,13 +434,16 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 
 **Regla general de timeouts (todas las pipelines)**: cualquier operación cuyo coste **escala con la duración de la peli** (`dovi_tool demux` / `extract-rpu` sobre el HEVC completo, `dovi_tool export -d all`, extract de HEVC con ffmpeg, quality/light-profile de Tab 2, extract-rpu del target en pre-flight/Fase B) **NUNCA** debe llevar un timeout fijo pequeño: usa `_adaptive_timeout(estimación, floor)` (anclado a `ffmpeg_wall_seconds`, se adapta a la carga del NAS) o, si no hay ancla, un fijo generoso ≥ 1500s. Operaciones acotadas (sniff de 30s, `info --summary` sobre un RPU ya extraído, `mkvmerge -J`/`--identify` de metadata) pueden usar fijos pequeños. El guard `test_pipeline_timeouts.py` escanea el fuente y falla si reaparece un timeout fijo pequeño sobre una op pesada (previene la clase de bug del demux, que estaba a 900s cuando necesitaba ~990s).
 4. **Fase D — Verificar sincronización** (UX clave): gráfico Canvas custom con dos curvas superpuestas (origen rojo, target azul). Incluye:
-   - **Zoom**: presets 30s / 1min / 5min / 30min / Todo + inputs manuales
+   - **Zoom por SELECCIÓN**: se arrastra sobre el gráfico para encuadrar un tramo, y dentro del resultado se puede volver a arrastrar — sub-selecciones sucesivas. Los presets (1 s / 5 s / 30 s / 1 min / 5 min / 30 min / Todo) **centran en el punto medio de la vista actual**, no en el frame 0: pedir 30 min desde el minuto 48 enseña del 33 al 63. En los extremos la ventana se **desplaza** en vez de recortarse. El suelo es **1 segundo** (`CMV40_ZOOM_MIN_SEG`), y el encuadre manual se escribe en **tiempo** (`h:mm:ss`, `mm:ss` o segundos) porque nadie mira una película por frames. Todo eso es `_cmv40Encuadrar` + `_cmv40ZoomPreset` + `_cmv40ZoomFuera`, y es puro: `test_backlog_2026_09_23_tarde` lo ejecuta en node
+     - **El `mouseup` del arrastre se registra DENTRO del `mousedown`**, con `once`. En `window` porque soltar fuera del gráfico es lo normal al llegar al borde, y solo mientras se arrastra porque registrarlo en cada repintado apila un oyente por render. Un clic de menos de 6 px no es una selección
    - **Detección automática de offset** por cross-correlation
    - **Correcciones acumulativas** (cada "Aplicar" suma a las previas)
    - **Botón "Resetear al original"** que descarta todas las correcciones
    - **Panel de confianza** basado en correlación de Pearson sobre MaxCLL (insensible a diferencias absolutas, sensible a desalineación temporal)
    - **Criterio para avanzar**: `Δ frames = 0` Y `confianza ≥ 85%`
 5. **Fase E — Aplicar corrección** (parte de D): `dovi_tool editor -j editor_config.json` con `remove`/`duplicate`. NO avanza de fase — el usuario sigue iterando hasta pulsar "Confirmar sync".
+   - **`sync_verified` YA es «pasada la fase».** El corte de solo-lectura del formulario es `phaseIdx >= dDoneIdx`, no `>`: `mark-synced` escribe exactamente esa fase, así que con el `>` los campos de frames, «Aplicar corrección», «Volver al original» y «Confirmar» seguían vivos mientras corría la Fase F — pulsables cuando el RPU ya se está inyectando. Reportado el 2026-09-23. Dentro de la Fase D la sesión está en `extracted`, así que la edición sigue donde tiene que estar.
+   - **Al terminar la Fase E se invalida `project.syncData`.** La fase regenera `per_frame_data.json` y de ese volcado salen el Δ, la confianza y el `sync_gate` que habilita «Confirmar sync». Se invalidaba solo al PULSAR «Aplicar» —cuando la fase aún no había corrido— así que seguía siendo el de antes hasta que algo más lo tirara: medido por el usuario, **más de 20 s** desde que el job queda en «necesita decisión» hasta que el botón se enciende. Hoy se tira en el flanco de bajada (`running_phase` era `correct_sync` y ya no), y solo en ese: hacerlo con cualquier fase pediría 24 MB de volcado tras cada una.
 6. **Fase F — Inyectar RPU**: `dovi_tool inject-rpu -i EL.hevc --rpu-in RPU_final.bin`.
    - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, se avisa y se inyecta el RPU original — el vídeo es correcto igualmente. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
@@ -1116,6 +1118,19 @@ Un armazón para los cinco: cabecera, tira de fases, barra, transcurrido/ETA,
 cuerpo y cancelar. Cada pestaña registra qué poner dentro con
 `registrarDetalleDeTrabajo(clave, fn)`.
 
+- **Un repintado no puede deshacer un clic del usuario.** Reemplazar el
+  `innerHTML` de un panel recrea sus `<details>` CERRADOS, así que con un job
+  en marcha abrir «ver el JSON aplicado» duraba lo que tardaba el siguiente
+  tick: dos o tres segundos y se cerraba solo, sin que nada lo explicara
+  (reportado el 2026-09-23). Dos medidas, y hacen falta las dos:
+  `_renderCMv40ActivePhase` **no repinta si el HTML no ha cambiado** —contra
+  la cadena que escribió, no contra `container.innerHTML`, que el navegador
+  devuelve normalizado— y cuando sí cambia pasa por `anclajeDeDetalles` /
+  `restaurarAnclajeDeDetalles` (en `core.js`), que es el mismo patrón que
+  `anclajeDeLog` con el scroll. **La clave no es el ordinal a secas**: las
+  cards aparecen y desaparecen según la fase, así que se compone de la clave
+  de traducción del `<summary>` más su ordinal entre las que la comparten —
+  lo que distingue el «detalle técnico» de la Fase C del de la Fase F.
 - **Repintar un log no puede llevarte al principio.** El modal se repinta cada
   1,5 s y reconstruye su cuerpo, así que el `.cmv40-log` se recrea con el
   scroll a cero. Había medio arreglo —si estabas pegado al fondo, volvías al
@@ -1131,6 +1146,21 @@ cuerpo y cancelar. Cada pestaña registra qué poner dentro con
 - **Se abre a petición.** El overlay de CMv4.0 se abría SOLO y tapaba el panel,
   con dos heurísticas para no parpadear entre fases; de esa familia era el bug
   de agosto en que el banner de ACK se veía y no se podía pulsar.
+- **El esqueleto dibuja lo que va a aparecer, y lo que se SABE no se dibuja
+  en gris.** Los dos huecos que hay que ir a buscar usan los contenedores
+  reales (`cmv40-running-timeline` con una fila por fase —`fases_total`— y
+  `cmv40-log`), así que heredan su padding y su `flex` y el modal no se
+  recoloca al llegar el detalle; se generan filas de más y se recortan con
+  `overflow:hidden`, porque el alto depende de la ventana. **La cartela se
+  pinta en el mismo tick**: `titulo` y `poster` viajan en `/api/trabajos`
+  desde que el trabajo se encoló. La primera versión ponía un bloque de
+  cartela DENTRO de la timeline, diez líneas que no llegaban a media altura y
+  el «Recuperando del servidor…» en 11 px arriba a la izquierda — reportado
+  con captura el 2026-09-23.
+  - Ojo con la especificidad: `.trabajo-modal-principal .cmv40-log` trae
+    `overflow-y: auto` y viene después en el fichero, así que el esqueleto
+    tiene que empatar el selector o las cuarenta líneas se vuelven
+    scrollables.
 - **El panel «Trabajos en Curso» de Tab 1 se MOVIÓ al modal, no se borró**:
   conserva sus ids, así que los círculos por fase, el transcurrido por fase, el
   ETA de la extracción y la consola con sus filtros siguen funcionando sin
@@ -1369,6 +1399,26 @@ no un archivo histórico.
 
 Los `tab_id` son **los mismos** que expone `/api/activity` (`workload.TAB_IDS`),
 para que el dashboard no traduzca entre dos vocabularios.
+
+**El filtro y la búsqueda del historial los aplica el SERVIDOR**
+(`historial.buscar(limite, q, tab)` y los parámetros de `GET /api/historial`).
+La columna pide 25 líneas para que abrirla sea instantáneo, así que filtrar
+en el navegador buscaba en 25 de las 600 del fichero: una búsqueda normal
+salía vacía, «Ver más» no parecía hacer nada y tras varios clics aparecía una
+coincidencia — cada clic traía 25 más y casi todas se descartaban otra vez.
+Reportado el 2026-09-23. Recorrer el fichero descartando no cuesta nada (236
+bytes por registro, rota a los 5 MB), así que se cumplen a la vez las dos
+cosas que se pedían: carga corta y búsqueda sobre el todo.
+
+- **`hay_mas` lo dice el servidor**, no se deduce de «han venido `limite`»:
+  con el total múltiplo exacto del paso, el botón ofrecía una página vacía.
+- **Al cambiar el filtro se vuelve al paso 1**, o una búsqueda heredaría el
+  tope al que hubiera llegado el usuario y pediría 300 líneas para pintar dos.
+- El buscador llama en cada tecla, así que la recarga va **con 250 ms de
+  espera**; el pill de pestaña no, que un clic es una intención.
+- Las otras tres secciones (en curso, en segundo plano, cola) **siguen
+  filtrándose en memoria**: caben enteras en el contrato y no hay nada que ir
+  a buscar.
 
 ### «Qué está pasando» se pregunta UNA vez
 
@@ -3428,6 +3478,13 @@ preguntar**. No era un problema de match.
   nada: reintentar una vez por arranque es justo lo que se quiere si se
   arregla el nombre o se pone la key, y no obliga a tocar el modelo ni a
   reescribir el `/config` del usuario.
+- **«Cambiar película» sobre una ficha ya resuelta NO existe** (retirado el
+  2026-09-23). La ficha es decorativa —carátula, sinopsis, géneros— y no
+  alimenta ni el pipeline ni el match contra la hoja de DoviTools, que va
+  por `_fetch_english_title` aparte; así que cambiarla a mitad de job no
+  cambia nada de lo que se está haciendo, y un botón cuyo único efecto es la
+  imagen de la cabecera no paga el sitio al lado de TMDb e IMDb. Lo que
+  queda es **«Buscar película» cuando NO hay ficha**, que es el caso medido.
 - **`POST /api/sessions/{id}/tmdb-refresh`** (Tab 1) y el de Tab 3 aceptan
   **`tmdb_id`**, que es la única salida para lo que no se arregla solo: un
   nombre sin año y con guiones bajos (`THE_MANDALORIAN_AND_GROGU_UHD`), o un
@@ -3885,13 +3942,23 @@ Lo que hubo que adaptar, y por qué:
 - Sparkline SVG con 3 curvas superpuestas (peak/avg/min) + líneas de referencia (HDR10 MaxCLL/MaxFALL del SEI, L2 trim targets ámbar, L6 master display) + tooltip hover crosshair + chips de refs out-of-range.
 - Mini-card de stats: percentiles (peak/p99/p95/p50/avg) + clasificación de escenas por brillo (SDR-like <100n / midtone 100-300n / highlight ≥300n).
 
-### Comparador A/B del perfil de luminancia (Tab 2)
+### La card del perfil de luminancia no tiene botones
 
-Superpone la curva L1 de **otro** MKV sobre la del que está abierto — el caso para el que existe es el mismo título antes y después del upgrade a CMv4.0, para responder *«¿mereció la pena?»* con el grading delante en vez de con `classify_l8`, que es un proxy. Botón **«⚖️ Comparar con…»** en la card del perfil; abre el file browser (Biblioteca + Output) y pinta la curva en rojo discontinuo más una tabla de deltas (peak, p99, p95, mediana, media de los picos).
+Tenía dos y los dos se fueron el **2026-09-23** a petición del usuario («no
+aporta nada»), que es lo único que decidía: el que los usa es él.
 
-- **`GET /api/mkv/light-profile-cached` NO lanza análisis.** Devuelve sólo lo que ya está en `/config/mkv_audits/`. Extraer el RPU de un UHD son ~10 min y eso no puede dispararse por elegir un fichero en un navegador; si falta, el mensaje distingue *«sin análisis previo»* de *«analizado pero sin perfil»* (cache de la auditoría vieja) para llevar al botón correcto. Es un GET barato —fingerprint = SHA del primer 1 MB— y no toca `workload`.
-- **El eje X va normalizado a 0-100 % del metraje**, así que dos montajes con distinto número de frames se superponen ocupando el mismo ancho. Es deseado (así es como se ve un desfase) pero obliga a **avisar de la diferencia de duración**: por encima del 2 % la tabla lo dice, porque si no el usuario compara escenas que no se corresponden creyendo que sí.
-- Dos detalles del SVG que un cambio descuidado rompe en silencio, los dos con test: el **eje Y abarca las DOS curvas** (si no, una comparación más brillante se sale del chart sin decirlo) y la curva de comparación **se reparte por su propia longitud**, no con el `xOf` de la serie propia (que la aplastaría contra el margen izquierdo si trae otro número de cubos). Cubierto por `test_comparador_luminancia.py`.
+- **«Re-analizar»** repetía diez minutos de `extract-rpu` para volver a leer
+  un RPU que no ha cambiado — el MKV no se toca desde esa card.
+- **El comparador A/B** superponía la curva L1 de otro MKV (el mismo título
+  antes y después del upgrade). Se retiró **entero**: los dos botones, la
+  tabla de deltas, el soporte de `compareSeries` en el sparkline, el endpoint
+  `GET /api/mkv/light-profile-cached` y su módulo de test. Media retirada es
+  peor que ninguna: un endpoint huérfano parece cobertura, y las claves
+  sueltas engordan los tres catálogos.
+
+El botón que SÍ queda es el de la card **sin** perfil («Análisis extendido»),
+que es la única forma de generarlo. Y con la fila de acciones vacía, el
+`div` que la envuelve tampoco se emite: el título ocupa el ancho.
 
 > **Distinción clave para usuarios**: L1 max_pq es la metadata DV codificada por el colorista, NO la luminancia real en pantalla tras tone-mapping. BR2049 etiqueta conservadoramente: peak L1 ~176 nits aunque medidas reales muestren ~600 nits. Confirmado: nuestro parser coincide al 100% con `dovi_tool info --summary`.
 

@@ -145,6 +145,54 @@ function hace(iso) {
             {n: anios});
 }
 
+// ── Lo que el usuario abrió, y el repintado se lleva ──────────────
+
+/** Qué `<details>` estaban abiertos dentro de un contenedor.
+ *
+ *  Reemplazar el `innerHTML` de un panel destruye los `<details>` y los
+ *  recrea cerrados. Con un job en marcha el panel de Tab 3 se repinta cada
+ *  pocos segundos, así que abrir «ver el JSON aplicado» duraba lo que
+ *  tardaba el siguiente tick: dos o tres segundos y se cerraba solo, sin
+ *  que nada lo explicara. Reportado el 2026-09-23.
+ *
+ *  Es la misma trampa que `anclajeDeLog` con el scroll, y la misma
+ *  solución: guardar lo que el usuario había hecho y devolverlo después.
+ *
+ *  **La clave no es el índice a secas.** Las cards aparecen y desaparecen
+ *  según la fase, así que un ordinal global se desplaza y reabre el
+ *  `<details>` de al lado. Se usa la clave de traducción del `<summary>`
+ *  —que identifica QUÉ desplegable es— más su ordinal dentro de las que
+ *  comparten esa clave, que es lo que distingue el «detalle técnico» de la
+ *  Fase C del de la Fase F.
+ */
+function _claveDeDetalle(det, vistas) {
+  const sum = det.querySelector(':scope > summary');
+  const base = (det.dataset.detalle
+                || (sum && (sum.dataset.i18n || sum.textContent.trim()))
+                || 'x').slice(0, 60);
+  const n = (vistas[base] = (vistas[base] || 0) + 1);
+  return `${base}#${n}`;
+}
+
+function anclajeDeDetalles(contenedor) {
+  if (!contenedor) return null;
+  const vistas = {}, abiertos = new Set();
+  contenedor.querySelectorAll('details').forEach(det => {
+    const k = _claveDeDetalle(det, vistas);
+    if (det.open) abiertos.add(k);
+  });
+  return abiertos;
+}
+
+/** Vuelve a abrir los que estaban abiertos. */
+function restaurarAnclajeDeDetalles(contenedor, abiertos) {
+  if (!contenedor || !abiertos || !abiertos.size) return;
+  const vistas = {};
+  contenedor.querySelectorAll('details').forEach(det => {
+    if (abiertos.has(_claveDeDetalle(det, vistas))) det.open = true;
+  });
+}
+
 // ── Helpers de proyecto ───────────────────────────────────────────
 
 /** Devuelve el proyecto activo, o null si no hay ninguno. */
@@ -1549,15 +1597,25 @@ async function elegirFicha(i) {
   }
 }
 
-/** El botón que abre el selector, para la cabecera del proyecto. */
-function botonDeFicha(ctx, conFicha) {
+/** El botón que abre el selector, cuando el proyecto NO tiene ficha.
+ *
+ *  **Solo ese caso.** Hubo también un «Cambiar película» sobre una ficha ya
+ *  resuelta y se retiró (2026-09-23, a petición del usuario): la ficha es
+ *  decorativa —carátula, sinopsis, géneros— y no alimenta ni el pipeline ni
+ *  el match contra la hoja de DoviTools, que va por `_fetch_english_title`
+ *  aparte. Así que cambiarla a mitad de job no cambia nada de lo que se está
+ *  haciendo, y un botón cuyo único efecto es la imagen de la cabecera no
+ *  paga el sitio que ocupa al lado de TMDb e IMDb.
+ *
+ *  El caso que SÍ queda es el otro, y se midió: 9 de 44 sesiones del NAS sin
+ *  ficha, 8 de ellas con match perfecto al volver a preguntar. Ahí el
+ *  proyecto no tiene carátula y el botón es la única salida.
+ */
+function botonDeFicha(ctx) {
   if (!ctx || !ctx.id) return '';
-  const arg = `'${escHtml(ctx.tipo)}','${escHtml(ctx.id)}',` 
+  const arg = `'${escHtml(ctx.tipo)}','${escHtml(ctx.id)}',`
             + `'${escHtml(String(ctx.nombre || '').replace(/'/g, ''))}'`;
-  return conFicha
-    ? `<a class="tmdb-cambiar" role="button" tabindex="0"
-         onclick="abrirSelectorDeFicha(${arg})" data-i18n="core.cambiar_pelicula" data-i18n-tip="core.elegir_otra_pelicula_si_esta_no"></a>`
-    : `<div class="tmdb-sin-ficha">
+  return `<div class="tmdb-sin-ficha">
          <span data-i18n="core.sin_ficha_de_tmdb_no_hay"></span>
          <button class="btn btn-primary btn-xs" onclick="abrirSelectorDeFicha(${arg})" data-i18n="core.buscar_pelicula" data-i18n-tip="core.buscar_la_pelicula_en_tmdb_y"></button>
        </div>`;
@@ -1665,6 +1723,11 @@ const GLIFOS = {
   lapiz: '<path d="M4.5 19.5h3.2L19 8.2a1.7 1.7 0 0 0 0-2.4l-.8-.8a1.7 1.7 0 0 0-2.4 0L4.5 16.3z"/>'
        + '<path d="m14.8 6.6 2.6 2.6"/>',
   lupa: '<circle cx="10.8" cy="10.8" r="6.3"/><path d="m19.5 19.5-4.2-4.2"/>',
+  // La misma lupa con el menos dentro: alejarse en el gráfico de sync. El
+  // signo va centrado en el círculo y no fuera, que a 14 px se lee como una
+  // mota de polvo al lado del mango.
+  lupaMenos: '<circle cx="10.8" cy="10.8" r="6.3"/><path d="m19.5 19.5-4.2-4.2"/>'
+           + '<path d="M8.1 10.8h5.4"/>',
   // Lupa sobre una onda: analizar la señal, no «buscar un fichero».
   lupaOnda: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.6-4.6"/>'
           + '<path d="M8 10v1.5M10.5 8v5M13 9.5v2.5"/>',

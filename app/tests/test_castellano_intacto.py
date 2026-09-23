@@ -47,6 +47,57 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── El encuadre del gráfico de sync pasa de FRAMES a TIEMPO
+    #    (2026-09-23). Nadie mira una película por frames, y para afinar al
+    #    segundo escribir «69120» no sirve de nada.
+    "Desde frame:":
+        "el campo del encuadre se escribe en tiempo: «Desde» con h:mm:ss",
+    "Hasta frame:":
+        "el otro campo, igual: «Hasta» con h:mm:ss",
+    "Comparando con ⟦⟧":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»)",
+    "Duran distinto ( ⟦⟧ vs ⟦⟧ , ⟦⟧ %). El eje X va normalizado al metraje, así que las dos curvas ocupan todo el ancho igualmente: pueden ser montajes distintos y estar comparando escenas que no se corresponden.":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»)",
+    "No se pudo cargar la comparación: ⟦⟧":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»)",
+    "Sin perfil que comparar — ⟦⟧ .":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»)",
+    # ── El comparador A/B de luminancia y el «Cambiar película», retirados
+    #    el 2026-09-23. Los dos por lo mismo: el usuario no les encontró uso y
+    #    ocupaban la fila de acciones de una card que se abre para mirar otra
+    #    cosa. Ver el backlog de esa fecha.
+    "Cambiar película":
+        "el botón sobre una ficha YA resuelta se retiró el 2026-09-23: la ficha es decorativa (carátula, sinopsis, géneros) y no alimenta ni el pipeline ni el match contra la hoja de DoviTools, así que cambiarla a mitad de job no cambia nada de lo que se está haciendo. Queda «Buscar película», que es el caso medido: 9 de 44 sesiones sin ficha",
+    "Comparación con":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Comparar con…":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Comparar el perfil de luminancia con…":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "El análisis de ese MKV no trae curva de luminancia":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Elegir otra película si esta no es la correcta":
+        "el tooltip de ese mismo botón",
+    "Ese es el MKV que ya tienes abierto":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Media de los picos":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Normalmente, el mismo título antes o después del upgrade a CMv4.0":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Quitar comparación":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Re-analizar si el MKV cambió o mejoró el clasificador":
+        "el tooltip de «Re-analizar», que se fue con el comparador: repetía diez minutos de `extract-rpu` sobre un MKV que desde esa card no se puede haber tocado",
+    "Superponer la curva de otro MKV del mismo título — típicamente el mismo antes y después del upgrade a CMv4.0":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Volver a ver solo este MKV":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "no analizado":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "Ábrelo en esta pestaña y lánzale el análisis RPU/Luz.":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
+    "ℹ︎ No se conoce la duración de uno de los dos, así que no se puede confirmar que sean el mismo montaje.":
+        "formaba parte del comparador A/B del perfil de luminancia, retirado entero el 2026-09-23 a petición del usuario («no aporta nada»): botones, endpoint `/api/mkv/light-profile-cached`, tabla de deltas y su módulo de test",
     # ── La Fase H, renombrada el 2026-09-23. El usuario preguntó por qué se
     #    llama «validar y guardar» si «sólo mueve el MKV y borra temporales».
     #    Sí valida —por la rama merge son dos `extract-rpu` completos, minutos

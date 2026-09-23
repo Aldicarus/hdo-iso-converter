@@ -22,10 +22,14 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import (js_completo, argv_node, motor_i18n, pintar_en,  # noqa: E402
+from frontend_sources import (js_completo, argv_node, motor_i18n,  # noqa: E402
+                              maquinaria_del_historial, pintar_en,
                               sistema_de_iconos)
 
 SISTEMA_ICONOS = sistema_de_iconos()
+# Las piezas del historial se piden ENTERAS: enumerarlas a mano es lo que
+# hace que se rompan los siete tests a la vez cuando el bloque gana una.
+HISTORIAL = maquinaria_del_historial()
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -100,7 +104,7 @@ let workbarEstado = {{ activo: null, cola: [], interactivo: [],
                        recientes: {json.dumps(lineas)} }};
 {_fn('_workbarBusqueda')}
 {_fn('_workbarFiltrando')}
-{_fn('_workbarPasaFiltro')}
+{HISTORIAL}
 {_fn('_workbarRefReciente')}
 {_fn('_workbarMini')}
 {_fn('_workbarDescripcion')}
@@ -110,7 +114,6 @@ let workbarEstado = {{ activo: null, cola: [], interactivo: [],
 {_fn('_workbarHace')}
 {_fn('_workbarTarjetaReciente')}
 {_fn('_workbarConservandoElScroll')}
-{_fn('_workbarRenderHistorial')}
 """
 
 
@@ -327,7 +330,7 @@ let _workbarHayMasHistorial = false;
 globalThis._workbarRender = () => {{}};
 globalThis._workbarRenderHistorial = () => {{}};
 {_fn('_workbarFirma')}
-{_fn('_workbarCargarHistorial')}
+{HISTORIAL}
 {_fn('refrescarWorkbar')}
 const TICKS = {json.dumps(ticks)};
 let _recargas = 0, _fallan = {fallos}, _tick = null;

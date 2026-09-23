@@ -2060,6 +2060,21 @@ function _cmv40AssignSession(project, data) {
       preserved.running_phase = project.session.running_phase;
     }
   }
+  // **Al terminar la Fase E, el volcado del gráfico ya no vale.**
+  //
+  // `correct_sync` regenera `per_frame_data.json`, y de ese volcado salen la
+  // confianza, el Δ y el `sync_gate` que habilita «Confirmar sync». La copia
+  // en memoria se invalidaba solo al pulsar «Aplicar» —cuando la fase aún no
+  // ha corrido— así que el gráfico y el gate seguían siendo los de ANTES de
+  // la corrección hasta que algo más los tirara: medido por el usuario, más
+  // de 20 s desde que el job queda en «necesita decisión» hasta que el botón
+  // se enciende. Ahora se invalida en el flanco: la fase estaba corriendo y
+  // ya no. Reportado el 2026-09-23.
+  const faseAnterior = project.session && project.session.running_phase;
+  if (faseAnterior === 'correct_sync' && !preserved.running_phase
+      && !data.running_phase) {
+    project.syncData = null;
+  }
   project.session = Object.assign({}, data, preserved);
   _cmv40RehydratePendingTarget(project);
 }
@@ -3144,7 +3159,7 @@ async function hydrateTmdbCard(containerId, filename) {
 function renderTmdbCardHTML(t, ctx = null) {
   if (!t) {
     return (ctx && typeof botonDeFicha === 'function')
-      ? botonDeFicha(ctx, false) : '';
+      ? botonDeFicha(ctx) : '';
   }
   const metaParts = [];
   // Un episodio se identifica por su sitio en la serie, y va PRIMERO: es lo
@@ -3175,10 +3190,6 @@ function renderTmdbCardHTML(t, ctx = null) {
   if (t.tmdb_url) links.push(`<a href="${escHtml(t.tmdb_url)}" target="_blank" rel="noreferrer noopener">TMDb</a>`);
   if (t.imdb_id)   links.push(`<a href="https://www.imdb.com/title/${escHtml(t.imdb_id)}/" target="_blank" rel="noreferrer noopener" data-i18n="tab3.imdb"></a>`);
   if (t.homepage)  links.push(`<a href="${escHtml(t.homepage)}" target="_blank" rel="noreferrer noopener" data-i18n="tab3.web_oficial"></a>`);
-  // «Cambiar película» va aquí y no en la fila del título: ahí empujaba la
-  // nota —que se coloca sola a la derecha con `margin-left:auto`— al centro.
-  // Y con los otros enlaces es donde encaja: los tres llevan a la ficha.
-  if (ctx && typeof botonDeFicha === 'function') links.push(botonDeFicha(ctx, true));
   const linksHtml = links.length ? `<div class="cmv40-tmdb-links">${links.join(' · ')}</div>` : '';
 
   const posterHtml = t.poster_url
@@ -3968,7 +3979,22 @@ function _renderCMv40ActivePhase(project) {
   // pause-point bloqueante: hasta que el usuario decida, el auto-pipeline
   // no avanza. Ver _cmv40MaybeAutoAdvance.
   const ackBannerHtml = _cmv40RenderCriticalAckBanner(pid, s);
-  container.innerHTML = ackBannerHtml + colaHtml + errorHtml + archivedHtml + doneHtml + cards.join('') + actionsFooterHtml;
+  const html = ackBannerHtml + colaHtml + errorHtml + archivedHtml + doneHtml
+             + cards.join('') + actionsFooterHtml;
+  // **No se repinta si no ha cambiado.** Con un job en marcha esto corría
+  // cada pocos segundos y reconstruía el panel entero para dejarlo igual;
+  // de paso cerraba los `<details>` que el usuario tuviera abiertos y le
+  // quitaba el foco a un input. Se compara contra la cadena que ESTE código
+  // escribió y no contra `container.innerHTML`, que el navegador devuelve
+  // normalizado y no coincide nunca — la trampa del `dataset.estado`.
+  if (html !== project._panelHTML) {
+    // Y cuando sí cambia, lo que el usuario había abierto se conserva: un
+    // repintado no puede deshacer un clic suyo.
+    const abiertos = anclajeDeDetalles(container);
+    container.innerHTML = html;
+    project._panelHTML = html;
+    restaurarAnclajeDeDetalles(container, abiertos);
+  }
 
   // Lanzar cargas asíncronas donde aplique. En Fase B el tab default es
   // "Repo DoviTools" — disparamos su loader; los otros tabs (path / MKV)
@@ -5029,7 +5055,7 @@ function _cmv40FaseDoneBody(key, pid, s) {
       ? `<div style="margin-bottom:10px; font-size:12px">
           <span style="color:var(--text-3)" data-i18n="tab3.correccion_aplicada"></span>
           <div style="margin-top:4px">${escHtml(_cmv40ResumenDeCorreccion(s.sync_config))}</div>
-          <details style="margin-top:6px">
+          <details data-detalle="sync-json" style="margin-top:6px">
             <summary style="font-size:11px; color:var(--text-3); cursor:pointer" data-i18n="tab3.correccion_ver_json"></summary>
             <pre style="margin-top:6px; font-size:11px; background:var(--surface-2); padding:8px; border-radius:4px">${escHtml(JSON.stringify(s.sync_config, null, 2))}</pre>
           </details>
@@ -6631,7 +6657,15 @@ function _renderCMv40SyncControls(project) {
   // nada de form de corrección ni botones de apply/confirmar.
   const phaseIdx  = CMV40_PHASES_ORDER.indexOf(s.phase);
   const dDoneIdx  = CMV40_PHASES_ORDER.indexOf('sync_verified');
-  const readOnly  = phaseIdx > dDoneIdx;
+  // **`>=`, no `>`.** `sync_verified` es lo que escribe `mark-synced`, o sea
+  // exactamente «el usuario ya confirmó el sync»: con el `>` la fase seguía
+  // contando como editable y el formulario de corrección —los dos campos de
+  // frames, «Aplicar corrección», «Volver al original» y «Confirmar»— se
+  // quedaba vivo mientras corría la Fase F. Pulsar cualquiera de ellos a esas
+  // alturas no arregla nada: el RPU ya está inyectándose. Reportado el
+  // 2026-09-23. Dentro de la Fase D la sesión está en `extracted`, así que la
+  // edición sigue donde tiene que estar.
+  const readOnly  = phaseIdx >= dDoneIdx;
   const delta = (s && s.sync_delta != null) ? s.sync_delta : (d.target_frames - d.source_frames);
   const suggested = d.suggested_offset || {};
   const hasSyncConfig = !!s.sync_config;
@@ -6657,33 +6691,45 @@ function _renderCMv40SyncControls(project) {
   }
   const currentRange = project.chartRange;
 
-  // Detectar qué preset está activo (si el rango coincide exactamente)
+  // El preset activo es el que coincide en ANCHO, no en posición: desde que
+  // los presets centran en la vista actual, «30 s» rara vez empieza en 0 y
+  // comparar los dos extremos dejaba la fila sin ninguno marcado.
+  const span = currentRange.end - currentRange.start;
   const presets = [
-    { key: '30s',   start: 0, end: Math.min(Math.round(30 * FPS), totalFrames),       label: '30 s' },
-    { key: '1min',  start: 0, end: Math.min(Math.round(60 * FPS), totalFrames),       label: '1 min' },
-    { key: '5min',  start: 0, end: Math.min(Math.round(5 * 60 * FPS), totalFrames),   label: '5 min' },
-    { key: '30min', start: 0, end: Math.min(Math.round(30 * 60 * FPS), totalFrames),  label: '30 min' },
-    { key: 'all',   start: 0, end: totalFrames,                                        label: tr('tab3.zoom_todo') },
+    { key: '1s',    seg: 1,       label: '1 s' },
+    { key: '5s',    seg: 5,       label: '5 s' },
+    { key: '30s',   seg: 30,      label: '30 s' },
+    { key: '1min',  seg: 60,      label: '1 min' },
+    { key: '5min',  seg: 5 * 60,  label: '5 min' },
+    { key: '30min', seg: 30 * 60, label: '30 min' },
+    { key: 'all',   seg: null,    label: tr('tab3.zoom_todo') },
   ];
-  const activeKey = presets.find(p => p.start === currentRange.start && p.end === currentRange.end)?.key;
+  const activeKey = span >= totalFrames ? 'all'
+    : presets.find(p => p.seg !== null
+                        && Math.abs(Math.round(p.seg * FPS) - span) <= 1)?.key;
 
   const presetBtns = presets.map(p => `
     <button class="btn btn-ghost btn-xs cmv40-zoom-preset${activeKey === p.key ? ' active' : ''}"
-      onclick="_cmv40SetRange('${pid}', ${p.start}, ${p.end})">${p.label}</button>
+      onclick="_cmv40ZoomPreset('${pid}', ${p.seg === null ? 'null' : p.seg})">${p.label}</button>
   `).join('');
 
   const zoomRowHtml = `
     <div class="cmv40-zoom-row">
       <span class="section-subtitle"><span data-i18n="tab3.zoom"></span></span>
       ${presetBtns}
+      <button class="btn btn-ghost btn-xs cmv40-zoom-preset" onclick="_cmv40ZoomFuera('${pid}')"
+        data-i18n-tip="tab3.zoom_alejar_tip"><span data-icono="lupaMenos"></span></button>
       <span class="cmv40-range-inputs">
-        <label data-i18n="tab3.desde_frame"><input type="number" id="cmv40-range-start-${pid}" value="${currentRange.start}" min="0" max="${totalFrames}"
-            onchange="_cmv40ApplyRangeFromInputs('${pid}')">
+        <label data-i18n="tab3.desde"><input type="text" inputmode="numeric" id="cmv40-range-start-${pid}"
+            value="${_cmv40FrameATiempo(currentRange.start, FPS)}" size="7"
+            onchange="_cmv40AplicarRangoDeTiempos('${pid}')">
         </label>
-        <label data-i18n="tab3.hasta_frame"><input type="number" id="cmv40-range-end-${pid}" value="${currentRange.end}" min="0" max="${totalFrames}"
-            onchange="_cmv40ApplyRangeFromInputs('${pid}')">
+        <label data-i18n="tab3.hasta"><input type="text" inputmode="numeric" id="cmv40-range-end-${pid}"
+            value="${_cmv40FrameATiempo(currentRange.end, FPS)}" size="7"
+            onchange="_cmv40AplicarRangoDeTiempos('${pid}')">
         </label>
       </span>
+      <span class="cmv40-zoom-pista" data-i18n="tab3.zoom_arrastra_para_encuadrar"></span>
     </div>`;
 
   // Read-only: solo zoom/rango, sin form de corrección.
@@ -6760,6 +6806,111 @@ function _cmv40UpdateExpectedDelta(pid, currentDelta) {
  *  no la media: un promedio se come los picos que delatan el desfase) y sirve
  *  la ventana pedida, así que un zoom fino recibe el dato EXACTO en vez de
  *  filtrar una muestra gruesa. */
+// ── El zoom del gráfico de sincronización ───────────────────────────────────
+//
+// Era una fila de presets que siempre encuadraban **desde el frame 0**: para
+// mirar un corte del minuto 48 había que escribir los dos números de frame a
+// mano y volver a escribirlos en cuanto querías afinar. Desde el 2026-09-23:
+//
+//  · se **arrastra sobre el gráfico** para encuadrar ese tramo, y se puede
+//    volver a arrastrar dentro — sub-selecciones sucesivas hasta el segundo;
+//  · los presets **centran en el punto medio de la vista actual**, no en el
+//    principio de la película: pedir 30 min desde el minuto 48 enseña del 33
+//    al 63, que es lo que uno quiere al alejarse para ver dónde estaba;
+//  · el rango se escribe en **tiempo** (`h:mm:ss`), que es como se mira una
+//    película, y no en número de frame;
+//  · el suelo es **un segundo**: por debajo el gráfico son dos docenas de
+//    frames y ya no hay forma de leer una curva.
+
+/** Zoom máximo: por debajo de un segundo no queda curva que mirar. */
+const CMV40_ZOOM_MIN_SEG = 1;
+
+/** `h:mm:ss` de un frame. Segundos porque es la unidad del zoom fino. */
+function _cmv40FrameATiempo(frame, fps) {
+  const t = Math.max(0, Math.round((frame || 0) / (fps || 23.976)));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60).toString().padStart(2, '0');
+  const sg = Math.floor(t % 60).toString().padStart(2, '0');
+  return `${h}:${m}:${sg}`;
+}
+
+/** `1:02:03` · `2:03` · `45` → frame. `null` si no se entiende. */
+function _cmv40TiempoAFrame(txt, fps) {
+  const partes = String(txt || '').trim().split(':').map(x => x.trim());
+  if (!partes.length || partes.some(x => x === '' || !/^\d+$/.test(x))) return null;
+  if (partes.length > 3) return null;
+  const n = partes.map(Number);
+  while (n.length < 3) n.unshift(0);
+  return Math.round((n[0] * 3600 + n[1] * 60 + n[2]) * (fps || 23.976));
+}
+
+/** Encaja una ventana dentro de la película, respetando el zoom máximo.
+ *
+ *  Si el centro pedido deja la ventana fuera por un extremo, se **desplaza**
+ *  en vez de recortarse: pedir 30 min centrado en el minuto 2 tiene que
+ *  seguir enseñando 30 min, los primeros, y no 17.
+ */
+function _cmv40Encuadrar(centro, span, total, fps) {
+  const minimo = Math.max(2, Math.round(CMV40_ZOOM_MIN_SEG * (fps || 23.976)));
+  const ancho = Math.max(minimo, Math.min(Math.round(span), total));
+  let start = Math.round(centro - ancho / 2);
+  if (start < 0) start = 0;
+  if (start + ancho > total) start = Math.max(0, total - ancho);
+  return { start, end: Math.min(total, start + ancho) };
+}
+
+function _cmv40DatosDelZoom(pid) {
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (!project || !project.syncData) return null;
+  const d = project.syncData;
+  const fps = project.session.source_fps || 23.976;
+  const total = d.source_frames || d.target_frames || 0;
+  const r = project.chartRange || { start: 0, end: total };
+  return { project, fps, total, r };
+}
+
+/** Un preset, centrado en lo que se está mirando. `segundos=null` → todo. */
+function _cmv40ZoomPreset(pid, segundos) {
+  const z = _cmv40DatosDelZoom(pid);
+  if (!z) return;
+  if (segundos === null) { _cmv40SetRange(pid, 0, z.total); return; }
+  const centro = (z.r.start + z.r.end) / 2;
+  const { start, end } = _cmv40Encuadrar(centro, segundos * z.fps, z.total, z.fps);
+  _cmv40SetRange(pid, start, end);
+}
+
+/** Alejarse al doble, sin perder el centro. La vuelta de una sub-selección. */
+function _cmv40ZoomFuera(pid) {
+  const z = _cmv40DatosDelZoom(pid);
+  if (!z) return;
+  const centro = (z.r.start + z.r.end) / 2;
+  const { start, end } = _cmv40Encuadrar(centro, (z.r.end - z.r.start) * 2,
+                                         z.total, z.fps);
+  _cmv40SetRange(pid, start, end);
+}
+
+/** Los dos campos de tiempo del encuadre manual. */
+function _cmv40AplicarRangoDeTiempos(pid) {
+  const z = _cmv40DatosDelZoom(pid);
+  if (!z) return;
+  const a = _cmv40TiempoAFrame(
+    document.getElementById(`cmv40-range-start-${pid}`)?.value, z.fps);
+  const b = _cmv40TiempoAFrame(
+    document.getElementById(`cmv40-range-end-${pid}`)?.value, z.fps);
+  if (a === null || b === null) {
+    showToast(tr('tab3.zoom_tiempo_no_valido'), 'warning');
+    _renderCMv40SyncControls(z.project);   // devuelve los valores buenos
+    return;
+  }
+  if (b <= a) {
+    showToast(tr('tab3.el_frame_final_debe_ser_mayor'), 'warning');
+    _renderCMv40SyncControls(z.project);
+    return;
+  }
+  const { start, end } = _cmv40Encuadrar((a + b) / 2, b - a, z.total, z.fps);
+  _cmv40SetRange(pid, start, end);
+}
+
 async function _cmv40SetRange(pid, start, end) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (!project) return;
@@ -6783,16 +6934,6 @@ async function _cmv40SetRange(pid, start, end) {
   } finally {
     project._syncRangeLoading = false;
   }
-}
-
-function _cmv40ApplyRangeFromInputs(pid) {
-  const start = parseInt(document.getElementById(`cmv40-range-start-${pid}`).value) || 0;
-  const end = parseInt(document.getElementById(`cmv40-range-end-${pid}`).value) || 0;
-  if (end <= start) {
-    showToast(tr('tab3.el_frame_final_debe_ser_mayor'), 'warning');
-    return;
-  }
-  _cmv40SetRange(pid, start, end);
 }
 
 async function cmv40DoResetSync(pid) {
@@ -7031,11 +7172,68 @@ function _renderCMv40Chart(project) {
   ctx.fillText(`(${(end - start).toLocaleString(localeActual())} de ${totalFrames.toLocaleString(localeActual())} frames · ${FPS.toFixed(2)} fps)`, W - padding.right, 28);
   ctx.textAlign = 'left';
 
+  // ── Arrastrar para encuadrar ──────────────────────────────────────────
+  //
+  // El zoom por presets solo servía para mirar el principio, y afinar en el
+  // minuto 48 obligaba a escribir números de frame. Arrastrando se encuadra
+  // el tramo que se está viendo, y dentro del resultado se puede volver a
+  // arrastrar: sub-selecciones hasta el suelo de un segundo.
+  //
+  // La banda se pinta sobre el canvas ya dibujado en vez de repintarlo todo:
+  // redibujar la gráfica entera en cada `mousemove` con 1.500 puntos se nota.
+  // Para borrarla al mover se guarda una foto del canvas al empezar.
+  const marcoDeSeleccion = (x0, x1) => {
+    if (!project._zoomFoto) return;
+    ctx.putImageData(project._zoomFoto, 0, 0);
+    const a = Math.min(x0, x1), b = Math.max(x0, x1);
+    ctx.fillStyle = 'rgba(59,130,246,0.18)';
+    ctx.fillRect(a, padding.top, b - a, plotH);
+    ctx.strokeStyle = 'rgba(59,130,246,0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(a + 0.5, padding.top); ctx.lineTo(a + 0.5, padding.top + plotH);
+    ctx.moveTo(b - 0.5, padding.top); ctx.lineTo(b - 0.5, padding.top + plotH);
+    ctx.stroke();
+  };
+  const xDelEvento = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    return Math.max(padding.left,
+                    Math.min(padding.left + plotW,
+                             (e.clientX - rect.left) * (W / rect.width)));
+  };
+  const frameDeX = (x) => Math.round(start + ((x - padding.left) / plotW) * rangeSpan);
+
+  canvas.style.cursor = 'crosshair';
+  // El `mouseup` se escucha en `window` y **solo mientras se arrastra**:
+  // soltar el botón fuera del gráfico —lo normal al llegar al borde— dejaba
+  // la selección pegada y el siguiente clic la daba por buena. Registrarlo
+  // en cada render, en cambio, apilaba un oyente por repintado.
+  const alSoltar = (e) => {
+    if (project._zoomX0 == null) return;
+    const x0 = project._zoomX0, x1 = xDelEvento(e);
+    project._zoomX0 = null;
+    project._zoomFoto = null;
+    // Un clic sin arrastrar no es una selección: 6 px de holgura para que
+    // pulsar sobre la gráfica no encuadre un instante de nada.
+    if (Math.abs(x1 - x0) < 6) { _renderCMv40Chart(project); return; }
+    const a = frameDeX(Math.min(x0, x1)), b = frameDeX(Math.max(x0, x1));
+    const z = _cmv40Encuadrar((a + b) / 2, b - a, totalFrames, FPS);
+    _cmv40SetRange(pid, z.start, z.end);
+  };
+  canvas.onmousedown = (e) => {
+    if (e.button !== 0) return;
+    project._zoomFoto = ctx.getImageData(0, 0, W, H);
+    project._zoomX0 = xDelEvento(e);
+    window.addEventListener('mouseup', alSoltar, { once: true });
+    e.preventDefault();
+  };
+
   // Hover handler
   canvas.onmousemove = (e) => {
     const rect = canvas.getBoundingClientRect();
     const scaleX = W / rect.width;
     const mx = (e.clientX - rect.left) * scaleX;
+    if (project._zoomX0 != null) { marcoDeSeleccion(project._zoomX0, xDelEvento(e)); return; }
     if (mx < padding.left || mx > padding.left + plotW) return;
     // Posición X → frame absoluto
     const absFrame = Math.round(start + ((mx - padding.left) / plotW) * rangeSpan);

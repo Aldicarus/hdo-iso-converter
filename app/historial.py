@@ -34,6 +34,7 @@ terminar porque el disco de `/config` está lleno, no.
 import json
 import logging
 import os
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -202,29 +203,51 @@ def _rotar_si_toca(f: Path) -> None:
         logger.warning("[historial] no se pudo rotar: %s", e)
 
 
-def leer(limite: int = 200) -> list[dict]:
-    """Los últimos `limite` trabajos, **del más reciente al más antiguo**.
+def _normalizar(texto: str) -> str:
+    """Minúsculas y sin acentos — el mismo criterio que `normalizeSearch`.
+
+    Buscar «peli» tiene que encontrar «Película», y buscar en la columna no
+    puede depender de que el usuario escriba las tildes.
+    """
+    base = unicodedata.normalize("NFD", (texto or "").lower())
+    return "".join(c for c in base if unicodedata.category(c) != "Mn")
+
+
+def buscar(limite: int = 200, q: str = "", tab: str = "") -> tuple[list[dict], bool]:
+    """Los últimos `limite` trabajos que casen, del más reciente al más antiguo.
+
+    Devuelve `(trabajos, hay_mas)`. El segundo dice si quedaban candidatos
+    después del que hizo el `limite`, que es lo que decide si se enseña el
+    botón «Ver más» — contar «han venido `limite`, luego habrá más» falla
+    justo cuando el total es un múltiplo exacto.
+
+    **El filtro se aplica AQUÍ y no en el navegador**, que es el cambio del
+    2026-09-23. La columna carga 25 líneas para no tardar, así que filtrar
+    sobre lo ya cargado buscaba en 25 de las 600 del fichero: una búsqueda
+    normal salía vacía, «Ver más» traía 25 más —casi todas descartadas otra
+    vez— y hacían falta varios clics para que apareciera una coincidencia.
+    Leer el fichero entero y descartar mientras se recorre no cuesta nada:
+    son 236 bytes por registro y rota a los 5 MB.
 
     Tolera una última línea a medias: el fichero se escribe con `append` y un
     `kill -9` en mitad de la escritura la deja cortada. Una línea ilegible se
     salta; el resto del historial es perfectamente válido y perderlo entero por
     un byte sería el peor canje posible.
     """
+    aguja = _normalizar(q)
     out: list[dict] = []
+    hay_mas = False
     f = ruta()
     # La generación anterior solo se toca si la actual no llena el límite —
     # justo después de rotar, si no, el historial parecería vacío.
     for candidato in (f, f.with_suffix(f.suffix + ".1")):
-        if len(out) >= limite:
+        if hay_mas:
             break
         try:
             texto = candidato.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        lineas = texto.splitlines()
-        for linea in reversed(lineas):
-            if len(out) >= limite:
-                break
+        for linea in reversed(texto.splitlines()):
             linea = linea.strip()
             if not linea:
                 continue
@@ -232,9 +255,28 @@ def leer(limite: int = 200) -> list[dict]:
                 registro = json.loads(linea)
             except ValueError:
                 continue
-            if isinstance(registro, dict):
-                out.append(_con_el_nombre_de_hoy(registro))
-    return out
+            if not isinstance(registro, dict):
+                continue
+            registro = _con_el_nombre_de_hoy(registro)
+            # El `tab` se compara contra el id, no contra el rótulo: el rótulo
+            # cambia con el idioma y en el fichero está el id.
+            if tab and (registro.get("tab") or "") != tab:
+                continue
+            # Se busca en el MISMO campo que la columna enseña — `que` — y ya
+            # con el nombre de hoy, para que buscar lo que se lee funcione
+            # también en las líneas de un trabajo renombrado.
+            if aguja and aguja not in _normalizar(registro.get("que") or ""):
+                continue
+            if len(out) >= limite:
+                hay_mas = True
+                break
+            out.append(registro)
+    return out, hay_mas
+
+
+def leer(limite: int = 200) -> list[dict]:
+    """Los últimos `limite` trabajos, sin filtrar. La forma de siempre."""
+    return buscar(limite)[0]
 
 
 # Trabajos que cambiaron de nombre, viejo → nuevo.

@@ -898,62 +898,6 @@ async def mkv_cache_delete_endpoint(file_path: str = ""):
     return {"ok": True, "cache_removed": removed, "file_path": mkv_full}
 
 
-@router.get("/api/mkv/light-profile-cached",
-            summary="Perfil de luminancia YA cacheado de un MKV (para comparar)")
-async def mkv_light_profile_cached(file_path: str = ""):
-    """Devuelve el perfil de luminancia de un MKV **sólo si ya está en cache**.
-
-    Es la mitad de servidor del comparador A/B: abres un MKV en Tab 2, pulsas
-    "Comparar con…" y eliges otro (típicamente el mismo título antes y después
-    del upgrade a CMv4.0). Con las dos curvas superpuestas se ve de un vistazo
-    si el grading nuevo cambia algo de verdad.
-
-    **No lanza el análisis.** Extraer el RPU de un UHD son ~10 min y no es algo
-    que deba pasar por elegir un fichero en un navegador de ficheros: si no hay
-    cache se dice cuál falta y el usuario decide. Por eso es un GET barato
-    (fingerprint = SHA del primer 1 MB, ~20 ms) y no toca `workload`.
-    """
-    if not file_path:
-        raise HTTPException(status_code=400, detail=tr('tab2.file_path_requerido'))
-    mkv_path_obj = _resolve_mkv_path_safe(file_path)
-    if not mkv_path_obj.exists():
-        raise HTTPException(status_code=404, detail=tr('tab2.mkv_no_encontrado_2', file_path=file_path))
-
-    from storage import compute_mkv_fingerprint, read_mkv_cache
-    from phases.mkv_analyze import CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY
-
-    def _leer() -> dict:
-        fp = compute_mkv_fingerprint(str(mkv_path_obj))
-        if not fp:
-            return {"cached": False,
-                    "reason": tr('tab2.comparador_sin_fingerprint')}
-        cached = read_mkv_cache(fp, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
-        if not cached:
-            return {"cached": False,
-                    "reason": tr('tab2.comparador_sin_analisis')}
-        quality = cached.get("quality") or {}
-        perfil = quality.get("light_profile")
-        if not perfil:
-            return {"cached": False,
-                    "reason": tr('tab2.comparador_sin_perfil')}
-        basic = cached.get("basic") or {}
-        return {
-            "cached": True,
-            "file_name": mkv_path_obj.name,
-            "light_profile": perfil,
-            # La duración es lo que permite decir si las dos curvas son del
-            # mismo montaje: el eje X está normalizado a 0-100 % del metraje,
-            # así que dos películas de duración distinta se superponen igual
-            # y sin este dato la diferencia sería invisible.
-            "duration_seconds": basic.get("duration_seconds"),
-            "cached_at": cached.get("cached_at"),
-        }
-
-    # `read_mkv_cache` hace un json.load que en un audit real son cientos de KB
-    # (los combos L8 de una peli entera): fuera del event loop.
-    return await asyncio.to_thread(_leer)
-
-
 def _analisis_ya_pedido(mkv_full: str) -> str:
     """Si ese MKV ya tiene un análisis extendido pedido, dónde está.
 

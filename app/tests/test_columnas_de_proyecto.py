@@ -429,11 +429,16 @@ class TestSinFichaSeOfreceBuscarla(ColumnasCase):
         self.assertIn("Buscar película", self.m["ficha"]["vacia"])
         self.assertIn("abrirSelectorDeFicha", self.m["ficha"]["vacia"])
 
-    def test_con_ficha_sale_el_de_cambiar(self):
-        """Para corregir un match que apuntó a otra película del mismo
-        título."""
-        self.assertIn("Cambiar", self.m["ficha"]["llena"])
-        self.assertIn("abrirSelectorDeFicha", self.m["ficha"]["llena"])
+    def test_con_ficha_NO_se_ofrece_cambiarla(self):
+        """Retirado el 2026-09-23, a petición del usuario.
+
+        La ficha es decorativa —carátula, sinopsis, géneros— y no alimenta
+        ni el pipeline ni el match contra la hoja de DoviTools, así que
+        cambiarla a mitad de job no cambia nada de lo que se está haciendo.
+        Un botón cuyo único efecto es la imagen de la cabecera no paga el
+        sitio al lado de TMDb e IMDb.
+        """
+        self.assertNotIn("abrirSelectorDeFicha", self.m["ficha"]["llena"])
 
     def test_sin_proyecto_no_se_ofrece_nada(self):
         """El modal de creación aún no tiene proyecto donde guardarla."""

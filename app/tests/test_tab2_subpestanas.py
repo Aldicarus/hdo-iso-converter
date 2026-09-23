@@ -504,11 +504,17 @@ class TestNoQuedaEstadoDeUnSoloProyecto(unittest.TestCase):
         self.assertEqual(malas, [], "asignación a `mkvProject`: es un getter; "
                                     "usa `openMkvProjects` / `switchMkvSubTab`")
 
-    def test_el_comparador_ab_ya_no_es_una_global(self):
-        """`_mkvComparacion` era única: con dos pestañas, la curva de
-        referencia de un MKV se pintaba sobre el de al lado."""
-        self.assertNotIn("let _mkvComparacion", JS)
-        self.assertIn("project.comparacion", JS)
+    def test_el_comparador_ab_se_retiro_entero(self):
+        """Era una global (`_mkvComparacion`) y pasó a vivir en el proyecto;
+        el 2026-09-23 se fue del todo, a petición del usuario.
+
+        Lo que se comprueba es que **no quedó a medias**: media retirada deja
+        un endpoint huérfano que parece cobertura y funciones que nadie
+        llama."""
+        for aguja in ("_mkvComparacion", "project.comparacion",
+                      "abrirComparadorLuminancia", "compareSeries"):
+            with self.subTest(aguja):
+                self.assertNotIn(aguja, JS)
 
 
 if __name__ == "__main__":

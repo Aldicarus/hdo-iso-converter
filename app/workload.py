@@ -488,7 +488,6 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/mkv/apply/cancel":           CLASE_LIGERO,
     "GET /api/mkv/quality-audit/progress":  CLASE_LIGERO,
     "POST /api/mkv/quality-audit/cancel":   CLASE_LIGERO,
-    "GET /api/mkv/light-profile-cached":    CLASE_LIGERO,  # solo lee la caché
     # Tab 3
     "GET /api/cmv40":                       CLASE_LIGERO,
     "GET /api/cmv40-active":                CLASE_LIGERO,
