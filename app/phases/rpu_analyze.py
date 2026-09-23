@@ -225,6 +225,48 @@ async def _run_export_simple(rpu_path: Path, out_path: Path) -> tuple[int, str]:
 _EXPORT_LEVELS = ("level1", "level2", "level3", "level8")
 
 
+# ── L9 / L11: los dos niveles que se leen de un registro y una tabla ──────
+#
+# Vivían SOLO en `mkv_analyze`, así que el pipeline de CMv4.0 no podía
+# rellenarlos y su tabla «los dos RPU, lado a lado» enseñaba un guion en las
+# dos columnas mientras la fila «Niveles» afirmaba que el bin trae L9. Es la
+# regla de siempre: un solo parser de ese JSON en el repo.
+PRIMARIES_POR_INDICE = {
+    0: "BT.709", 1: "Reserved", 2: "Reserved", 3: "Reserved",
+    4: "BT.470M", 5: "BT.470BG", 6: "BT.601", 7: "SMPTE 240M",
+    8: "Generic", 9: "BT.2020", 10: "SMPTE ST 428",
+    11: "DCI-P3", 12: "DCI-P3 D65",
+}
+
+L11_CONTENT_TYPE = {
+    0: "Reserved", 1: "Cinema", 2: "Games", 3: "Sports", 4: "User generated",
+}
+
+
+def rellenar_l9_l11(niveles: dict, dovi) -> None:
+    """Anota en `dovi` los primaries del master (L9) y el tipo de contenido
+    (L11) a partir de un export por niveles.
+
+    **`source_primary_index` vale 0 (BT.709) en los RPUs reales y
+    `content_type` puede valer 0**, así que se compara contra `None` y no
+    con un `or`: un falsy descartaría el dato y dejaría el nivel como
+    ausente sin dar ningún error.
+    """
+    l9 = [r for r in niveles.get("level9", [])
+          if isinstance(r, dict) and r.get("source_primary_index") is not None]
+    if l9:
+        idx = l9[0]["source_primary_index"]
+        dovi.l9_primaries = PRIMARIES_POR_INDICE.get(idx, f"Index {idx}")
+        dovi.has_l9 = True
+
+    l11 = [r for r in niveles.get("level11", [])
+           if isinstance(r, dict) and r.get("content_type") is not None]
+    if l11:
+        ct = l11[0]["content_type"]
+        dovi.l11_content_type = L11_CONTENT_TYPE.get(ct, f"Type {ct}")
+        dovi.has_l11 = True
+
+
 async def export_levels(
     rpu_path: Path,
     levels,

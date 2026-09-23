@@ -2289,13 +2289,25 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
         except Exception:
             pass
 
-    # L9 source primaries: "L9 source primaries: BT.2020" / "L9: DCI-P3" / etc.
+    # L9 primaries del mastering display.
+    #
+    # El formato que `dovi_tool info --summary` emite DE VERDAD es
+    # **`L9 MDP: DCI-P3 D65`** (Mastering Display Primaries) — verificado el
+    # 2026-09-23 sobre un bin retail CMv4.0 del repo DoviTools. El patrón
+    # aceptaba `L9:` y `L9 source primaries:`, dos formas que dovi_tool no
+    # escribe, así que **`l9_primaries` no se rellenó nunca**: ni aquí ni en
+    # Tab 3, que usa este mismo parser. Se veía como un guion en la tabla
+    # «los dos RPU, lado a lado» y nadie podía saber por qué.
+    #
+    # Se conservan las variantes viejas por si otra versión las usa; lo que
+    # se añade es `MDP`.
     m = re.search(
-        r"L9(?:\s+source(?:\s+(?:primaries|colou?r(?:\s+primaries)?))?)?:\s*([A-Za-z0-9\.\- ]+?)(?:\n|$|,)",
+        r"L9(?:\s+(?:MDP|source(?:\s+(?:primaries|colou?r(?:\s+primaries)?))?))?:\s*([A-Za-z0-9\.\- ]+?)(?:\n|$|,)",
         summary, re.I,
     )
     if m:
         info.l9_primaries = m.group(1).strip()
+        info.has_l9 = True
 
     # L10 target primaries: "L10 target display primaries: DCI-P3 D65"
     m = re.search(

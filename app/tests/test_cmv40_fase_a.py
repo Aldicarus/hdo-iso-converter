@@ -158,5 +158,109 @@ class TestLoQueLaFaseDeja(FaseACase):
         self.assertIn("workflow P7 FEL", log)
 
 
+class TestElL9YElL11TambienSeMiden(FaseACase):
+    """Ni el L9 ni el L11 los rellenaba nadie en esta pestaña.
+
+    `l9_primaries` y `l11_content_type` solo los escribían Tab 1 y Tab 2 —
+    cero referencias en `cmv40_pipeline`, `routers/cmv40` y `rpu_analyze`—,
+    así que sus dos filas de la tabla «los dos RPU, lado a lado» enseñaban
+    un guion en AMBAS columnas. Y mientras, la fila «Niveles» leía `has_l9`
+    y sí anunciaba el L9: la tabla se contradecía a sí misma, cosa que el
+    usuario vio el 2026-09-23 y no pudo explicarse «porque no tengo casos».
+    No los había: las filas no podían enseñar nada.
+
+    Van en la MISMA pasada del export que el L3 — pedir tres niveles en vez
+    de uno no cuesta otra lectura del RPU.
+    """
+
+    async def test_el_l9_del_disco_llega_con_su_nombre(self):
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        self.tb.define_rpu_levels("RPU_source.bin", l9_primary=12)
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        dv = session.source_dv_info
+        self.assertTrue(dv.has_l9)
+        self.assertEqual(dv.l9_primaries, "DCI-P3 D65")
+
+    async def test_el_l11_tambien(self):
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        self.tb.define_rpu_levels("RPU_source.bin", l11_content_type=1)
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        dv = session.source_dv_info
+        self.assertTrue(dv.has_l11)
+        self.assertEqual(dv.l11_content_type, "Cinema")
+
+    async def test_el_indice_CERO_no_se_pierde(self):
+        """`source_primary_index` vale 0 (BT.709) en los RPUs reales, así
+        que el parseo compara contra `None`. Con un `or` el nivel se
+        descartaría por falsy y la fila diría «—» teniendo el dato — el
+        mismo fallo mudo que CLAUDE.md ya documenta para el L11."""
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        self.tb.define_rpu_levels("RPU_source.bin", l9_primary=0,
+                                  l11_content_type=0)
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        dv = session.source_dv_info
+        self.assertTrue(dv.has_l9, "el índice 0 se descartó por falsy")
+        self.assertEqual(dv.l9_primaries, "BT.709")
+        self.assertTrue(dv.has_l11)
+        self.assertEqual(dv.l11_content_type, "Reserved")
+
+    async def test_sin_esos_niveles_no_se_inventa_nada(self):
+        session, _ = await self.correr()
+        dv = session.source_dv_info
+        self.assertEqual(dv.l9_primaries, "")
+        self.assertEqual(dv.l11_content_type, "")
+
+    async def test_si_el_export_falla_se_quedan_vacios(self):
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        self.tb.define_rpu_levels("RPU_source.bin", l9_primary=12)
+        self.tb.fail("dovi_tool", "export")
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        self.assertEqual(session.source_dv_info.l9_primaries, "")
+
+class TestLosDosSummariesDelArnesDicenLoMismo(unittest.TestCase):
+    """`RpuProps.to_summary` y la `summary()` del binario falso son la misma
+    función escrita dos veces: la clase la usan los tests y la función se
+    escribe DENTRO del script del fake, que no puede importarla.
+
+    Divergieron el 2026-09-23 —se corrigió el formato de L9 en una y no en
+    la otra— y el síntoma fue un test que seguía leyendo `Cinema` de una
+    línea recién borrada. Mientras la duplicación sea estructural, que al
+    menos se cruce.
+    """
+
+    def test_producen_el_mismo_texto(self):
+        import re as _re
+        from cmv40_harness import RpuProps
+        import cmv40_harness
+
+        fuente = Path(cmv40_harness.__file__).read_text(encoding="utf-8")
+        m = _re.search(r"^def summary\(props\):.*?^    return .*?$",
+                       fuente, _re.S | _re.M)
+        self.assertIsNotNone(m, "no se encuentra la `summary()` del fake")
+        ambito: dict = {}
+        exec(m.group(0), ambito)          # noqa: S102 — es nuestro propio arnés
+
+        for props in (RpuProps(),
+                      RpuProps(profile=8, el_type="", cm_version="v4.0",
+                               has_l8=True, has_l11=True),
+                      RpuProps(el_type="MEL", has_l8=True, has_l11=False)):
+            with self.subTest(props=props):
+                self.assertEqual(props.to_summary(),
+                                 ambito["summary"](props.as_dict()))
+
+    def test_y_ninguna_emite_una_linea_que_dovi_tool_no_escribe(self):
+        """Medido el 2026-09-23 sobre un bin retail CMv4.0: el summary real
+        acaba con `L5 offsets`, `L2 trims`, `L8 trims` y `L9 MDP`. No hay
+        línea de L11, y la de L9 no dice «source primaries»."""
+        from cmv40_harness import RpuProps
+        txt = RpuProps(has_l8=True, has_l11=True).to_summary()
+        self.assertIn("L9 MDP:", txt)
+        self.assertNotIn("L9 source primaries", txt)
+        self.assertNotIn("L11", txt)
+
 if __name__ == "__main__":
     unittest.main()

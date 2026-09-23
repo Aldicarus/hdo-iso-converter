@@ -1577,8 +1577,9 @@ async def preflight_source(
                 pass
 
 
-async def _medir_l3(rpu: Path, dovi_info, log_callback=None) -> None:
-    """Cuenta el L3 de un RPU y lo anota en su `DoviInfo`. Best-effort.
+async def _medir_niveles_del_export(rpu: Path, dovi_info,
+                                    log_callback=None) -> None:
+    """Anota en su `DoviInfo` los niveles que el summary NO sabe dar. Best-effort.
 
     **`dovi_tool info --summary` NO emite L3**, así que el parser del summary
     no puede poblarlo: emite exactamente cuatro líneas de niveles —`L5
@@ -1589,14 +1590,23 @@ async def _medir_l3(rpu: Path, dovi_info, log_callback=None) -> None:
     lado a lado» enseñaba L1/L5/L6/L8/L9/L11 y **ningún L3 en ninguna de las
     dos columnas**. Lo reportó el usuario el 2026-09-20.
 
+    **L9 y L11 estaban en la misma situación**, y en esta pestaña tampoco
+    los rellenaba nadie: `l9_primaries` y `l11_content_type` solo los
+    escriben Tab 1 y Tab 2, así que sus dos filas de la tabla «los dos RPU,
+    lado a lado» enseñaban un guion en AMBAS columnas mientras la fila
+    «Niveles» afirmaba que el bin trae L9 — la tabla se contradecía a sí
+    misma. Van en la MISMA pasada: el export recorre el RPU una vez, pedir
+    tres niveles en vez de uno no cuesta otra lectura.
+
     Son ~7 s sobre un RPU ya extraído, contra los ~12 min de la fase. Si
     falla no se anota nada y `l3_medido` se queda en False, que es lo que la
     tabla lee para decir «sin medir» en vez de un guion: un flag sin fuente
     se deja en su default antes que fingir que se comprueba.
     """
     try:
-        from phases.rpu_analyze import contar_l3, export_levels
-        niveles = await export_levels(rpu, ("level3",), timeout=300)
+        from phases.rpu_analyze import contar_l3, export_levels, rellenar_l9_l11
+        niveles = await export_levels(
+            rpu, ("level3", "level9", "level11"), timeout=300)
         if niveles is None:
             return
         combos, frames, _ = contar_l3(niveles.get("level3") or [])
@@ -1604,10 +1614,11 @@ async def _medir_l3(rpu: Path, dovi_info, log_callback=None) -> None:
         dovi_info.l3_unique_count = combos
         dovi_info.l3_frames = frames
         dovi_info.has_l3 = combos > 0
+        rellenar_l9_l11(niveles, dovi_info)
         await _log(log_callback, '[Fase A] └─ ' + tr(
             'cmv40_pipeline.l3_del_disco', combos=combos))
     except Exception as e:                       # noqa: BLE001
-        _logger.info("no se pudo medir el L3 de %s: %s", rpu, e)
+        _logger.info("no se pudieron medir los niveles de %s: %s", rpu, e)
 
 
 async def run_phase_a_analyze_source(
@@ -1839,7 +1850,7 @@ async def run_phase_a_analyze_source(
         raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo', p1=err[:300]))
 
     dovi_info = _parse_dovi_summary(summary)
-    await _medir_l3(rpu_source, dovi_info, log_callback)
+    await _medir_niveles_del_export(rpu_source, dovi_info, log_callback)
     session.source_dv_info = dovi_info
     session.source_frame_count = dovi_info.frame_count
 
@@ -2481,6 +2492,11 @@ async def _analyze_target_rpu(
         raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo_sobre_rpu', p1=err[:300]))
 
     dovi_info = _parse_dovi_summary(summary)
+    # El bin pasa por el mismo export que el disco: su L3, su L9 y su L11
+    # quedaban a merced de lo que el summary sabe decir, que de esos tres es
+    # nada. NO se hace en el pre-flight —9 s de mediana, y su pregunta es
+    # solo «¿trae CMv4.0?»—: aquí, que es donde la tabla los lee.
+    await _medir_niveles_del_export(rpu_path, dovi_info, log_callback)
     session.target_dv_info = dovi_info
     session.target_frame_count = dovi_info.frame_count
     session.sync_delta = dovi_info.frame_count - session.source_frame_count

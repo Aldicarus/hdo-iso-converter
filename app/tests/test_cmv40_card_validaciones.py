@@ -157,6 +157,19 @@ def sesion_mandalorian(**over):
 
 
 @unittest.skipUnless(NODE, "node no disponible")
+def _fila_de(html, etiqueta):
+    """El trozo de HTML de UNA fila del bloque ②.
+
+    Afirmar sobre la card entera no sirve para la columna de la derecha: un
+    `≠` de otra fila da el test por bueno (o por malo) sin haber mirado la
+    que interesa.
+    """
+    i = html.find(">" + etiqueta + "<")
+    assert i != -1, f"no está la fila «{etiqueta}»"
+    fin = html.find("</div>", html.find("text-align:right", i))
+    return html[i:fin]
+
+
 class CardTestCase(unittest.TestCase):
 
     def render(self, session, expandida=True):
@@ -271,17 +284,42 @@ class TestElL3SaleEnLaTabla(CardTestCase):
         self.assertIn("sin L3", html)
 
     def test_lo_que_el_bin_APORTA_se_marca(self):
-        """Con el disco medido y sin L3 y el bin con L3, la fila lleva su
-        marca: es justo lo que este bloque contesta."""
+        """Con el disco sin L3 y el bin con L3, la fila lo dice: es justo lo
+        que este bloque contesta."""
         html = self._con_l3(src={"l3_medido": True, "l3_unique_count": 0},
                             tgt={"l3_medido": True, "l3_unique_count": 485})
-        self.assertIn("+L3", html)
+        self.assertIn("↑ upgrade", html)
 
-    def test_sin_medir_el_disco_no_se_marca_nada(self):
-        """Sin saber qué trae el disco, decir que el bin «aporta» L3 sería
-        una conclusión sacada de un hueco."""
-        html = self._con_l3(tgt={"l3_medido": True, "l3_unique_count": 485})
-        self.assertNotIn("+L3", html)
+    def test_sin_medir_el_disco_TAMBIEN_se_marca(self):
+        """Invierte lo que este test pedía hasta el 2026-09-23.
+
+        La regla era «sin saber qué trae el disco, decir que el bin aporta
+        L3 sería una conclusión sacada de un hueco», y suena bien. Pero la
+        alternativa NO era no decir nada: sin marca propia la fila cae al
+        comparador genérico, que compara «sin medir» con «485 ajustes», los
+        ve distintos y pinta **`≠` en ámbar**. O sea que «no lo hemos
+        mirado» acababa en pantalla como «discrepan» — peor que la
+        conclusión que se quería evitar. Lo vio el usuario mirando la card.
+
+        Y la marca no sale de un hueco: sobre un RPU P7 MEL CM v2.9 real el
+        export de `level3` sale VACÍO, así que el Blu-ray no trae L3 y el
+        bin lo aporta. Está medido y escrito en CLAUDE.md.
+        """
+        fila = _fila_de(self._con_l3(tgt={"l3_medido": True,
+                                          "l3_unique_count": 485}),
+                        "L3 tonos medios")
+        self.assertIn("↑ upgrade", fila)
+        # Sobre la card entera esto no probaría nada: el L5 de esta fixture
+        # diverge de verdad y lleva su propio `≠`.
+        self.assertNotIn("≠", fila)
+
+    def test_si_nadie_lo_midio_no_se_afirma_que_coinciden(self):
+        """Los dos a «sin medir» son dos huecos, no un acuerdo: un ✓ verde
+        diría que se ha comprobado que son iguales."""
+        html = self._con_l3()
+        fila = _fila_de(html, "L3 tonos medios")
+        self.assertNotIn("check", fila, f"marca indebida en: {fila}")
+        self.assertNotIn("≠", fila)
 
     def test_y_la_fila_de_niveles_lo_incluye(self):
         html = self._con_l3(tgt={"l3_medido": True, "l3_unique_count": 485,
@@ -411,6 +449,62 @@ class TestDiagnosticoEnTexto(CardTestCase):
                       "⑤ Evidencia", "00:10:11", "restore_dropin"):
             self.assertIn(trozo, txt, f"falta «{trozo}» en el diagnóstico")
 
+class TestLaColumnaDeDiferencias(CardTestCase):
+    """La cuarta columna del bloque ②, que el usuario leyó y no entendió.
+
+    Tres defectos a la vez, vistos en la card de un job real el 2026-09-23:
+    la cabecera decía `¿=?`; la fila «Niveles» anunciaba `+L8` aunque el bin
+    trajera además L3 y L9, porque la marca estaba CLAVADA a L8; y las filas
+    de L9 y L11 decían `—` en los dos lados mientras «Niveles» afirmaba que
+    el bin trae L9 — la tabla se contradecía consigo misma.
+
+    El L9 es el más instructivo: el pipeline de CMv4.0 **no rellena nunca**
+    `l9_primaries` ni `l11_content_type` (solo lo hacen Tab 1 y Tab 2), así
+    que esas dos filas no podían enseñar nada en esta pestaña. Un guion ahí
+    no es «no lo tiene»: es «no lo hemos mirado».
+    """
+
+    def test_la_cabecera_se_entiende(self):
+        html = self.render(sesion_mandalorian())
+        self.assertIn("Diferencias", html)
+        self.assertNotIn("¿=?", html)
+
+    def test_los_niveles_que_añade_el_bin_se_listan_todos(self):
+        s = sesion_mandalorian()
+        s["target_dv_info"] = {**s["target_dv_info"], "has_l3": True}
+        fila = _fila_de(self.render(s), "Niveles")
+        self.assertIn("+L3", fila)
+        self.assertIn("+L8", fila)
+
+    def test_y_un_nivel_que_se_PIERDE_también(self):
+        """La resta va en los dos sentidos: que el bin traiga menos que el
+        disco es justo lo que hay que ver, y en ámbar."""
+        s = sesion_mandalorian()
+        s["source_dv_info"] = {**s["source_dv_info"], "has_l11": True}
+        fila = _fila_de(self.render(s), "Niveles")
+        self.assertIn("−L11", fila)
+        self.assertIn("orange", fila)
+
+    def test_l9_no_contradice_a_la_fila_de_niveles(self):
+        """`has_l9` está en los dos lados de la fixture y el disco no trae
+        el valor: la fila tiene que decir «presente», no «—»."""
+        fila = _fila_de(self.render(sesion_mandalorian()), "L9 primaries")
+        self.assertIn("presente", fila)
+
+    def test_y_no_se_inventa_una_discrepancia_con_lo_que_no_se_midió(self):
+        """«presente» contra «DCI-P3 D65» no son dos valores distintos: es
+        un valor y un hueco."""
+        fila = _fila_de(self.render(sesion_mandalorian()), "L9 primaries")
+        self.assertNotIn("≠", fila)
+
+    def test_un_nivel_realmente_ausente_sigue_siendo_un_guion(self):
+        s = sesion_mandalorian()
+        s["source_dv_info"] = {**s["source_dv_info"], "has_l9": False}
+        fila = _fila_de(self.render(s), "L9 primaries")
+        self.assertIn("—", fila)
+        self.assertNotIn("presente", fila.split("DCI-P3")[0])
+
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -440,4 +534,3 @@ class TestNingunIconoSaleComoTexto(CardTestCase):
                 self.assertNotIn("&lt;svg", html,
                                  "el código del SVG se ve en pantalla")
                 self.assertNotIn("viewBox=&quot;", html)
-

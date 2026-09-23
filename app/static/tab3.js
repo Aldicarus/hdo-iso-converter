@@ -4197,7 +4197,7 @@ function _cmv40RpuFila(etiqueta, a, b, marcaOverride) {
   const m = marcaOverride || _cmv40CmpMarca(a, b);
   const val = v => (v === null || v === undefined || v === '') ? '—' : String(v);
   return `
-    <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:4px 8px; border-bottom:1px solid var(--sep); font-size:11.5px">
+    <div style="display:grid; grid-template-columns:120px 1fr 1fr 104px; gap:8px; padding:4px 8px; border-bottom:1px solid var(--sep); font-size:11.5px">
       <div style="color:var(--text-2); font-weight:600">${escHtml(etiqueta)}</div>
       <div style="color:var(--text-1)">${escHtml(val(a))}</div>
       <div style="color:var(--text-1)">${escHtml(val(b))}</div>
@@ -4288,12 +4288,29 @@ function _cmv40GateBloque2(s) {
   if (!sdv && !tdv) return '';
   const l5g = (s.target_trust_gates || {}).l5_div || {};
 
+  const NIVELES = ['1','2','3','4','5','6','8','9','10','11'];
+  const setNiveles = dv => new Set(
+    dv ? NIVELES.filter(n => dv['has_l' + n]).map(n => 'L' + n) : []);
   const niveles = dv => {
     if (!dv) return '—';
-    const ns = ['1','2','3','4','5','6','8','9','10','11']
-      .filter(n => dv['has_l' + n]).map(n => 'L' + n);
+    const ns = [...setNiveles(dv)];
     return ns.length ? ns.join(' ') : '—';
   };
+  // Si «Niveles» dice que el bin trae L9, esta fila no puede decir «—». El
+  // pipeline de CMv4.0 **no rellena** `l9_primaries` ni `l11_content_type`
+  // —solo lo hacen Tab 1 y Tab 2—, así que el VALOR falta mientras el nivel
+  // está, y las dos filas se contradecían. Mismo patrón que `l8txt`: se dice
+  // «presente» en vez de fingir una ausencia. Con el flag a false, el guion
+  // sí es lo correcto.
+  const presente = (dv, valor, flag) =>
+    !dv ? '—' : (valor || (dv[flag] ? tr('tab3.gate_valor_presente') : '—'));
+  // Y si de un lado solo sabemos que el nivel ESTÁ, no hay comparación que
+  // hacer: el comparador genérico pintaría `≠` en ámbar, afirmando una
+  // discrepancia que nadie ha medido. Es la misma regla que en el L3 — no
+  // concluir desde un hueco.
+  const soloSiLosDosSeConocen = (a, b) =>
+    (a === tr('tab3.gate_valor_presente') || b === tr('tab3.gate_valor_presente'))
+      ? { txt: '', color: 'var(--text-3)' } : null;
   const l5txt = (dv, perfil) => {
     if (perfil && Array.isArray(perfil.valores) && perfil.valores.length) {
       const v = perfil.valores;
@@ -4336,22 +4353,53 @@ function _cmv40GateBloque2(s) {
   const marcaCm = (cmS !== '—' && cmT !== '—' && cmS !== cmT)
     ? { txt: '↑ upgrade', color: 'var(--blue-text)' } : null;
   const nivS = niveles(sdv), nivT = niveles(tdv);
-  const marcaNiv = (nivS !== nivT && tdv && tdv.has_l8 && sdv && !sdv.has_l8)
-    ? { txt: '+L8', color: 'var(--blue-text)' } : null;
+  // Estaba clavado a `+L8`, así que un bin que además trae L3 y L9 —el caso
+  // normal de un máster CMv4.0— se anunciaba como si solo trajera el L8. Se
+  // resta el conjunto en LOS DOS sentidos: perder un nivel también hay que
+  // verlo, y en ámbar.
+  const nsS = setNiveles(sdv), nsT = setNiveles(tdv);
+  const mas   = [...nsT].filter(x => !nsS.has(x));
+  const menos = [...nsS].filter(x => !nsT.has(x));
+  const marcaNiv = (mas.length || menos.length)
+    ? { txt: [...mas.map(x => '+' + x), ...menos.map(x => '−' + x)].join(' '),
+        color: menos.length ? 'var(--orange-text)' : 'var(--blue-text)' }
+    : null;
   const l5S = l5txt(sdv, perfS), l5T = l5txt(tdv, perfT);
   // Lo que el bin APORTA, que es la pregunta de este bloque: el ajuste de
   // tonos medios lo calcula el análisis de Dolby y el Blu-ray no lo trae
   // —medido sobre un RPU P7 MEL CM v2.9, el export de `level3` sale vacío—
   // así que traerlo es una mejora real aunque el L8 esté plano.
-  const marcaL3 = (tdv && tdv.l3_unique_count && sdv && sdv.l3_medido
-                   && !sdv.l3_unique_count)
-    ? { txt: '+L3', color: 'var(--blue-text)' } : null;
+  //
+  // La CELDA dice lo que SABEMOS («sin medir» · «sin L3» · la cuenta) y la
+  // MARCA lo que el bin APORTA. Antes la marca exigía que el disco estuviera
+  // medido y, al no estarlo, caía al comparador genérico — que no pinta
+  // nada: pinta `≠` en NARANJA. O sea que «no lo hemos mirado» acababa en
+  // pantalla como «discrepan», que es peor que la conclusión que se quería
+  // evitar. Reportado mirando la card el 2026-09-23.
+  //
+  // Y no sale de un hueco: medido sobre un RPU P7 MEL CM v2.9 real, el
+  // export de `level3` sale VACÍO. El Blu-ray no trae L3, así que que el bin
+  // lo traiga mejora el juego de metadata aunque su L8 esté plano — que es
+  // justo lo que dice el tercer veredicto del criterio CMv4.0.
+  const l9S  = presente(sdv, sdv && sdv.l9_primaries, 'has_l9');
+  const l9T  = presente(tdv, tdv && tdv.l9_primaries, 'has_l9');
+  const l11S = presente(sdv, sdv && sdv.l11_content_type, 'has_l11');
+  const l11T = presente(tdv, tdv && tdv.l11_content_type, 'has_l11');
+  const l3n = dv => (dv && dv.l3_unique_count) || 0;
+  const l3medido = dv => !!(dv && dv.l3_medido);
+  const marcaL3 =
+      (l3n(tdv) && !l3n(sdv)) ? { txt: '↑ upgrade', color: 'var(--blue-text)' }
+    : (l3n(sdv) && !l3n(tdv)) ? { txt: tr('tab3.solo_bd'), color: 'var(--orange-text)' }
+    // Ninguno de los dos medido: no hay nada que comparar, y un ✓ verde
+    // afirmaría que coinciden dos huecos.
+    : (!l3medido(sdv) || !l3medido(tdv)) ? { txt: '', color: 'var(--text-3)' }
+    : null;
 
   return `
     ${_cmv40BloqueHead('②', tr('tab3.los_dos_rpu_lado_a_lado'))}
     <div style="border:1px solid var(--sep); border-radius:6px; overflow:hidden">
-      <div style="display:grid; grid-template-columns:120px 1fr 1fr 76px; gap:8px; padding:6px 8px; background:rgba(0,122,255,0.06); font-size:11px; font-weight:800; color:var(--text-2)">
-        <div></div><div data-i18n="tab3.bd_source"></div><div data-i18n="tab3.bin_target"></div><div style="text-align:right" data-i18n="tab3.rpu_iguales"></div>
+      <div style="display:grid; grid-template-columns:120px 1fr 1fr 104px; gap:8px; padding:6px 8px; background:rgba(0,122,255,0.06); font-size:11px; font-weight:800; color:var(--text-2)">
+        <div></div><div data-i18n="tab3.bd_source"></div><div data-i18n="tab3.bin_target"></div><div style="text-align:right" data-i18n="tab3.rpu_diferencias"></div>
       </div>
       ${_cmv40RpuFila('Profile', sdv ? `${sdv.profile}${sdv.el_type ? ' (' + sdv.el_type + ')' : ''}` : '—',
                                  tdv ? `${tdv.profile}${tdv.el_type ? ' (' + tdv.el_type + ')' : ''}` : '—')}
@@ -4364,8 +4412,9 @@ function _cmv40GateBloque2(s) {
       ${_cmv40RpuFila('L5 active area', l5S, l5T)}
       ${_cmv40RpuFila('L6 MaxCLL', l6txt(sdv), l6txt(tdv))}
       ${_cmv40RpuFila('L8 trims', l8txt(sdv), l8txt(tdv))}
-      ${_cmv40RpuFila('L9 primaries', (sdv && sdv.l9_primaries) || '—', (tdv && tdv.l9_primaries) || '—')}
-      ${_cmv40RpuFila(tr('tab3.rpu_l11_contenido'), (sdv && sdv.l11_content_type) || '—', (tdv && tdv.l11_content_type) || '—')}
+      ${_cmv40RpuFila('L9 primaries', l9S, l9T, soloSiLosDosSeConocen(l9S, l9T))}
+      ${_cmv40RpuFila(tr('tab3.rpu_l11_contenido'), l11S, l11T,
+                      soloSiLosDosSeConocen(l11S, l11T))}
     </div>`;
 }
 

@@ -1352,19 +1352,6 @@ _L8_NITS_POR_INDICE = {
 }
 
 # `source_primary_index` de L9 (y `target_primaries_index` de L10).
-_PRIMARIES_POR_INDICE = {
-    0: "BT.709", 1: "Reserved", 2: "Reserved", 3: "Reserved",
-    4: "BT.470M", 5: "BT.470BG", 6: "BT.601", 7: "SMPTE 240M",
-    8: "Generic", 9: "BT.2020", 10: "SMPTE ST 428",
-    11: "DCI-P3", 12: "DCI-P3 D65",
-}
-
-# `content_type` de L11.
-_L11_CONTENT_TYPE = {
-    0: "Reserved", 1: "Cinema", 2: "Games", 3: "Sports", 4: "User generated",
-}
-
-
 async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
     """Rellena los niveles L8/L9/L11 de DoviInfo leyendo el RPU exportado.
 
@@ -1392,7 +1379,7 @@ async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
     reales probados, así que no se pide: el gamut del target display se
     muestra desde el master display de HDR10.
     """
-    from phases.rpu_analyze import export_levels
+    from phases.rpu_analyze import export_levels, rellenar_l9_l11
 
     niveles = await export_levels(
         Path(rpu_path),
@@ -1413,23 +1400,10 @@ async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
             dovi.l8_trim_count = len(nits)
         dovi.has_l8 = True
 
-    # ── L9: primaries del master ──────────────────────────────────────
-    # `source_primary_index` es 0 (BT.709) en los RPUs reales, así que hay que
-    # distinguir "ausente" de "cero": un `or` lo trataría como ausente.
-    l9 = [r for r in niveles.get("level9", [])
-          if isinstance(r, dict) and r.get("source_primary_index") is not None]
-    if l9:
-        idx = l9[0]["source_primary_index"]
-        dovi.l9_primaries = _PRIMARIES_POR_INDICE.get(idx, f"Index {idx}")
-        dovi.has_l9 = True
-
-    # ── L11: tipo de contenido ────────────────────────────────────────
-    l11 = [r for r in niveles.get("level11", [])
-           if isinstance(r, dict) and r.get("content_type") is not None]
-    if l11:
-        ct = l11[0]["content_type"]
-        dovi.l11_content_type = _L11_CONTENT_TYPE.get(ct, f"Type {ct}")
-        dovi.has_l11 = True
+    # ── L9 y L11 ──────────────────────────────────────────────────────
+    # El parseo vive en `rpu_analyze`: el pipeline de CMv4.0 lo necesita
+    # igual y una segunda copia es lo que dejó su tabla sin estos dos.
+    rellenar_l9_l11(niveles, dovi)
 
     # ── L3, L4 y L10: presencia ───────────────────────────────────────
     # Los tres se «detectaban» con un regex sobre `dovi_tool info --summary`

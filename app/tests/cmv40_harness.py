@@ -104,9 +104,17 @@ class RpuProps:
         ]
         if self.has_l8:
             lines.append("L8 trims: 100, 600, 1000, 2000")
-            lines.append("L9 source primaries: BT.2020")
-        if self.has_l11:
-            lines.append("L11 content type: Cinema")
+            # Formato REAL, copiado de `dovi_tool info --summary` sobre un
+            # bin retail CMv4.0 del repo (2026-09-23): la línea es
+            # `L9 MDP: DCI-P3 D65`. Aquí decía `L9 source primaries:`, una
+            # forma que dovi_tool **no escribe**, así que el parser la casaba
+            # en los tests y fallaba en el NAS — el fake hacía pasar en verde
+            # un camino muerto.
+            lines.append("L9 MDP: DCI-P3 D65")
+        # Y de L11 **no hay línea**: el summary real emite exactamente cuatro
+        # de niveles (L5 offsets, L2 trims, L8 trims, L9 MDP). El
+        # `l11_content_type` solo puede salir de `export --levels level11`,
+        # que es de donde lo lee ahora `_medir_niveles_del_export`.
         return "\n".join(lines) + "\n"
 
     def as_dict(self) -> dict:
@@ -770,9 +778,10 @@ def summary(props):
     ]
     if props["has_l8"]:
         lines.append("L8 trims: 100, 600, 1000, 2000")
-        lines.append("L9 source primaries: BT.2020")
-    if props["has_l11"]:
-        lines.append("L11 content type: Cinema")
+        # Ver `RpuProps.to_summary`: el formato real es `L9 MDP: ...` y de
+        # L11 no hay linea. Las dos copias tienen que decir lo mismo y hay
+        # un test que las cruza — esta se quedo atras y costo un ciclo.
+        lines.append("L9 MDP: DCI-P3 D65")
     return "\n".join(lines) + "\n"
 
 
