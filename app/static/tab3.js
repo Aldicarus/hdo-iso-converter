@@ -164,9 +164,9 @@ function _cmv40GuessNextPhase(s) {
     case 'extracted':        return trust ? tr('tab3.fase_f_inyectando_rpu_drop_in') : tr('tab3.fase_d_revision_visual');
     case 'sync_verified':    return tr('tab3.fase_f_inyectando_rpu');
     case 'sync_corrected':   return tr('tab3.fase_f_inyectando_rpu');
-    case 'injected':         return 'Fase G — Ensamblando MKV';
+    case 'injected':         return tr('tab3.fase_g_ensamblando_mkv');
     case 'remuxed':          return tr('tab3.fase_h_validando_resultado');
-    case 'validated':        return 'Fase H — Finalizando';
+    case 'validated':        return tr('tab3.fase_h_guardando');
     default:                 return '';
   }
 }
@@ -5426,9 +5426,21 @@ function _cmv40FaseBodyBloqueable(key, pid, s) {
 
 
 function _cmv40FaseHBody(pid, s) {
+  // Qué comprueba la Fase H depende de la ruta, y la diferencia es de dos
+  // órdenes de magnitud: por drop-in son segundos (el RPU se copió entero
+  // del bin) y por merge son dos `extract-rpu` completos. Con un texto único
+  // la rama corta parecía no comprobar nada. Se lee del plan —`fast_path` es
+  // lo que la fase ramifica— con el respaldo de siempre para las sesiones
+  // que aún no lo traen.
+  // `tr()` aquí y no un `data-i18n="${clave}"`: una clave metida en un
+  // atributo por interpolación no la ve el guard del catálogo, y si no
+  // existiera se pintaría en crudo.
+  const rapido = s?.plan?.validate?.fast_path ?? _cmv40DropIn(s);
+  const quePasa = rapido ? tr('tab3.que_pasa_fase_h_rapido')
+                         : tr('tab3.que_pasa_fase_h_completo');
   return `
     <div class="section-body">
-      ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_h"></span>',
+      ${_cmv40DosCapas(escHtml(quePasa),
                         '<span data-i18n="tab3.verifica_que_el_mkv_resultante_tiene"></span>')}
       <button class="btn btn-primary btn-md" onclick="cmv40DoValidate('${pid}')"><span data-icono="check"></span> <span data-i18n="tab3.validar_y_finalizar"></span></button>
     </div>`;

@@ -450,6 +450,20 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
    Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
 
+   **El nombre y el texto de la fase SALEN DE LA RUTA** (`plan.validate.fast_path`,
+   que es lo que la fase ramifica — no `plan.drop_in`, aunque hoy coincidan).
+   Con un texto único la rama corta —que es segundos— parecía no comprobar
+   nada, y el usuario concluyó, con razón para lo que veía, que la Fase H
+   «sólo mueve el MKV y borra temporales» (2026-09-23). Hoy `relato.porque_fase_h_rapido`
+   / `_completo` y `tab3.que_pasa_fase_h_rapido` / `_completo` dicen qué se
+   comprueba **y cuánto cuesta**, que era el dato que faltaba.
+
+   Se llama **«Comprobar el MKV y guardarlo»** y no «Mover el MKV»: por la
+   rama merge son dos `extract-rpu` completos antes de mover nada, así que
+   ese nombre sería falso justo en el caso caro. Y «comprobar» y no
+   «validar» porque la app usa «validación» para otras dos cosas — la
+   validación PREVIA del bin (pre-flight) y la card 🛡️ Validaciones.
+
 ### La matriz de workflows vive en `cmv40_strategy.py`, no en las fases
 
 Qué hace cada fase depende de `(source_workflow, target_type, trust)`. Esa combinación estaba desplegada como cascadas `if/elif` en ~30 puntos de las fases C, F, G y H, con dos consecuencias: añadir un workflow eran ~30 sitios sin lista de verificación, y **cada fase ramificaba dos veces sobre las mismas entradas** — una para emitir su `📋 Plan` y otra decenas de líneas más abajo para decidir de verdad. Nada obligaba a que coincidieran, y fue exactamente el fallo de "Te van a matar" (2026-08-15): la pista decía "P8.1 CMv4.0" y MediaInfo leía `dvhe.07`.
@@ -3368,6 +3382,25 @@ en ninguna.
 - **Los puntitos de fase son para lo que está a medias.** En un proyecto
   terminado están todos llenos y no contestan nada; sobre una tarjeta
   archivada, encima, salen gris sobre gris.
+
+**«hace 258h 18 min»: una edad no se cuenta con el formateador de
+duraciones.** Había DOS —`formatRelativeDate` (las tarjetas de las tres
+columnas) y `_workbarHace` (el historial de la columna de trabajo)— y sólo
+la primera tenía escalón de días; la segunda componía la edad con
+`_workbarTiempo`, que mide **duraciones** y por eso no baja de las horas. Hoy
+es una: **`hace(iso)` en `core.js`**, con escalones hasta los años y `floor`
+—«hace 2 meses» significa que han pasado dos, no que falta poco—. Tres
+consecuencias que no son obvias:
+
+- **La fecha exacta no se pierde**: las tres columnas ya la llevaban en
+  `metaTooltip` y el historial, en su cabecera de día. Por eso la tarjeta
+  pudo dejar de caer a `12/09/26` pasada la semana y seguir siendo una edad.
+- **`_workbarTiempo` se queda como está**: para un trabajo que tardase 258 h,
+  «258 h 18 min» es exactamente lo que hay que decir. No era una función
+  rota, era la función equivocada para esa pregunta.
+- **`hace()` viaja con `frontend_sources.motor_i18n()`**, junto a
+  `localeActual` y `tr`. Sin eso, quince arneses de node se quedan a la vez
+  con `ReferenceError: hace is not defined` — la cicatriz de siempre.
 
 Lo que cada pestaña pone dentro sale de lo que en ella se pregunta: Tab 1 el
 episodio y el estado, Tab 2 tamaño/duración y qué análisis tiene, Tab 3 la

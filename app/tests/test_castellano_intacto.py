@@ -47,6 +47,36 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── La Fase H, renombrada el 2026-09-23. El usuario preguntó por qué se
+    #    llama «validar y guardar» si «sólo mueve el MKV y borra temporales».
+    #    Sí valida —por la rama merge son dos `extract-rpu` completos, minutos
+    #    en un UHD— pero su job iba por drop-in, donde son segundos, y el
+    #    texto era el mismo en las dos: nada en la pantalla le daba motivos
+    #    para pensar otra cosa. Se conserva la comprobación en el nombre (que
+    #    es lo que hace) y se nombra el objeto, como las otras siete etapas;
+    #    «comprobar» además deja «validar» para la validación PREVIA y para la
+    #    card 🛡️ Validaciones, que son otras dos cosas.
+    "Fase H — Validación final":
+        "el título de la card nombraba el acto y no su objeto, al revés que "
+        "las otras siete etapas: «Fase H — Comprobar el MKV y guardarlo»",
+    "Validar y finalizar":
+        "el botón: «finalizar» no dice qué pasa con el fichero, y lo que pasa "
+        "es que se guarda — «Comprobar y guardar»",
+    "antes de mover el MKV al directorio de salida, la app verifica que el "
+    "resultado es estructuralmente correcto y que el upgrade a CMv4.0 se ha "
+    "materializado en el fichero. Si algo falla, el proyecto queda en error y "
+    "puedes rehacer desde la fase que prefieras.":
+        "el bloque didáctico decía QUÉ se valida sin decir sobre qué: hoy "
+        "parte de que el MKV ya está escrito con sufijo .mkv.tmp, que es lo "
+        "que explica por qué hay una comprobación antes de darle su nombre, y "
+        "menciona que ese .mkv.tmp se conserva si algo falla",
+    "hace un momento":
+        "había DOS escalas de edad —la de las tarjetas de proyecto y la de la "
+        "columna de trabajo— y cada una nombraba el primer escalón a su "
+        "manera. Al fundirlas en `hace()` (core.js) queda «ahora mismo», que "
+        "es la que ya veían las tres columnas de proyecto. La divergencia era "
+        "el bug: la de la columna componía la edad con el formateador de "
+        "DURACIONES y por eso no bajaba de las horas («hace 258h 18 min»).",
     "API keys e integraciones. Se persisten ofuscadas en local; ganan sobre "
     "las variables de entorno.":
         "el subtítulo del modal de ⚙︎ describía SOLO la sección de "

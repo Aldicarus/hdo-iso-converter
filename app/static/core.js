@@ -101,6 +101,50 @@ let executionWs = null;
 /** @type {number} Tab activo (1, 2 o 3). */
 let currentTab = 1;
 
+// ── La edad de las cosas ──────────────────────────────────────────
+
+/** «hace 3 días» — cuánto hace que pasó algo.
+ *
+ *  No confundir con `_workbarTiempo`, que mide una DURACIÓN: allí «258 h
+ *  18 min» describe bien un trabajo que tardase eso, y aquí no describe
+ *  nada — son diez días. Eran dos funciones contestando la misma pregunta
+ *  y sólo una tenía escalón de días, así que la columna de trabajo seguía
+ *  contando horas para siempre (caso real: «hace 258h 18 min»).
+ *
+ *  El escalón se elige por orden de magnitud y NO se afina: pasada la
+ *  semana, lo que se quiere saber es si algo está reciente o rancio. La
+ *  fecha exacta sigue en el tooltip de quien la lleve.
+ *
+ *  Los plurales van en dos claves y no con un sufijo de una letra: el
+ *  plural de «dia» en catalán es «dies».
+ */
+function hace(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || isNaN(d.getTime())) return '';
+  const seg = Math.max(0, (Date.now() - d.getTime()) / 1000);
+  if (seg < 60) return tr('comun.ahora_mismo');
+  const min = Math.floor(seg / 60);
+  if (min < 60) return tr('comun.hace_min', {n: min});
+  const horas = Math.floor(min / 60);
+  if (horas < 24) return tr('comun.hace_h', {n: horas});
+  const dias = Math.floor(horas / 24);
+  if (dias < 30) {
+    return tr(dias === 1 ? 'comun.hace_dia_uno' : 'comun.hace_dia_varios',
+              {n: dias});
+  }
+  if (dias < 365) {
+    // `floor` y no `round`: «hace 2 meses» tiene que significar que han
+    // pasado dos, no que falta poco. Con el suelo en 1 para que 30 días
+    // no caigan en «hace 0 meses».
+    const meses = Math.max(1, Math.floor(dias / 30.44));
+    return tr(meses === 1 ? 'comun.hace_mes_uno' : 'comun.hace_mes_varios',
+              {n: meses});
+  }
+  const anios = Math.max(1, Math.floor(dias / 365.25));
+  return tr(anios === 1 ? 'comun.hace_anio_uno' : 'comun.hace_anio_varios',
+            {n: anios});
+}
+
 // ── Helpers de proyecto ───────────────────────────────────────────
 
 /** Devuelve el proyecto activo, o null si no hay ninguno. */

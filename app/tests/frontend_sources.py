@@ -447,6 +447,14 @@ def motor_i18n() -> str:
         _trozo("function localeActual() {", "\n}\n"),
     ])
 
+    # `hace()` viaja con el motor por el mismo motivo que `localeActual`: es
+    # el formateador ÚNICO de edades («hace 3 días») y lo llaman las tarjetas
+    # de las tres columnas y el historial de la columna de trabajo. Cuando se
+    # fundieron las dos escalas que había, quince arneses se quedaron a la vez
+    # con `ReferenceError: hace is not defined` — que es la cicatriz que esta
+    # función existe para no repetir.
+    edad = _trozo("function hace(iso) {", "\n}\n")
+
     i = js.index("function tr(clave, params) {")
     fin = js.index("\n}\n", i) + 3
     # `'use strict'` PRIMERO: al prepender esto, el script del arnés dejaba de
@@ -455,5 +463,6 @@ def motor_i18n() -> str:
     # que el arnés tiene que serlo también.
     return ("'use strict';\n"
             "const _catalogo = " + json.dumps(catalogo_es(), ensure_ascii=False)
-            + ";\nconst _ausentes = new Set();\n" + locale + "\n" + js[i:fin])
+            + ";\nconst _ausentes = new Set();\n" + locale + "\n"
+            + js[i:fin] + "\n" + edad + "\n")
 

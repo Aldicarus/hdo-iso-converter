@@ -1982,27 +1982,17 @@ function _sessionDisplayName(s) {
 }
 
 /**
- * Formatea una fecha como "hace X" (relativo) para fechas recientes,
- * o como fecha corta para fechas más antiguas.
+ * Cuánto hace, para las tarjetas de proyecto de las tres columnas.
+ *
+ * Delega en `hace()` (core.js), que es LA definición de edad de la app; aquí
+ * sólo se añade el guion de «no hay fecha». Tenía su propia escala y se
+ * quedaba en la fecha corta pasada la semana, mientras la columna de trabajo
+ * tenía otra: dos escalas para la misma pregunta.
  * @param {string} isoDate
  * @returns {string}
  */
 function formatRelativeDate(isoDate) {
-  if (!isoDate) return '—';
-  const d    = new Date(isoDate);
-  const now  = Date.now();
-  const diff = now - d.getTime();
-  const mins  = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days  = Math.floor(diff / 86400000);
-  if (mins < 1)    return tr('tab1.ahora_mismo');
-  if (mins < 60)   return tr('tab1.hace_n_min', {n: mins});
-  if (hours < 24)  return tr('tab1.hace_n_h', {n: hours});
-  // El plural de «dia» en catalán es «dies», así que el sufijo `'s'`
-  // tampoco vale ahí.
-  if (days < 7)    return tr(days === 1 ? 'tab1.hace_dia_uno'
-                                        : 'tab1.hace_dia_varios', {days: days});
-  return d.toLocaleDateString(localeActual(), { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return hace(isoDate) || '—';
 }
 
 /**

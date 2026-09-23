@@ -521,18 +521,19 @@ function _workbarDia(iso) {
   const hoy = new Date();
   const soloDia = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
   const dias = Math.round((soloDia(hoy) - soloDia(d)) / 86400000);
-  if (dias === 0) return 'Hoy';
-  if (dias === 1) return 'Ayer';
+  if (dias === 0) return tr('workbar.dia_hoy');
+  if (dias === 1) return tr('workbar.dia_ayer');
   return d.toLocaleDateString(localeActual(), { day: 'numeric', month: 'short' });
 }
 
-/** «hace 12 min». Cuándo pasó, que la duración no lo dice. */
+/** «hace 12 min». Cuándo pasó, que la duración no lo dice.
+ *
+ *  Delega en `hace()` (core.js). Antes componía la edad con
+ *  `_workbarTiempo`, que mide DURACIONES y por tanto no baja de las horas:
+ *  un trabajo de hace diez días salía como «hace 258 h 18 min».
+ */
 function _workbarHace(iso) {
-  const d = iso ? new Date(iso) : null;
-  if (!d || isNaN(d)) return '';
-  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
-  if (s < 90) return tr('workbar.hace_un_momento');
-  return tr('workbar.hace_p1', {p1: _workbarTiempo(s)});
+  return hace(iso);
 }
 
 function _workbarRenderHistorial() {

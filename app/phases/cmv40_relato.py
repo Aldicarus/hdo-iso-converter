@@ -428,6 +428,18 @@ def porque_de_fase(session, phase_name: str, plan=None) -> str:
         return tr('relato.porque_fase_g')
 
     if etapa == "validate":
-        return tr('relato.porque_fase_h', nombre=session.output_mkv_name or "")
+        if plan is None:
+            return ""
+        # Anclado en `plan.validate.fast_path`, que es lo que la Fase H
+        # RAMIFICA, y no en `plan.drop_in`: hoy coinciden, pero si la
+        # explicación y la decisión salen de campos distintos pueden acabar
+        # contando cosas distintas — es el fallo que `cmv40_strategy` vino a
+        # cerrar. Y la diferencia no es cosmética: por la rama larga son dos
+        # `extract-rpu` completos, minutos en un UHD, y por la corta son
+        # segundos. El usuario que sólo ha visto la corta concluye —con
+        # razón, con lo que la app le contaba— que la fase no comprueba nada.
+        return tr('relato.porque_fase_h_rapido' if plan.validate.fast_path
+                  else 'relato.porque_fase_h_completo',
+                  nombre=session.output_mkv_name or "")
 
     return ""
