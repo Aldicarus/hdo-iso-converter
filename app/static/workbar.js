@@ -1473,6 +1473,28 @@ function restaurarAnclajeDeLog(el, ancla) {
 }
 
 /** Un log con la paleta semántica de la app (marcadores ━━━ / $ / ✓ / ✗). */
+/** Cuántas líneas se pintan de un tirón.
+ *
+ *  Eran **400 y en silencio**, y eso convertía un tope de rendimiento en un
+ *  «se ha perdido el log»: un proyecto CMv4.0 con cuatro fases hechas lleva
+ *  759 líneas, así que al abrirlo se veía desde la mitad de la tercera y
+ *  parecía que el histórico no estaba. Reportado el 2026-09-23.
+ *
+ *  2.000 cubre el caso real medido —el proyecto más grande del `/config`
+ *  son 2.068 líneas—, así que en la práctica no recorta casi nunca. Se
+ *  mantiene un tope porque una Fase A emite una línea de `frame=…` por
+ *  segundo y sí puede llegar a decenas de miles.
+ */
+const _TRABAJO_LOG_TOPE = 2000;
+
+let _trabajoLogSinTope = false;
+
+/** «Ver el log entero» — repinta sin tope. */
+function verLogEntero() {
+  _trabajoLogSinTope = true;
+  if (typeof _trabajoModalRefrescar === 'function') _trabajoModalRefrescar();
+}
+
 function _trabajoLogHTML(lineas) {
   if (!lineas || !lineas.length) {
     return '<div class="trabajo-detalle-vacio">' + tr('workbar.todavia_no_hay_lineas_de_log') + '</div>';
@@ -1483,8 +1505,18 @@ function _trabajoLogHTML(lineas) {
   // busca es el ✗ o el separador de fase.
   const clase = typeof _classifyLogLine === 'function'
     ? _classifyLogLine : () => '';
-  return `<div class="cmv40-log" id="trabajo-modal-log">`
-    + lineas.slice(-400).map(l => {
+  const recorta = !_trabajoLogSinTope && lineas.length > _TRABAJO_LOG_TOPE;
+  const vistas = recorta ? lineas.slice(-_TRABAJO_LOG_TOPE) : lineas;
+  // **Si se recorta, se DICE.** Un tope callado se lee como un log perdido,
+  // que es justo la conclusión a la que llegó el usuario.
+  const aviso = recorta
+    ? `<div class="log-line log-recorte">${escHtml(tr('workbar.log_recortado',
+        {vistas: vistas.length, total: lineas.length}))}
+        <button class="btn btn-ghost btn-xs" onclick="verLogEntero()"
+          data-i18n="workbar.ver_el_log_entero"></button></div>`
+    : '';
+  return `<div class="cmv40-log" id="trabajo-modal-log">` + aviso
+    + vistas.map(l => {
         const t = String(l);
         return `<div class="log-line ${clase(t)}">${escHtml(t)}</div>`;
       }).join('')
@@ -1614,6 +1646,8 @@ async function _trabajoModalAbrir(a) {
   _trabajoModalSinActivo = 0;
   // La vista del trabajo anterior no se hereda: son dos trabajos distintos.
   _trabajoModalVista = null;
+  // El «ver entero» es de ESTE trabajo: otro empieza con su tope.
+  _trabajoLogSinTope = false;
   openModal('trabajo-modal');
   // **El esqueleto conserva la forma del modal final.**
   //

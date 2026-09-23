@@ -84,17 +84,44 @@ def maquinaria_del_modal_de_trabajo() -> str:
     hacían — la última declaración gana.
     """
     js = js_completo()
-    estado = "".join(f"let {n} = null;\n" for n in
-                     re.findall(r"^let (_trabajoModal\w+) = .*$", js, re.M))
+    # Por prefijo `_trabajo` y no `_trabajoModal`: el armazón tiene estado
+    # que no lleva «Modal» en el nombre —`_trabajoLogSinTope`, el «ver el
+    # log entero»— y sin él los diez tests mueren con un `ReferenceError`.
+    # Es la misma cicatriz de siempre, y van tres.
+    #
+    # Como `globalThis.X` y NO `let`: un `let` duplicado es un SyntaxError
+    # —al revés que una `function`— y varios arneses declaran el suyo.
+    estado = "".join(f"globalThis.{n} = null;\n" for n in
+                     re.findall(r"^let (_trabajo\w+) = .*$", js, re.M))
     assert estado, "no se encuentran las variables de estado del modal"
+    # Y las constantes del armazón, que sus funciones leen.
+    for n, v in re.findall(r"^const (_TRABAJO_\w+) = (.*?);\s*$", js, re.M):
+        estado += f"globalThis.{n} = {v};\n"
     # Por prefijo `_trabajo` y no `_trabajoModal`: el resumen llama a
     # `_trabajoKvHTML` y la cartela a `_trabajoCartelPinta`. Inyectar la
     # función sin sus ayudantes cambia el `ReferenceError` de sitio.
-    trozos = []
-    for m in re.finditer(r"^(?:async )?function (_trabajo\w+)\(", js, re.M):
+    cuerpos = {}
+    for m in re.finditer(r"^(?:async )?function (\w+)\(", js, re.M):
         i = js.rindex("\n", 0, m.start()) + 1
-        trozos.append(js[i:js.index("\n}\n", m.start()) + 3])
+        cuerpos[m.group(1)] = js[i:js.index("\n}\n", m.start()) + 3]
+    trozos = [c for n, c in cuerpos.items() if n.startswith("_trabajo")]
     assert trozos, "no se encuentra ninguna función del modal de trabajo"
+    # Y los HANDLERS que el marcado del propio armazón invoca: `verLogEntero`
+    # es el `onclick` del aviso de log recortado y no lleva el prefijo, así
+    # que sin esto el arnés muere con un `ReferenceError` — la cicatriz de
+    # siempre, y van tres. Se derivan de los `onclick="x()"` que aparecen en
+    # los trozos ya incluidos, no de una lista.
+    #
+    # **Solo esos**, y no «cualquier función que toque el estado»: eso
+    # arrastraba `cerrarModalDeTrabajo`, que pide `document`. Y hay un
+    # matiz de node que decide el resultado: un fichero se carga como
+    # MÓDULO, así que una `function` de nivel superior es una atadura del
+    # módulo y **gana** al `globalThis.x = stub` con el que varios arneses
+    # la sustituyen. Meter de más no es inocuo aquí.
+    for m in re.finditer(r'onclick="(\w+)\(', "\n".join(trozos)):
+        c = cuerpos.get(m.group(1))
+        if c and c not in trozos:
+            trozos.append(c)
     # Y las tablas que esas funciones leen. Inyectar la función sin su tabla
     # solo mueve el `ReferenceError` una línea más abajo, que es exactamente
     # lo que este helper existe para no tener que ir descubriendo de una en

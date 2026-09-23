@@ -299,12 +299,23 @@ console.log(JSON.stringify({fn_nombre}({json.dumps(arg)})));
         self.assertIn("Todavía no hay líneas", self._correr("_trabajoLogHTML", []))
         self.assertIn("Todavía no hay líneas", self._correr("_trabajoLogHTML", None))
 
-    def test_el_log_se_recorta_por_arriba(self):
-        """400 líneas es lo que cabe mirar; un rip emite ~136 y una fase
-        CMv4.0 puede pasar de 2.000."""
-        h = self._correr("_trabajoLogHTML", [f"linea {i}" for i in range(500)])
+    def test_un_log_normal_NO_se_recorta(self):
+        """El tope eran 400 y en silencio, y eso convertía un límite de
+        rendimiento en un «se ha perdido el log»: un proyecto CMv4.0 con
+        cuatro fases hechas lleva 759 líneas y se veía desde la mitad de la
+        tercera. Reportado el 2026-09-23."""
+        h = self._correr("_trabajoLogHTML", [f"linea {i}" for i in range(759)])
+        self.assertIn("linea 0<", h)
+        self.assertIn("linea 758", h)
+        self.assertNotIn("log-recorte", h)
+
+    def test_y_si_se_recorta_SE_DICE(self):
+        """Un tope callado se lee como un log perdido."""
+        h = self._correr("_trabajoLogHTML", [f"linea {i}" for i in range(2500)])
         self.assertNotIn("linea 0<", h)
-        self.assertIn("linea 499", h)
+        self.assertIn("linea 2499", h)
+        self.assertIn("log-recorte", h)
+        self.assertIn("verLogEntero()", h)
 
     def test_los_pares_vacios_no_se_pintan(self):
         """Una fila «Error: —» en un trabajo que va bien es ruido."""

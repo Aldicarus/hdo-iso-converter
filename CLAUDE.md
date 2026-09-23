@@ -1159,6 +1159,29 @@ cuerpo y cancelar. Cada pestaña registra qué poner dentro con
   trampa que con el historial de la columna, y afecta a cualquier sitio que
   sustituya el contenido en vez de añadir líneas: el del panel de Tab 3 y la
   consola de Tab 1 usan `appendChild` y nunca la tuvieron.
+- **Una línea del historial es UNA ejecución; el log del proyecto es UNO.**
+  `/config/cmv40/{id}.log` es append-only y lo comparten todas las pasadas,
+  así que abrir una entrada cancelada enseñaba el log de la que corre AHORA:
+  cabecera «cancelado», cuerpo escribiendo en vivo y barra parada
+  (2026-09-23). El modal pide la ventana de esa ejecución
+  (`GET /api/cmv40/{id}?log_desde&log_hasta`) y el recorte lo hace
+  `recortar_log_por_tiempo` **en el servidor** — el prefijo de cada línea es
+  `[HH:MM:SS]` en hora LOCAL y sin fecha, y el historial guarda UTC: en el
+  navegador habría que adivinar el desfase. La fecha se reconstruye
+  caminando desde el `inicio` (cuando la hora RETROCEDE, ha pasado la
+  medianoche; una Fase C puede cruzarla). Ante cualquier cosa rara devuelve
+  el log **entero**: enseñar de más es un inconveniente, un log vacío bajo
+  «cancelado» diría que no pasó nada. Y la timeline de una entrada terminal
+  se pinta **sin `running_phase`**, o sería el mismo desajuste con otra
+  forma.
+- **Un tope callado se lee como un log perdido.** El modal recortaba a las
+  últimas 400 líneas sin decirlo, y un proyecto con cuatro fases hechas
+  lleva 759: al abrirlo se veía desde la mitad de la tercera y parecía que
+  el histórico se había ido. Hoy el tope es 2.000 —el proyecto más grande
+  del `/config` real son 2.068, así que en la práctica no recorta— y cuando
+  recorta lo **dice**, con un botón «Ver el log entero». El despliegue es
+  de ESE trabajo: abrir otro vuelve al tope, o uno con veinte mil líneas de
+  `frame=…` pintaría las veinte mil.
 - **El detalle no es siempre un log.** El rip, la fase CMv4.0 y el análisis
   extendido producen uno; la copia y la creación de una serie no, y ahí son
   bytes y episodios. Un log vacío sería peor que decirlo.

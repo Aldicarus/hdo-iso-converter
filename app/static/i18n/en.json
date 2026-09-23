@@ -1763,6 +1763,7 @@
   "workbar.fase_n_de_total": "Phase {n} of {total}",
   "workbar.interrumpido": "Interrupted",
   "workbar.lleva": "Running for",
+  "workbar.log_recortado": "Showing the last {vistas} of {total} log lines.",
   "workbar.mas_n_consultas_en_curso": "+ {n} lookups in progress",
   "workbar.mas_una_consulta_en_curso": "+ {n} lookup in progress",
   "workbar.n_de_total": "{n} of {total}",
@@ -1799,5 +1800,6 @@
   "workbar.ver_el_detalle_de_este_trabajo": "View the detail of this job",
   "workbar.ver_el_detalle_y_el_registro": "View the detail and the log of the run",
   "workbar.ver_el_detalle_y_el_registro_de_esta": "View the detail and the log of this run",
+  "workbar.ver_el_log_entero": "Show the whole log",
   "workbar.ver_mas": "Show more"
 }

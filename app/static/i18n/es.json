@@ -1763,6 +1763,7 @@
   "workbar.fase_n_de_total": "Fase {n} de {total}",
   "workbar.interrumpido": "Interrumpido",
   "workbar.lleva": "Lleva",
+  "workbar.log_recortado": "Se muestran las últimas {vistas} líneas de {total}.",
   "workbar.mas_n_consultas_en_curso": "+ {n} consultas en curso",
   "workbar.mas_una_consulta_en_curso": "+ {n} consulta en curso",
   "workbar.n_de_total": "{n} de {total}",
@@ -1799,5 +1800,6 @@
   "workbar.ver_el_detalle_de_este_trabajo": "Ver el detalle de este trabajo",
   "workbar.ver_el_detalle_y_el_registro": "Ver el detalle y el registro de la ejecución",
   "workbar.ver_el_detalle_y_el_registro_de_esta": "Ver el detalle y el registro de esta ejecución",
+  "workbar.ver_el_log_entero": "Ver el log entero",
   "workbar.ver_mas": "Ver más"
 }

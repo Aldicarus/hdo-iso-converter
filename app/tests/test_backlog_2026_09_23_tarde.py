@@ -1016,6 +1016,163 @@ process.stdout.write(JSON.stringify(salida));
 
 
 # ════════════════════════════════════════════════════════════════════
+#  8 · Una línea del historial es UNA ejecución, no el proyecto
+# ════════════════════════════════════════════════════════════════════
+
+class TestElLogDeUnaEjecucionCancelada(unittest.TestCase):
+    """Cancelar una fase, relanzarla, y abrir la cancelada.
+
+    El log de un proyecto CMv4.0 es UNO —`/config/cmv40/{id}.log`, al que se
+    añade— y una línea del historial es UNA ejecución. Así que la entrada
+    cancelada enseñaba el log de la que está corriendo ahora: la cabecera
+    decía «cancelado» y el cuerpo escribía en vivo, con la barra parada.
+    Reportado el 2026-09-23.
+
+    El recorte va en el SERVIDOR porque es el único sitio donde los dos
+    husos coinciden: el prefijo de cada línea es `[HH:MM:SS]` en hora LOCAL
+    del contenedor, sin fecha, y el historial guarda UTC.
+    """
+
+    @staticmethod
+    def _iso(h, m, sg, dia=23):
+        import datetime as dt
+        local = dt.datetime(2026, 9, dia, h, m, sg).astimezone()
+        return local.astimezone(dt.timezone.utc).isoformat()
+
+    def setUp(self):
+        from routers.cmv40 import recortar_log_por_tiempo
+        self.rec = recortar_log_por_tiempo
+        # Dos ejecuciones en el mismo fichero: la cancelada y la de ahora.
+        self.log = [
+            "[17:58:20] ━━━ Fase F ━━━",
+            "[18:05:00] inyectando",
+            "  traceback sin prefijo",
+            "[18:27:50] 🛑 Cancelado",
+            "[21:45:00] ━━━ Fase A ━━━",
+            "[21:50:42] frame=186207 fps=667",
+        ]
+
+    def test_solo_salen_las_lineas_de_ESA_ejecucion(self):
+        out = self.rec(self.log, self._iso(17, 58, 15), self._iso(18, 27, 56))
+        self.assertEqual(len(out), 4)
+        self.assertIn("🛑 Cancelado", out[-1])
+        self.assertTrue(all("frame=" not in l for l in out),
+                        "se coló la ejecución de ahora")
+
+    def test_una_linea_sin_prefijo_va_con_la_anterior(self):
+        """Un traceback no lleva hora y pertenece a lo de arriba."""
+        out = self.rec(self.log, self._iso(17, 58, 15), self._iso(18, 27, 56))
+        self.assertIn("  traceback sin prefijo", out)
+        # Y si la anterior queda fuera, ella también.
+        fuera = self.rec(self.log, self._iso(21, 40, 0), self._iso(22, 0, 0))
+        self.assertNotIn("  traceback sin prefijo", fuera)
+
+    def test_una_fase_puede_cruzar_la_medianoche(self):
+        """La hora no trae fecha: cuando RETROCEDE, ha cambiado el día."""
+        nocturno = ["[23:58:00] antes", "[00:02:00] después",
+                    "[00:30:00] muy después"]
+        out = self.rec(nocturno, self._iso(23, 57, 0), self._iso(0, 5, 0, 24))
+        self.assertEqual(out, ["[23:58:00] antes", "[00:02:00] después"])
+
+    def test_sin_fechas_legibles_se_devuelve_el_log_entero(self):
+        """Enseñar de más es un inconveniente; enseñar vacío parecería que
+        no pasó nada."""
+        self.assertEqual(self.rec(self.log, "no es una fecha", ""), self.log)
+        self.assertEqual(self.rec(self.log, "", ""), self.log)
+
+    def test_y_si_la_ventana_no_casa_con_ninguna_linea_tambien(self):
+        """Un log sin prefijos —o de otro día— no puede dejarse en blanco."""
+        vacio = self.rec(self.log, self._iso(3, 0, 0, 22), self._iso(4, 0, 0, 22))
+        self.assertEqual(vacio, self.log)
+
+    def test_el_margen_recoge_el_separador_de_la_fase(self):
+        """La línea del historial se escribe en el `finally`, unos
+        milisegundos después de la última; y el `━━━` puede caer justo
+        antes del `inicio`."""
+        out = self.rec(self.log, self._iso(17, 58, 22), self._iso(18, 27, 48))
+        self.assertIn("[17:58:20] ━━━ Fase F ━━━", out)
+        self.assertIn("[18:27:50] 🛑 Cancelado", out)
+
+
+class TestElModalDeUnaEntradaTerminalNoSeHacePasarPorViva(unittest.TestCase):
+
+    def test_pide_log_desde_y_log_hasta(self):
+        from frontend_sources import pieza_de
+        _f, src = pieza_de("_cmv40CtxTimeline")
+        i = src.index("registrarDetalleDeTrabajo('cmv40'")
+        j = src.index("\n});", i)
+        cuerpo = src[i:j]
+        self.assertIn("log_desde", cuerpo)
+        self.assertIn("log_hasta", cuerpo)
+        self.assertIn("a.terminal && h.inicio", cuerpo)
+
+    def test_y_la_timeline_no_dibuja_la_fase_que_corre_ahora(self):
+        """Sería el mismo desajuste que el log: cabecera «cancelado» y una
+        fase latiendo debajo."""
+        from frontend_sources import pieza_de
+        _f, src = pieza_de("_cmv40CtxTimeline")
+        i = src.index("registrarDetalleDeTrabajo('cmv40'")
+        j = src.index("\n});", i)
+        self.assertIn("a.terminal ? { ...s, running_phase: null", src[i:j])
+
+
+@unittest.skipUnless(NODE, "node no disponible")
+class TestElTopeDelLogEsPorTRABAJO(unittest.TestCase):
+    """«Ver el log entero» es una decisión sobre ESTE trabajo.
+
+    Si el flag se quedara puesto, abrir después uno con veinte mil líneas de
+    `frame=…` pintaría las veinte mil — que es justo lo que el tope existe
+    para evitar.
+    """
+
+    _PREAMBULO = """
+globalThis.window = globalThis;
+function escHtml(t) { return String(t == null ? '' : t); }
+function tr(k) { return k; }
+function iconoDeTrabajo() { return '<svg/>'; }
+function iconoDeEstado() { return '<svg/>'; }
+function icono() { return '<svg/>'; }
+"""
+
+    _STUBS = """
+const _workbarDetalles = {};
+let workbarEstado = { activo: null, cola: [] };
+function openModal() {}
+function closeModal() {}
+function cerrarModalDeTrabajo() { _trabajoModalParar(); }
+function _trabajoModalConResumen(a, vista) { return vista; }
+function _trabajoModalPinta() {}
+"""
+
+    def test_al_abrir_otro_trabajo_el_tope_vuelve(self):
+        from frontend_sources import maquinaria_del_modal_de_trabajo
+        guion = """
+        registrarDetalleDeTrabajo('prueba', async () => ({ cuerpo: 'x' }));
+        (async () => {
+          await _trabajoModalAbrir({id: 'a', sobre: 'a', detalle: 'prueba',
+                                    que: 'uno', tipo: 'fase_cmv40'});
+          _trabajoModalParar();
+          verLogEntero();                       // el usuario lo despliega
+          const tras = _trabajoLogSinTope;
+          await _trabajoModalAbrir({id: 'b', sobre: 'b', detalle: 'prueba',
+                                    que: 'dos', tipo: 'fase_cmv40'});
+          _trabajoModalParar();
+          console.log(JSON.stringify({tras, siguiente: _trabajoLogSinTope}));
+        })();
+        """
+        fuente = (self._PREAMBULO + maquinaria_del_modal_de_trabajo()
+                  + _fn("registrarDetalleDeTrabajo") + self._STUBS + guion)
+        r = subprocess.run(argv_node(fuente), capture_output=True, text=True,
+                           timeout=40)
+        if r.returncode != 0:
+            raise AssertionError(f"node falló:\n{r.stderr[-1200:]}")
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertTrue(out["tras"], "«ver entero» no llegó a activarse")
+        self.assertFalse(out["siguiente"],
+                         "el flag se pegó al trabajo siguiente")
+
+
+# ════════════════════════════════════════════════════════════════════
 #  3 y 6 · Lo que se ha retirado sigue retirado
 # ════════════════════════════════════════════════════════════════════
 

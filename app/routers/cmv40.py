@@ -30,7 +30,8 @@ import logging
 import os
 import shutil as _cmv40_shutil
 import time as _time
-from datetime import datetime, timezone
+import re
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -440,6 +441,67 @@ def _cmv40_log_completo(session: CMv40Session) -> list[str]:
     return ((session.output_log or [])
             + read_cmv40_log(session.id)
             + list(_cmv40_log_buffer.get(session.id) or []))
+
+
+def recortar_log_por_tiempo(lineas: list[str], desde: str, hasta: str) -> list[str]:
+    """Las líneas del log escritas entre `desde` y `hasta` (ISO, UTC).
+
+    **Por qué hace falta.** El log de un proyecto CMv4.0 es UNO —
+    `/config/cmv40/{id}.log`, al que se añade— y una línea del historial es
+    UNA ejecución. Cancelar una fase y relanzarla deja dos líneas en el
+    historial y un solo fichero, así que abrir la cancelada enseñaba el log
+    de la que está corriendo ahora: la cabecera decía «cancelado» y el
+    cuerpo iba escribiendo en vivo. Reportado el 2026-09-23.
+
+    **El recorte va en el SERVIDOR** y no en el navegador porque el prefijo
+    de cada línea es `[HH:MM:SS]` en hora LOCAL del contenedor, sin fecha, y
+    el historial guarda UTC. Aquí los dos husos son el mismo; en el cliente
+    habría que adivinar el desfase.
+
+    De la hora sin fecha se reconstruye el instante caminando hacia delante
+    desde `desde`: cuando la hora RETROCEDE respecto de la anterior, es que
+    ha pasado la medianoche. Una fase larga puede cruzarla.
+
+    Ante cualquier cosa rara —fechas ilegibles, log sin prefijos— devuelve
+    la lista **entera**: enseñar el log completo es un inconveniente;
+    enseñar uno vacío parecería que no pasó nada.
+    """
+    try:
+        ini = datetime.fromisoformat(desde).astimezone()
+        fin = datetime.fromisoformat(hasta).astimezone() if hasta else None
+    except (TypeError, ValueError):
+        return lineas
+    # Margen por los dos lados: la línea del historial se escribe en el
+    # `finally` del trabajo, unos milisegundos después de la última línea, y
+    # el separador de la fase puede caer justo antes del `inicio`.
+    ini -= timedelta(seconds=5)
+    if fin is not None:
+        fin += timedelta(seconds=5)
+    out: list[str] = []
+    dia = ini.date()
+    previa = None
+    visto = False
+    for linea in lineas:
+        m = _HORA_DEL_LOG.match(linea)
+        if not m:
+            # Una continuación (un traceback, una línea sin prefijo) pertenece
+            # a la anterior: entra si entró aquélla.
+            if visto:
+                out.append(linea)
+            continue
+        h, mi, sg = (int(x) for x in m.groups())
+        if previa is not None and (h, mi, sg) < previa:
+            dia += timedelta(days=1)
+        previa = (h, mi, sg)
+        cuando = datetime.combine(dia, time(h, mi, sg), tzinfo=ini.tzinfo)
+        dentro = cuando >= ini and (fin is None or cuando <= fin)
+        visto = dentro
+        if dentro:
+            out.append(linea)
+    return out or lineas
+
+
+_HORA_DEL_LOG = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\]")
 
 
 async def _cmv40_log_volcar(session_id: str, forzar: bool = False) -> None:
@@ -2797,7 +2859,8 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
 
 
 @router.get("/api/cmv40/{session_id}", summary="Obtiene un proyecto CMv4.0")
-async def cmv40_get(session_id: str, include_log: bool = True):
+async def cmv40_get(session_id: str, include_log: bool = True,
+                    log_desde: str = "", log_hasta: str = ""):
     """Detalle completo de un proyecto CMv4.0.
 
     `include_log=false` devuelve la sesión SIN `output_log`. Lo usan los
@@ -2917,6 +2980,14 @@ async def cmv40_get(session_id: str, include_log: bool = True):
     if include_log:
         data["output_log"] = await asyncio.to_thread(
             _cmv40_log_completo, session)
+        # `log_desde`/`log_hasta`: una EJECUCIÓN concreta, no el proyecto
+        # entero. Lo pide el modal de la columna al abrir una línea del
+        # historial — ver `recortar_log_por_tiempo`.
+        if log_desde:
+            data["output_log"] = await asyncio.to_thread(
+                recortar_log_por_tiempo, data["output_log"],
+                log_desde, log_hasta)
+            data["output_log_recortado"] = True
     else:
         from storage import cmv40_log_line_count
         data["output_log_len"] = (

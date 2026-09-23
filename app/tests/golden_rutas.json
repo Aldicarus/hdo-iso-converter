@@ -160,6 +160,16 @@
           false
         ],
         [
+          "log_desde",
+          "query",
+          false
+        ],
+        [
+          "log_hasta",
+          "query",
+          false
+        ],
+        [
           "session_id",
           "path",
           true

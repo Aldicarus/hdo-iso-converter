@@ -1763,6 +1763,7 @@
   "workbar.fase_n_de_total": "Fase {n} de {total}",
   "workbar.interrumpido": "Interromput",
   "workbar.lleva": "Fa",
+  "workbar.log_recortado": "Es mostren les últimes {vistas} línies de {total}.",
   "workbar.mas_n_consultas_en_curso": "+ {n} consultes en curs",
   "workbar.mas_una_consulta_en_curso": "+ {n} consulta en curs",
   "workbar.n_de_total": "{n} de {total}",
@@ -1799,5 +1800,6 @@
   "workbar.ver_el_detalle_de_este_trabajo": "Veure el detall d'aquest treball",
   "workbar.ver_el_detalle_y_el_registro": "Veure el detall i el registre de l'execució",
   "workbar.ver_el_detalle_y_el_registro_de_esta": "Veure el detall i el registre d'aquesta execució",
+  "workbar.ver_el_log_entero": "Veure el log sencer",
   "workbar.ver_mas": "Veure'n més"
 }

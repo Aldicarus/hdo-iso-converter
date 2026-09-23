@@ -7439,7 +7439,19 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     return null;
   }
   const est = {};
-  const s = await apiFetch(`/api/cmv40/${a.id}`,
+  // **Una línea del historial es UNA ejecución, no el proyecto.** El log de
+  // un CMv4.0 es uno solo, así que cancelar una fase y relanzarla dejaba la
+  // entrada cancelada enseñando el log de la que está corriendo ahora: la
+  // cabecera decía «cancelado» y el cuerpo escribía en vivo. Reportado el
+  // 2026-09-23. El recorte lo hace el servidor, que es el único que puede
+  // —el prefijo de cada línea es hora LOCAL sin fecha y el historial guarda
+  // UTC—; aquí solo se le pasa la ventana.
+  const h = a.historial || {};
+  const ventana = (a.terminal && h.inicio)
+    ? `&log_desde=${encodeURIComponent(h.inicio)}`
+      + (h.fin ? `&log_hasta=${encodeURIComponent(h.fin)}` : '')
+    : '';
+  const s = await apiFetch(`/api/cmv40/${a.id}?include_log=true${ventana}`,
                            { silent: true, estado: est }).catch(() => null);
   // **Un fallo de red o un timeout no es un proyecto borrado.** Con el pool
   // del NAS saturado esta petición tarda, y entonces este adaptador seguía
@@ -7471,8 +7483,14 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
     // el scroll salte al principio y que la animación del icono de la fase en
     // curso se reinicie en cada tick. Su comentario ya lo decía; lo perdimos
     // al pasar por el modal común.
+    // Con una entrada TERMINAL la timeline no puede dibujar la fase que
+    // corre AHORA: sería el mismo desajuste que el log, con la cabecera
+    // diciendo «cancelado» y una fase latiendo debajo. Se le pasa la sesión
+    // sin `running_phase`, que es lo que la pinta en marcha.
     lateral: s
-      ? (el) => _cmv40UpdateTimelineIncremental(el, s, _cmv40CtxTimeline(s, project, a))
+      ? (el) => _cmv40UpdateTimelineIncremental(
+          el, a.terminal ? { ...s, running_phase: null, cola: null } : s,
+          _cmv40CtxTimeline(s, project, a))
       : '',
     // La tira de pasos de la cabecera sobra teniendo la timeline al lado, que
     // dice lo mismo y mejor.

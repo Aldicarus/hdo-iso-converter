@@ -10242,6 +10242,20 @@ body.workbar-plegada .workbar-count.con-trabajo::after {
   .wb-esq { animation: none; background: var(--surface-2); }
 }
 
+/* El aviso de que el log está recortado. Va DENTRO del log y arriba del
+   todo, que es donde se busca el principio — y con su botón, porque decir
+   que falta sin dar forma de verlo es peor que no decirlo. */
+.log-line.log-recorte {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed var(--sep-strong);
+  color: var(--text-3);
+  font-style: italic;
+}
+
 /* ── Modal de detalle de un trabajo ────────────────────────────────
    La tira de fases: la misma para los cinco tipos, porque el objetivo del
    bloque es que no se noten saltos entre pestañas. */
