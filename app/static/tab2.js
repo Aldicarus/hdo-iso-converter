@@ -1504,79 +1504,12 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 4 · CMv4.0 levels (solo si v4.0).
-  // Slim: solo presencia de los levels — los datos concretos (L9/L10
-  // primaries, L11 content type) ya estan en la cadena de mastering.
-  // L8 trim targets en nits se mantienen aqui con su visualizacion
-  // logarítmica porque es un grafico especifico del L8.
+  // BLOQUE 4 · Los niveles del RPU, en una tabla
   // ═══════════════════════════════════════════════════════════════
-  let blockCmv4 = '';
-  if (isV40) {
-    // Preferir L8 trims del light profile (full movie) sobre los del
-    // sample. Capta target_display_index distintos que solo aparecen
-    // en frames mid/late del film.
-    const l8FromLightProfile = dv?.l1_references?.l8_trim_nits_full;
-    const l8Effective = (Array.isArray(l8FromLightProfile) && l8FromLightProfile.length)
-      ? l8FromLightProfile
-      : (dv.l8_trim_nits || []);
-    const nitsLabel = (l8Effective && l8Effective.length)
-      ? l8Effective.join(' · ') + ' nits'
-      : (dv.l8_trim_count ? `${dv.l8_trim_count} trims` : '');
-    // Mini-tabla cuantitativa si hay quality audit. Sustituye al "info
-    // binaria solamente" de las pills con datos concretos del L8/L2.
-    const hasQuality = !!dv?.quality_classification;
-    const cmv4StatsTable = hasQuality ? `
-      <div class="dv-cmv4-stats-table">
-        <div class="dv-cmv4-stats-row">
-          <div class="dv-cmv4-stats-key">L8</div>
-          <div class="dv-cmv4-stats-val">
-            <strong>${(dv.quality_l8_unique_count || 0).toLocaleString(localeActual())}</strong> <span data-i18n="tab2.combos_unicos"></span>
-            <span class="dv-cmv4-stats-sub">
-              ${dv.quality_scene_cuts > 0
-                ? `· ${(dv.quality_l8_unique_count / dv.quality_scene_cuts).toFixed(2)} combos/shot`
-                : ''}
-              ${dv.quality_l8_neutral_pct != null
-                ? ' · ' + tr('tab2.frames_neutros_p1',
-                                  {p1: Math.round(dv.quality_l8_neutral_pct * 100)})
-                : ''}
-              ${dv.quality_l8_has_mid_contrast ? ' · <code>mid_contrast</code>' : ''}
-              ${dv.quality_l8_has_clip_trim ? ' · <code>clip_trim</code>' : ''}
-            </span>
-          </div>
-        </div>
-        <div class="dv-cmv4-stats-row">
-          <div class="dv-cmv4-stats-key">L2</div>
-          <div class="dv-cmv4-stats-val">
-            <strong>${(dv.quality_l2_unique_count || 0).toLocaleString(localeActual())}</strong> <span data-i18n="tab2.combos_unicos"></span>
-            ${(dv.quality_l2_target_pqs?.length || 0) > 0
-              ? `<span class="dv-cmv4-stats-sub">· ${dv.quality_l2_target_pqs.length} target_pqs</span>`
-              : ''}
-          </div>
-        </div>
-      </div>` : '';
-
-    blockCmv4 = `
-      <section class="dv-block">
-        <h5 class="dv-block-title"><span data-i18n="tab2.cmv4_0_levels_extendidos"></span>
-          <span class="dv-block-sub" data-i18n="tab2.presencia_l9_l10_l11_detallados_en"></span>
-        </h5>
-        <div class="dv-pill-row">
-          ${pill(dv.has_l3,  'L3',  'local scene trim')}
-          ${pill(dv.has_l4,  'L4',  'legacy compat trim')}
-          ${pill(dv.has_l8,  'L8',  nitsLabel)}
-          ${pill(dv.has_l9,  'L9',  'source primaries')}
-          ${pill(dv.has_l10, 'L10', 'target primaries')}
-          ${pill(dv.has_l11, 'L11', 'content type')}
-          ${pill(dv.has_l254,'L254', 'CMv4.0 marker')}
-        </div>
-        ${cmv4StatsTable}
-        ${l8Effective && l8Effective.length ? `
-          <div class="dv-viz-inline">
-            <div class="dv-viz-caption"><span data-i18n="tab2.l8_escala"></span> ${_rgrfAlcance(!(l8FromLightProfile && l8FromLightProfile.length))}</div>
-            ${_rgrfL8Svg(l8Effective)}
-          </div>` : ''}
-      </section>`;
-  }
+  // Se pinta SIEMPRE: los niveles no son cosa de CMv4.0 —L1, L2, L5 y L6
+  // son del Blu-ray— y con `isV40` el bloque no existía en 8 de los 10
+  // MKV del NAS. El detalle está en `_rgrfTablaDeNiveles`.
+  const blockNiveles = _rgrfTablaDeNiveles(dv, hdr);
 
   // BLOQUE 5 ELIMINADO — la antigua "Gamut CIE 1931" se sustituyo por la
   // cadena de mastering (BLOQUE 2) que muestra textualmente toda la info de
@@ -1687,7 +1620,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
       ${blockStream}
       ${blockMastering}
       ${blockActiveArea}
-      ${blockCmv4}
+      ${blockNiveles}
       ${blockLight}
       ${blockContainer}
     </div>`;
@@ -1702,6 +1635,161 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
  * re-renderiza poblada. El resultado se persiste en el cache MKV, así
  * que re-abrir el MKV muestra la card directamente.
  */
+/** Los once niveles del RPU en una tabla: qué aporta, qué hay, y de dónde.
+ *
+ *  Sustituye a las siete pills de «CMv4.0 levels extendidos», que tenían
+ *  tres problemas de fondo y ninguno era de forma:
+ *
+ *  · **No era un grupo, era un cajón.** Los niveles estaban repartidos por
+ *    cinco bloques —L1 en el perfil de luminancia, L2/L6/L9/L10/L11 en la
+ *    cadena de mastering, L5 en su bloque, L8 partido entre la card de
+ *    calidad y aquí— y este juntaba «los que no caben en otro sitio», con
+ *    solapes. Por eso no se entendía: no describía ninguna idea.
+ *  · **Una pill es binaria y un nivel no lo es.** Backrooms tiene L3 con
+ *    UN combo y un máster trabajado tiene cientos: la misma pill verde
+ *    para «hay un bloque testimonial» y para «grading de tonos medios
+ *    plano a plano».
+ *  · **Dos pills no podían encenderse.** `L254` no se mide —`--levels` no
+ *    lo acepta y sacarlo pediría el volcado de 682 MB— así que su pill
+ *    apagada decía «no está» cuando la verdad es «no lo hemos mirado».
+ *    Es el defecto del banner de divergencia otra vez: afirmar lo que no
+ *    se sabe.
+ *
+ *  De ahí las tres decisiones: **tres estados y no dos** (presente ·
+ *  ausente · no medido), **valores en vez de checks**, y el alcance por
+ *  fila. Y se pinta SIEMPRE: con `isV40` no existía en 8 de los 10 MKV
+ *  del NAS, y con él se iba L4, que 5 de esos 8 tienen.
+ */
+function _rgrfTablaDeNiveles(dv, hdr) {
+  const n = (x) => (x || 0).toLocaleString(localeActual());
+  const refs = dv?.l1_references || null;
+  const stats = dv?.l1_stats || null;
+  // El export de niveles del análisis básico corre sobre el RPU del sniff
+  // (`extract-rpu --limit 720`), así que L3, L4, L9, L10 y L11 describen
+  // los primeros 30 s. Lo que viene del análisis extendido es de la
+  // película entera.
+  const M = true, F = false;   // muestra · película
+
+  // Cada fila: [nivel, qué aporta, valor, estado, alcance]
+  //   estado: 'si' | 'no' | 'nm'  (nm = no medido)
+  const filas = [];
+  const fila = (lvl, aporta, valor, estado, muestra) =>
+    filas.push({ lvl, aporta, valor, estado, muestra });
+
+  // ── L1 · brillo por frame ──────────────────────────────────────────
+  if (stats && stats.peak) {
+    fila('L1', tr('tab2.niv_l1'),
+         tr('tab2.niv_l1_val', {pico: n(stats.peak), media: n(stats.avg_of_max || 0)}),
+         'si', F);
+  } else if (dv?.l1_max_cll) {
+    fila('L1', tr('tab2.niv_l1'),
+         tr('tab2.niv_l1_val_muestra', {pico: n(Math.round(dv.l1_max_cll))}), 'si', M);
+  } else {
+    fila('L1', tr('tab2.niv_l1'), '', dv?.has_l1 ? 'si' : 'no', M);
+  }
+
+  // ── L2 · los trims del disco ───────────────────────────────────────
+  const l2c = dv?.quality_l2_unique_count || 0;
+  if (l2c) {
+    fila('L2', tr('tab2.niv_l2'),
+         tr('tab2.niv_combos_objetivos',
+            {combos: n(l2c), objetivos: (dv.quality_l2_target_pqs || []).length}), 'si', F);
+  } else {
+    fila('L2', tr('tab2.niv_l2'), '', dv?.has_l2 ? 'si' : 'no', M);
+  }
+
+  // ── L3 · el que no se veía ─────────────────────────────────────────
+  // Con el análisis extendido hay conteo; sin él, sólo presencia en los
+  // primeros 30 s. Y **no entra en el veredicto**: sobre 40 bins acierta
+  // el 57 %, azar, porque lo genera el análisis de Dolby.
+  const l3c = dv?.quality_l3_unique_count || 0;
+  if (l3c) {
+    fila('L3', tr('tab2.niv_l3'), tr('tab2.niv_combos', {combos: n(l3c)}), 'si', F);
+  } else {
+    fila('L3', tr('tab2.niv_l3'), '', dv?.has_l3 ? 'si' : 'no', M);
+  }
+
+  fila('L4', tr('tab2.niv_l4'), '', dv?.has_l4 ? 'si' : 'no', M);
+
+  // ── L5 · el encuadre ───────────────────────────────────────────────
+  const zonas = refs?.l5_zones || [];
+  if (zonas.length > 1) {
+    fila('L5', tr('tab2.niv_l5'), tr('tab2.niv_l5_zonas', {zonas: zonas.length}), 'si', F);
+  } else {
+    const z = zonas[0] || dv || {};
+    const t = z.top ?? dv?.l5_top ?? 0, b = z.bottom ?? dv?.l5_bottom ?? 0;
+    const l = z.left ?? dv?.l5_left ?? 0, r = z.right ?? dv?.l5_right ?? 0;
+    const hayBarras = (t || b || l || r);
+    fila('L5', tr('tab2.niv_l5'),
+         hayBarras ? tr('tab2.niv_l5_barras', {t, b, l, r}) : tr('tab2.niv_l5_sin_barras'),
+         dv?.has_l5 || hayBarras ? 'si' : 'no', zonas.length ? F : M);
+  }
+
+  // ── L6 · lo que el máster declara ──────────────────────────────────
+  const l6max = refs?.l6_master_max_nits || dv?.l6_max_cll || 0;
+  fila('L6', tr('tab2.niv_l6'),
+       l6max ? tr('tab2.niv_l6_val', {max: n(l6max)}) : '',
+       (l6max || dv?.has_l6) ? 'si' : 'no', refs?.l6_master_max_nits ? F : M);
+
+  // ── L8 · el que decide en CMv4.0 ───────────────────────────────────
+  const l8c = dv?.quality_l8_unique_count || 0;
+  const l8nits = (refs?.l8_trim_nits_full?.length ? refs.l8_trim_nits_full
+                                                  : (dv?.l8_trim_nits || []));
+  if (l8c || dv?.quality_classification) {
+    fila('L8', tr('tab2.niv_l8'),
+         l8c ? tr('tab2.niv_l8_val',
+                  {combos: n(l8c), delta: n(dv.quality_l8_max_delta || 0)})
+             : tr('tab2.niv_l8_sin_trims'),
+         l8c ? 'si' : 'no', F);
+  } else {
+    fila('L8', tr('tab2.niv_l8'),
+         l8nits.length ? tr('tab2.niv_l8_targets', {nits: l8nits.join(' · ')}) : '',
+         dv?.has_l8 ? 'si' : 'no', M);
+  }
+
+  fila('L9', tr('tab2.niv_l9'), escHtml(dv?.l9_primaries || ''),
+       dv?.has_l9 ? 'si' : 'no', M);
+  fila('L10', tr('tab2.niv_l10'), escHtml(dv?.l10_primaries || ''),
+       dv?.has_l10 ? 'si' : 'no', M);
+  fila('L11', tr('tab2.niv_l11'), escHtml(dv?.l11_content_type || ''),
+       dv?.has_l11 ? 'si' : 'no', M);
+  // El único que no se mide, y se dice. `--levels` no lo acepta.
+  fila('L254', tr('tab2.niv_l254'), '', 'nm', null);
+
+  const cuerpo = filas.map(f => `
+      <tr class="dv-niv-${f.estado}">
+        <td class="dv-niv-lvl">${f.lvl}</td>
+        <td class="dv-niv-aporta">${escHtml(f.aporta)}</td>
+        <td class="dv-niv-val">${
+          f.estado === 'nm' ? `<span class="dv-niv-nm-txt" data-i18n="tab2.niv_no_medido"></span>`
+          : f.estado === 'no' ? `<span class="dv-niv-no-txt" data-i18n="tab2.niv_ausente"></span>`
+          : (f.valor || '<span class="dv-niv-si-txt" data-i18n="tab2.niv_presente"></span>')}</td>
+        <td class="dv-niv-alc">${f.muestra === null ? '' : _rgrfAlcance(f.muestra)}</td>
+      </tr>`).join('');
+
+  return `
+    <section class="dv-block">
+      <h5 class="dv-block-title"><span data-i18n="tab2.niveles_del_rpu"></span>
+        <span class="dv-block-sub" data-i18n="tab2.niveles_del_rpu_sub"></span>
+      </h5>
+      <table class="dv-niveles-tabla">
+        <thead><tr>
+          <th data-i18n="tab2.niv_col_nivel"></th>
+          <th data-i18n="tab2.niv_col_aporta"></th>
+          <th data-i18n="tab2.niv_col_este"></th>
+          <th data-i18n="tab2.niv_col_alcance"></th>
+        </tr></thead>
+        <tbody>${cuerpo}</tbody>
+      </table>
+      ${l8nits.length ? `
+        <div class="dv-viz-inline">
+          <div class="dv-viz-caption"><span data-i18n="tab2.l8_escala"></span> ${
+            _rgrfAlcance(!(refs?.l8_trim_nits_full?.length))}</div>
+          ${_rgrfL8Svg(l8nits)}
+        </div>` : ''}
+    </section>`;
+}
+
 function _rgrfQualityAuditCard(dv, isV40) {
   const cls = dv?.quality_classification || '';
   const hasAudit = !!cls;

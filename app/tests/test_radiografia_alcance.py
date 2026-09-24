@@ -78,7 +78,8 @@ def _funcion(nombre: str) -> str:
 
 
 FUNCIONES = ("_rgrfAlcance", "_rgrfRow", "_rgrfQualityAuditCard",
-             "_rgrfMasteringChain", "escHtml", "_fmtBytes")
+             "_rgrfMasteringChain", "_l8NitsLabel", "_rgrfL8Svg", "_rgrfTablaDeNiveles",
+             "escHtml", "_fmtBytes")
 
 DOM = """
 globalThis.window = globalThis;
@@ -201,6 +202,101 @@ class TestElAlcanceSeDiceUnaSolaVez(EnNode):
                       "tab2.l8_escala_sample_30s",
                       "tab2.l8_escala_validado_film_completo"):
             self.assertNotIn(vieja, JS, f"quedó la redacción suelta {vieja}")
+
+
+# Los dos MKV reales del NAS, con sus valores tal cual se midieron.
+# Pulp Fiction es CMv2.9 con análisis extendido; Backrooms, CMv4.0 con L3
+# de UN combo — el caso que las pills no sabían distinguir de uno de 830.
+PULP_COMPLETO = {
+    "cm_version": "v2.9", "has_l1": True, "has_l2": True, "has_l5": True,
+    "has_l6": True, "has_l4": True, "has_l3": False, "has_l8": False,
+    "has_l9": False, "has_l10": False, "has_l11": False,
+    "l5_top": 0, "l5_bottom": 0, "l5_left": 0, "l5_right": 0,
+    "l6_max_cll": 0, "quality_classification": "real",
+    "quality_l2_unique_count": 1605, "quality_l2_target_pqs": [2081, 2851, 3079],
+    "quality_l3_unique_count": 0, "quality_l8_unique_count": 0,
+    "l1_stats": {"peak": 1001, "avg_of_max": 87},
+    "l1_references": {"l6_master_max_nits": 1000},
+}
+BACKROOMS = {
+    "cm_version": "v4.0", "has_l3": True, "has_l4": True, "has_l8": True,
+    "has_l9": True, "has_l10": False, "has_l11": True,
+    "l9_primaries": "Display P3", "l11_content_type": "Cinema",
+    "l8_trim_nits": [100, 600], "quality_classification": "tone_mapping",
+    "quality_l3_unique_count": 1, "quality_l2_unique_count": 8,
+    "quality_l8_unique_count": 3, "quality_l8_max_delta": 12,
+}
+
+
+class TestLaTablaDeNiveles(EnNode):
+    """Las siete pills binarias eran un cajón, y dos no podían encenderse."""
+
+    def _tabla(self, dv, hdr=None):
+        return self.evaluar("_rgrfTablaDeNiveles(DV, HDR)",
+                            f"const DV = {json.dumps(dv)};\n"
+                            f"const HDR = {json.dumps(hdr or {})};")
+
+    def test_l254_dice_que_NO_SE_MIDE(self):
+        """`--levels` no lo acepta y sacarlo pediría el volcado de 682 MB.
+        La pill apagada decía «no está», que es otra cosa."""
+        html = self._tabla(BACKROOMS)
+        fila = [f for f in html.split("<tr") if ">L254<" in f]
+        self.assertEqual(len(fila), 1, "falta la fila de L254")
+        self.assertIn("no medido", fila[0])
+        self.assertNotIn("ausente", fila[0])
+
+    def test_y_un_nivel_medido_y_ausente_dice_otra_cosa(self):
+        """L10 sí se pide al export: su ausencia es un dato."""
+        fila = [f for f in self._tabla(BACKROOMS).split("<tr") if ">L10<" in f]
+        self.assertIn("ausente", fila[0])
+        self.assertNotIn("no medido", fila[0])
+
+    def test_l3_ya_dice_CUANTO(self):
+        """Un combo y ochocientos eran la misma pill verde."""
+        pocos = [f for f in self._tabla(BACKROOMS).split("<tr") if ">L3<" in f][0]
+        self.assertIn("1", pocos)
+        muchos = dict(BACKROOMS, quality_l3_unique_count=830)
+        self.assertIn("830", [f for f in self._tabla(muchos).split("<tr") if ">L3<" in f][0])
+
+    def test_la_tabla_se_pinta_TAMBIEN_en_cmv29(self):
+        """Con `isV40` no existía en 8 de los 10 MKV del NAS, y con ella
+        se iba L4 — que 5 de esos 8 tienen."""
+        html = self._tabla(PULP_COMPLETO)
+        for nivel in ("L1", "L2", "L3", "L4", "L5", "L6", "L8", "L9", "L10", "L11", "L254"):
+            self.assertIn(f">{nivel}<", html, f"falta {nivel}")
+        self.assertIn("1605", html)
+
+    def test_el_alcance_va_por_fila(self):
+        """L1 de la película y L9 de los primeros 30 s, en la misma tabla."""
+        html = self._tabla(PULP_COMPLETO)
+        l1 = [f for f in html.split("<tr") if ">L1<" in f][0]
+        l9 = [f for f in html.split("<tr") if ">L9<" in f][0]
+        self.assertIn("dv-alcance-film", l1)
+        self.assertIn("dv-alcance-muestra", l9)
+        self.assertIn("1001", l1)
+
+    def test_las_pills_no_vuelven(self):
+        cuerpo = _funcion("_renderMkvDvRadiography")
+        self.assertNotIn("dv-pill-row", cuerpo)
+        self.assertNotIn("blockCmv4", JS)
+
+    def test_y_el_CALLER_no_la_condiciona(self):
+        """El de arriba llama a la tabla directamente, así que no vería
+        un `isV40 ?` en quien la monta — y esa era justamente la avería:
+        el bloque no existía en 8 de los 10 MKV del NAS. El invariante
+        es de forma, así que se comprueba en la forma.
+        """
+        cuerpo = _funcion("_renderMkvDvRadiography")
+        linea = [l for l in cuerpo.splitlines() if "_rgrfTablaDeNiveles(" in l]
+        self.assertEqual(len(linea), 1, "la tabla se monta en un solo sitio")
+        self.assertNotIn("isV40", linea[0])
+        self.assertNotIn("?", linea[0], "montada sin condición")
+
+    def test_un_dv_vacio_no_revienta(self):
+        """El análisis básico puede no traer nada de esto."""
+        html = self._tabla({})
+        self.assertIn(">L1<", html)
+        self.assertIn("no medido", html)
 
 
 if __name__ == "__main__":

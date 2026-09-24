@@ -47,6 +47,16 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── Las siete pills de «CMv4.0 levels extendidos» pasan a una tabla
+    #    de once filas (2026-09-24, reportado por el usuario: «no entiendo
+    #    el grupo» y «de L3 no veo nada más que está presente»). No era un
+    #    grupo sino un cajón —los niveles estaban repartidos por cinco
+    #    bloques—, una pill no puede decir si L3 trae un combo o 830, y
+    #    dos de ellas no podían encenderse nunca.
+    "presencia · L9/L10/L11 detallados en cadena de mastering":
+        "el subtítulo del bloque de pills. La tabla dice de cada nivel qué "
+        "aporta, qué trae este fichero y sobre qué se midió, así que no "
+        "hay nada que remitir a otro bloque",
     # ── La corrección del sync pasa de dos casillas a una matriz
     #    (2026-09-23, reportado por el usuario). Sólo se podía quitar al
     #    inicio o duplicar el primer frame, y hay másters donde lo que sobra

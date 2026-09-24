@@ -7797,6 +7797,57 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 
 /* Tabla de zonas L5 (films con active area dinamica) */
+/* ── Los niveles del RPU ──────────────────────────────────────────────
+   Hereda de `.dv-l5-zones-table`, que es la otra tabla de este panel: dos
+   tablas a dos centímetros con rejillas distintas se leen como dos cosas
+   que no tienen que ver. */
+.dv-niveles-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  margin-top: 4px;
+}
+.dv-niveles-tabla th {
+  text-align: left;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dv-text-3);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dv-chart-border);
+}
+.dv-niveles-tabla td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dv-separator);
+  color: var(--dv-text-1);
+  vertical-align: baseline;
+}
+.dv-niveles-tabla tbody tr:last-child td { border-bottom: none; }
+.dv-niv-lvl {
+  font-family: SF Mono, Menlo, monospace;
+  font-weight: 700;
+  color: var(--dv-text-1);
+  white-space: nowrap;
+  width: 1%;
+}
+/* Lo que aporta el nivel es contexto, no dato: va apagado para que el ojo
+   se vaya a la columna del medio, que es la que cambia entre ficheros. */
+.dv-niv-aporta { color: var(--dv-text-3); }
+.dv-niv-val { color: var(--dv-text-1); font-variant-numeric: tabular-nums; }
+.dv-niv-alc { text-align: right; white-space: nowrap; width: 1%; }
+/* Tres estados, y los tres distintos: una fila ausente y una no medida
+   decían lo mismo, que era el defecto de las pills. */
+.dv-niv-no { opacity: var(--op-medio); }
+.dv-niv-no-txt { color: var(--dv-text-4); font-style: italic; }
+.dv-niv-nm { opacity: var(--op-medio); }
+.dv-niv-nm-txt {
+  color: var(--dv-text-4);
+  font-style: italic;
+  border-bottom: 1px dotted var(--dv-text-4);
+}
+.dv-niv-si .dv-niv-lvl { color: var(--dv-accent-text); }
+
 .dv-l5-zones-table {
   width: 100%;
   border-collapse: collapse;
