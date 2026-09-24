@@ -678,6 +678,21 @@ _CUERPO = """
                                     return e ? e.innerHTML : ''; },
     'tab2·radiografia':     () => _renderMkvDvRadiography(
                                     X.mkv, DV, X.mkv.tracks[0], X.mkv.tracks[1]),
+    // La MISMA radiografía sin el perfil de luminancia, que es como se abre
+    // un MKV recién analizado. Es otra RAMA, no otra pantalla: la de arriba
+    // trae `per_scene_max_cll` poblado, así que el hueco «Perfil de
+    // luminancia no generado» —su texto, su pista y su botón— no lo
+    // renderizaba nadie. De ahí salió el recuadro casi blanco en oscuro que
+    // el usuario reportó el 2026-09-24.
+    'tab2·radiografia_sin_luz': () => {
+      const sinLuz = Object.assign({}, DV);
+      delete sinLuz.per_scene_max_cll;
+      delete sinLuz.per_scene_max_fall;
+      delete sinLuz.per_scene_min;
+      delete sinLuz.l1_stats;
+      return _renderMkvDvRadiography(X.mkv, sinLuz,
+                                     X.mkv.tracks[0], X.mkv.tracks[1]);
+    },
     'tab2·recientes':       () => { _mkvRecientes = X.recientes;
                                     _renderMkvRecientes();
                                     const e = document.getElementById('mkv-recientes-list');
@@ -867,6 +882,7 @@ _CUERPO = """
   // `.fb-root-btn.active` que se quedó sin su `background`.
   const ENVOLTORIO = {
     'tab2·radiografia': 'dv-detail',  'tab2·mastering':    'dv-detail',
+    'tab2·radiografia_sin_luz': 'dv-detail',
     'tab2·stats_l1':    'dv-detail',  'tab2·sparkline':    'dv-detail',
     'tab2·l5':          'dv-detail',  'tab2·gamut':        'dv-detail',
     'tab2·distribucion':'dv-detail',

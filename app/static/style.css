@@ -290,6 +290,8 @@
   --dv-block-border:    rgba(255, 255, 255, 0.08);
   --dv-separator:       rgba(255, 255, 255, 0.08);
   --dv-chart-bg-alt:    #1a1c21;
+  --dv-chart-empty-to:       #15171b;
+  --dv-chart-empty-hover-to: #111317;
   --dv-chart-border:    rgba(255, 255, 255, 0.10);
   --dv-grid:            rgba(255, 255, 255, 0.10);
   --dv-text-1:          #e8edf3;
@@ -7313,6 +7315,14 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 
   --dv-chart-bg:        var(--surface-1);
   --dv-chart-bg-alt:    #fafbfc;
+  /* El hueco del gráfico que aún no se ha generado. Es un DEGRADADO, así
+     que necesita su segundo tramo como token: escrito a mano se quedó en
+     `#f5f6f8` y en oscuro pintaba medio recuadro casi blanco —lo reportó
+     el usuario el 2026-09-24—. El primer tramo sí era una `var()`, que es
+     justo lo que hace el fallo difícil de ver: la mitad de arriba se
+     voltea y la de abajo no. */
+  --dv-chart-empty-to:       #f5f6f8;
+  --dv-chart-empty-hover-to: #eff1f4;
   --dv-chart-border:    rgba(15, 23, 42, 0.07);
   --dv-grid:            rgba(15, 23, 42, 0.08);
 
@@ -7591,14 +7601,14 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 .dv-chart-large:last-child { margin-bottom: 0; }
 .dv-chart-empty {
   padding: 40px 24px;
-  background: linear-gradient(180deg, var(--dv-chart-bg-alt) 0%, #f5f6f8 100%);
+  background: linear-gradient(180deg, var(--dv-chart-bg-alt) 0%, var(--dv-chart-empty-to) 100%);
   border-radius: var(--r-md);
   border: 1px dashed var(--dv-block-border);
   text-align: center;
   transition: background var(--t-med) var(--dv-ease);
 }
 .dv-chart-empty:hover {
-  background: linear-gradient(180deg, #f5f6f8 0%, #eff1f4 100%);
+  background: linear-gradient(180deg, var(--dv-chart-empty-to) 0%, var(--dv-chart-empty-hover-to) 100%);
 }
 .dv-chart-empty-icon {
   font-size: var(--fs-display);

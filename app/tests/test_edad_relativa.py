@@ -66,9 +66,22 @@ const bundle = [
 const api = new Function(bundle)();
 
 const casos = JSON.parse(fs.readFileSync(0, 'utf8'));
-const AHORA = Date.parse('2026-09-23T18:00:00Z');
-const _now = Date.now;
-Date.now = () => AHORA;
+// **El reloj se congela ENTERO, no sólo `Date.now`.**
+//
+// `_workbarDia` pregunta la fecha de hoy con `new Date()`, y ese
+// constructor NO pasa por `Date.now`: seguía leyendo el reloj real. El
+// test pasaba mientras `AHORA` cayera en el día de hoy y **falló al
+// cambiar la fecha a media sesión** (2026-09-24), diciendo «Ayer» donde
+// esperaba «Hoy» — el caso de «hace 60 s» calculado desde un AHORA que ya
+// era ayer. Un test que sólo pasa el día que se escribió no prueba nada.
+const _Date = Date;
+const AHORA = _Date.parse('2026-09-23T18:00:00Z');
+globalThis.Date = class extends _Date {
+  constructor(...a) { super(...(a.length ? a : [AHORA])); }
+  static now() { return AHORA; }
+  static parse(...a) { return _Date.parse(...a); }
+  static UTC(...a) { return _Date.UTC(...a); }
+};
 
 const salida = casos.map(c => {
   const iso = c.hace_segundos === null
@@ -83,7 +96,7 @@ const salida = casos.map(c => {
                                        : api._workbarTiempo(c.hace_segundos),
   };
 });
-Date.now = _now;
+globalThis.Date = _Date;
 process.stdout.write(JSON.stringify(salida));
 """
 
@@ -203,6 +216,12 @@ class TestLaCabeceraDeDiaHabla(_EnNode):
         self.assertEqual(cat.get("workbar.dia_ayer"), "Ayer")
 
     def test_y_la_funcion_los_usa(self):
+        """Con el reloj congelado esto NO depende de qué día se ejecute.
+
+        `_workbarDia` mira `new Date()`, así que sin congelar el
+        constructor —y no basta con `Date.now`— el caso de «hace 60 s»
+        pasa a «Ayer» en cuanto el reloj real cruza la medianoche.
+        """
         rs = self.evaluar(60, 25 * HORA)
         self.assertEqual(rs[0]["dia"], "Hoy")
         self.assertEqual(rs[1]["dia"], "Ayer")

@@ -366,5 +366,100 @@ class TestNingunNodoDejaDeLeerseEnOscuro(unittest.TestCase):
         self.assertLessEqual(o, c, f"claro {c} · oscuro {o}")
 
 
+class TestLasPaletasDeAmbitoLocalTambienSeVoltean(unittest.TestCase):
+    """`--dv-*` no vive en `:root`, así que el guard de arriba no la veía.
+
+    Es la paleta de la radiografía DV+HDR — la que el comentario del CSS
+    describe como «el peor sitio de la app en oscuro»— y está declarada en
+    `.dv-detail`, no en `:root`. Un token nuevo ahí sin contraparte se
+    queda con el color del tema contrario exactamente igual, y sin error.
+    """
+
+    CLARO = "\n.dv-detail {"
+    OSCURO = '[data-tema="oscuro"] .dv-detail {'
+
+    @classmethod
+    def setUpClass(cls):
+        cls.luz = _bloque(cls.CLARO)
+        cls.osc = _bloque(cls.OSCURO)
+
+    def test_el_guard_lee_DOS_bloques_distintos(self):
+        """El ancla del claro lleva `\n` delante, y no es cosmético.
+
+        `.dv-detail {` es SUBCADENA de `[data-tema="oscuro"] .dv-detail {`,
+        que además aparece ANTES en el fichero: con el ancla a secas,
+        `_bloque` devuelve el bloque oscuro las dos veces y el guard se
+        compara consigo mismo — cero huérfanos siempre, pase lo que pase.
+        Se pisó al escribirlo.
+        """
+        self.assertGreater(len(self.luz), len(self.osc),
+                           "el claro declara más tokens: si empatan, es el mismo bloque")
+        self.assertEqual(self.luz.get("--dv-text-1"), "#0f172a")
+        self.assertEqual(self.osc.get("--dv-text-1"), "#e8edf3")
+
+    def test_ninguno_se_queda_sin_voltear(self):
+        huerfanos = []
+        for k, v in self.luz.items():
+            if not _es_color(v) or k in self.osc:
+                continue
+            canales = re.findall(r"var\((--[\w-]+)\)", v)
+            if canales and all(c in self.osc for c in canales):
+                continue
+            huerfanos.append(f"{k}: {v}")
+        self.assertEqual(sorted(huerfanos), [],
+                         "\n  · ".join(["tokens `--dv-*` sin contraparte oscura:"]
+                                       + sorted(huerfanos)))
+
+    def test_el_bloque_oscuro_no_inventa_tokens(self):
+        inventados = [k for k in self.osc if k not in self.luz]
+        self.assertEqual(sorted(inventados), [],
+                         f"sólo existen en oscuro: {sorted(inventados)}")
+
+
+class TestNingunFondoLlevaUnHexClaroEscritoAMano(unittest.TestCase):
+    """El fallo que ningún otro guard de aquí puede ver.
+
+    Lo reportó el usuario el **2026-09-24**: al abrir un MKV sin perfil de
+    luminancia, el hueco del gráfico salía casi blanco en modo oscuro y
+    deslumbraba. No era un token sin voltear —los `--dv-*` estaban todos
+    bien— sino un **literal dentro de un degradado**:
+
+        background: linear-gradient(180deg, var(--dv-chart-bg-alt) 0%, #f5f6f8 100%);
+
+    El primer tramo sí era una `var()`, así que la mitad de arriba se
+    volteaba y la de abajo no. Y por eso la sonda de pantalla tampoco lo
+    caza: **lee un degradado por su primer color**, que aquí es el
+    correcto. Un guard que mire el fuente es el único sitio desde el que
+    se ve.
+    """
+
+    #: literal → por qué se queda escrito a mano
+    ACEPTADOS: dict = {}
+
+    def test_cero_literales_claros_en_un_fondo(self):
+        css = _sin_comentarios(CSS)
+        sel, prof, en_tema, malos = "", 0, False, []
+        for n, linea in enumerate(css.splitlines(), 1):
+            t = linea.strip()
+            if prof == 0 and "{" in t:
+                sel = t.split("{")[0].strip()
+                en_tema = "data-tema" in sel or "prefers-color-scheme" in sel
+            prof += t.count("{") - t.count("}")
+            if en_tema or sel.startswith(":root"):
+                continue
+            if not re.search(r"\b(background|background-color|background-image)\s*:", t):
+                continue
+            for h in re.findall(r"#[0-9a-fA-F]{3,8}\b", t):
+                if len(h) in (4, 7) and _lum(_rgb(h)) > 0.75 and h not in self.ACEPTADOS:
+                    malos.append(f"{sel} (línea {n}): {h}")
+        self.assertEqual(sorted(malos), [],
+                         "\n  · ".join(["fondos con un hex claro escrito a mano "
+                                        "(en oscuro se quedan blancos):"] + sorted(malos)))
+
+    def test_cada_excepcion_sigue_existiendo(self):
+        for h in self.ACEPTADOS:
+            self.assertIn(h, CSS, f"excepción que ya no está en el CSS: {h}")
+
+
 if __name__ == "__main__":
     unittest.main()
