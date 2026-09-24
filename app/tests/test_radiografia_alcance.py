@@ -107,35 +107,39 @@ PULP = {"l1_max_cll": 395.0, "l1_stats": {"peak": 1001}}      # SEI 1000
 APOC = {"l1_max_cll": 1435.0, "l1_stats": {"peak": 4082}}     # SEI 1000
 
 
-class TestElBannerUsaElPicoDeLaPelicula(EnNode):
+class TestElAvisoDeDivergenciaViveEnElTITULAR(EnNode):
+    """La cadena de mastering ya no opina sobre el pico.
+
+    Comparar el pico medido con el máster declarado es una CONCLUSIÓN, y
+    el titular tiene una frase para eso («La luz»). Mientras estuvo en
+    los dos sitios se decía dos veces con distinta redacción — y con el
+    sniff de 30 s, mal en uno de ellos. El comportamiento del aviso se
+    prueba donde ahora vive: `test_lectura_del_mkv`.
+    """
 
     def _cadena(self, dv, sei):
         return self.evaluar("_rgrfMasteringChain(DV, HDR, {})",
                             f"const DV = {json.dumps(dv)};\n"
                             f"const HDR = {json.dumps({'max_cll': sei})};")
 
-    def test_pulp_fiction_ya_no_saca_el_banner_rojo(self):
-        """395 era el sniff; el pico real es 1001 contra un SEI de 1000."""
-        self.assertNotIn("dv-mc-div-low", self._cadena(PULP, 1000))
+    def test_la_cadena_no_lleva_banner(self):
+        for dv in (PULP, APOC, {"l1_max_cll": 395.0}):
+            html = self._cadena(dv, 1000)
+            self.assertNotIn("dv-mc-div-low", html)
+            self.assertNotIn("dv-mc-div-high", html)
 
-    def test_apocalypse_now_si_lo_saca(self):
-        """4082 contra 1000: el RPU es mucho más generoso que la etiqueta,
-        y con el dato del sniff (1435) el aviso no salía."""
-        self.assertIn("dv-mc-div-high", self._cadena(APOC, 1000))
+    def test_ni_queda_el_calculo_suelto(self):
+        """Un cálculo que ya no pinta nada es código muerto, y de ese
+        sale el próximo dato que se contradice."""
+        cuerpo = _funcion("_rgrfMasteringChain")
+        self.assertNotIn("divergenceBanner", cuerpo)
+        self.assertNotIn("l1Peak", cuerpo)
 
-    def test_sin_analisis_extendido_no_se_opina(self):
-        """No hay pico de película, así que no hay comparación posible.
-        Un aviso falso es peor que ninguno."""
-        html = self._cadena({"l1_max_cll": 395.0}, 1000)
-        self.assertNotIn("dv-mc-div-low", html)
-        self.assertNotIn("dv-mc-div-high", html)
-
-    def test_y_el_sniff_ya_no_alimenta_la_comparacion(self):
-        """El guard de la mutación: con `l1_max_cll` de vuelta, Pulp
-        Fiction vuelve a sacar el rojo."""
-        self.assertIn("l1_stats?.peak", _funcion("_rgrfMasteringChain"))
-        self.assertNotIn("const l1Peak  = dv?.l1_max_cll",
-                         _funcion("_rgrfMasteringChain"))
+    def test_y_el_titular_SI_lo_dice(self):
+        from pathlib import Path as _P
+        src = (APP_DIR / "phases" / "mkv_lectura.py").read_text(encoding="utf-8")
+        self.assertIn("RATIO_CONSERVADOR", src)
+        self.assertIn("RATIO_GENEROSO", src)
 
 
 class TestLaCardEnsenaLoQueAPLICA(EnNode):
@@ -455,6 +459,53 @@ class TestElGraficoPintaLosTrimsDELNIVELQUEMANDA(EnNode):
     def test_y_sin_l8_se_pintan_los_de_l2(self):
         svg = self._spark({"l2_trim_targets_nits": [100, 600]})
         self.assertIn("L2 600n", svg)
+
+
+class TestLaRadiografiaSonCINCOBloques(EnNode):
+    """Eran siete, con solapes que la propia consolidación creó.
+
+    El titular decía el máster y la cadena lo repetía; la tabla de
+    niveles decía L5 y el bloque de encuadre lo repetía; el aviso de
+    divergencia estaba en la cadena y en el titular. El usuario lo
+    resumió: «en general me parece todo muy liado».
+
+    Cada dato vive en UN sitio, y el sitio lo decide para qué sirve:
+    la lectura interpreta · la ficha dice qué es el fichero · la cadena
+    de color dice dónde se hizo el grade · la tabla dice qué metadata
+    hay · el gráfico enseña la luz.
+    """
+
+    def test_el_ensamblaje_monta_cinco(self):
+        cuerpo = _funcion("_renderMkvDvRadiography")
+        i = cuerpo.index('<div class="dv-detail">')
+        montados = re.findall(r"\$\{(block[A-Za-z]+)\}", cuerpo[i:])
+        self.assertEqual(montados, ["blockQuality", "blockStream",
+                                    "blockMastering", "blockNiveles",
+                                    "blockLight"])
+
+    def test_el_contenedor_y_el_encuadre_estan_DENTRO_de_la_ficha(self):
+        cuerpo = _funcion("_renderMkvDvRadiography")
+        ficha = cuerpo[cuerpo.index("const blockStream = `"):]
+        ficha = ficha[:ficha.index("</section>`;")]
+        self.assertIn("${blockActiveArea}", ficha)
+        self.assertIn("${filaContenedor}", ficha)
+
+    def test_L11_solo_esta_en_la_tabla(self):
+        """Estaba en la cadena de mastering y en la tabla."""
+        self.assertNotIn("dv-mc-row-l11", JS)
+        self.assertIn("tab2.niv_l11", _funcion("_rgrfTablaDeNiveles"))
+
+    def test_los_offsets_de_L5_solo_estan_en_la_tabla(self):
+        """El bloque de encuadre tenía seis celdas con los mismos
+        números que la fila L5. Se queda con el dibujo y el aspecto."""
+        cuerpo = _funcion("_renderMkvDvRadiography")
+        self.assertNotIn("tab2.offsets_t_b", cuerpo)
+        self.assertNotIn("tab2.offsets_l_r", cuerpo)
+        self.assertIn("_rgrfL5Svg", cuerpo)
+
+    def test_y_el_HDR_declarado_solo_en_la_ficha(self):
+        self.assertNotIn("dv-mc-row-declarado", _funcion("_rgrfMasteringChain"))
+        self.assertIn("_rgrfHdrDeclarado", _funcion("_renderMkvDvRadiography"))
 
 
 if __name__ == "__main__":

@@ -7840,6 +7840,18 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   color: var(--dv-text-3);
 }
 
+/* ── Secciones dentro de la ficha técnica ────────────────────────────
+   El encuadre y el contenedor eran `<section>` propias. Como filas de la
+   ficha necesitan su separación, que antes daba el borde del bloque. */
+.dv-ficha-encuadre,
+.dv-ficha-contenedor {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--dv-separator);
+}
+.dv-ficha-encuadre .dv-mc-row-label,
+.dv-ficha-contenedor .dv-mc-row-label { margin-bottom: 8px; }
+
 .dv-niveles-tabla {
   width: 100%;
   border-collapse: collapse;

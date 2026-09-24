@@ -47,6 +47,12 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── La radiografía pasa de siete bloques a cinco (2026-09-24,
+    #    «en general me parece todo muy liado»). Cada dato en un sitio.
+    "Simetría vertical":
+        "los offsets de L5 pasan a la fila L5 de la tabla de niveles (2026-09-24): el bloque de encuadre repetía los mismos seis números y se queda con el dibujo, el área y el aspecto. La simetría sólo se enseña cuando NO la hay, en una sola celda",
+    "Simetría horizontal":
+        "los offsets de L5 pasan a la fila L5 de la tabla de niveles (2026-09-24): el bloque de encuadre repetía los mismos seis números y se queda con el dibujo, el área y el aspecto. La simetría sólo se enseña cuando NO la hay, en una sola celda",
     # ── La fila de trim targets se une a la tabla de niveles
     #    (2026-09-24, dudas del usuario: «¿qué pinta L2 en un CMv4?» y
     #    «¿a qué se refiere la escala L8?»). Eran la misma pregunta

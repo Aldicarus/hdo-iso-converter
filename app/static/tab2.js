@@ -1054,6 +1054,34 @@ function _rgrfL1StatsCard(stats, hdr) {
  *  hdr        — analysis.hdr (HdrMetadata)
  *  mainVideo  — pista video principal (para bit_depth)
  */
+/** Lo que el CONTENEDOR declara del HDR, en chips.
+ *
+ *  `hdr_format` lo deriva la app de la curva de transferencia («PQ» →
+ *  «HDR10»), así que un disco con Dolby Vision decía «HDR10» a secas: se
+ *  perdían el perfil declarado, las capas y —lo más útil— con qué es
+ *  compatible, que es la pregunta de «¿esto lo reproduce mi equipo?».
+ *
+ *  Y cuando el perfil declarado no coincide con el que `dovi_tool` lee
+ *  del RPU, eso es justo lo que hay que enseñar: es la firma del bug de
+ *  «Te van a matar», un MKV anunciado `dvhe.07` con el EL descartado.
+ */
+function _rgrfHdrDeclarado(dv, hdr) {
+  const dvDeclarado = (hdr?.dv_profile_string || '').trim();
+  const perfilMedido = dv?.profile ? `dvhe.0${dv.profile}` : '';
+  const discrepa = !!(dvDeclarado && perfilMedido
+                      && dvDeclarado.toLowerCase() !== perfilMedido.toLowerCase());
+  return [
+    hdr?.hdr_format_raw ? `<span class="dv-mc-dec-fmt">${escHtml(hdr.hdr_format_raw)}</span>` : '',
+    dvDeclarado ? `<span class="dv-mc-trim-chip${discrepa ? ' dv-mc-chip-warn' : ''}"${
+      discrepa ? ` data-i18n-tip="tab2.perfil_declarado_no_coincide"` : ''
+      }>${escHtml(dvDeclarado)}${hdr.dv_level ? `.${escHtml(hdr.dv_level)}` : ''}</span>` : '',
+    hdr?.dv_layers ? `<span class="dv-mc-trim-chip">${escHtml(hdr.dv_layers)}</span>` : '',
+    hdr?.hdr_format_compatibility
+      ? `<span class="dv-mc-dec-compat"><span data-i18n="tab2.compatible_con"></span> <strong>${escHtml(hdr.hdr_format_compatibility)}</strong></span>`
+      : '',
+  ].filter(Boolean).join(' ');
+}
+
 function _rgrfMasteringChain(dv, hdr, mainVideo) {
   const masterPrim = (hdr?.mastering_display_primaries || '').trim();
   const masterLum  = (hdr?.mastering_display_luminance || '').trim();
@@ -1109,65 +1137,13 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
   const hdr10Fall = hdr?.max_fall != null ? `MaxFALL ${hdr.max_fall} nits` : '';
   const hdr10Line = [hdr10Cll, hdr10Fall].filter(Boolean).join(' · ');
 
-  // **Lo que el fichero declara de sí mismo**, que no es lo mismo que lo
-  // que la app deduce. `hdr_format` se derivaba de la curva de
-  // transferencia («PQ» → «HDR10»), así que un disco con Dolby Vision
-  // decía «HDR10» a secas: se perdían el perfil declarado, las capas y
-  // —lo más útil de todo— con qué es compatible, que es la pregunta de
-  // «¿esto lo reproduce mi equipo?».
-  //
-  // Y cuando el perfil declarado no coincide con el que `dovi_tool` lee
-  // del RPU, eso es justo lo que hay que enseñar: es la firma del bug de
-  // «Te van a matar», un MKV anunciado `dvhe.07` con el EL descartado.
-  const dvDeclarado = (hdr?.dv_profile_string || '').trim();
-  const perfilMedido = dv?.profile ? `dvhe.0${dv.profile}` : '';
-  const discrepa = !!(dvDeclarado && perfilMedido
-                      && dvDeclarado.toLowerCase() !== perfilMedido.toLowerCase());
-  const declarado = [
-    hdr?.hdr_format_raw ? `<span class="dv-mc-dec-fmt">${escHtml(hdr.hdr_format_raw)}</span>` : '',
-    dvDeclarado ? `<span class="dv-mc-trim-chip${discrepa ? ' dv-mc-chip-warn' : ''}"${
-      discrepa ? ` data-i18n-tip="tab2.perfil_declarado_no_coincide"` : ''
-      }>${escHtml(dvDeclarado)}${hdr.dv_level ? `.${escHtml(hdr.dv_level)}` : ''}</span>` : '',
-    hdr?.dv_layers ? `<span class="dv-mc-trim-chip">${escHtml(hdr.dv_layers)}</span>` : '',
-    hdr?.hdr_format_compatibility
-      ? `<span class="dv-mc-dec-compat"><span data-i18n="tab2.compatible_con"></span> <strong>${escHtml(hdr.hdr_format_compatibility)}</strong></span>`
-      : '',
-  ].filter(Boolean).join(' ');
 
-  // Lo que el disco DICE de sí mismo (MaxCLL del SEI, de todo el metraje)
-  // contra lo que el RPU trae MEDIDO. Si difieren mucho hay algo que
-  // contar: un máster etiquetado conservador, o un RPU más generoso que
-  // la etiqueta.
-  //
-  // **El pico tiene que ser el de la PELÍCULA.** Salía de `l1_max_cll`,
-  // que es el sniff de 30 s, y comparado contra un MaxCLL de todo el
-  // metraje no responde a nada: medido sobre los MKV del NAS fallaba en
-  // 2 de 4, y en las dos direcciones — Pulp Fiction daba el banner rojo
-  // de «máster conservador» (395 del sniff contra 1000, ratio 0,40)
-  // cuando su pico real es 1001, y Apocalypse Now se callaba teniendo
-  // 4082 contra 1000. Sin análisis extendido no hay pico de película, y
-  // entonces **no se opina**: un aviso falso es peor que ninguno.
-  let divergenceBanner = '';
-  const l1Peak  = dv?.l1_stats?.peak || 0;
-  const seiCll  = hdr?.max_cll || 0;
-  if (l1Peak > 10 && seiCll > 10) {
-    const ratio = l1Peak / seiCll;
-    if (ratio < 0.5) {
-      divergenceBanner = `
-        <div class="dv-mc-divergence dv-mc-div-low">
-          <span class="dv-mc-div-icon"><span data-icono="aviso"></span></span>
-          <span><strong><span data-i18n="tab2.master_conservador_con_tone_mapping_agresivo"></span></strong> ${tr('tab2.l1_rpu_peak_p1_nits_vs', {p1: l1Peak.toFixed(0), seicll: seiCll, p3: ratio.toFixed(2)})}
-          </span>
-        </div>`;
-    } else if (ratio > 2.0) {
-      divergenceBanner = `
-        <div class="dv-mc-divergence dv-mc-div-high">
-          <span class="dv-mc-div-icon"><span data-icono="info"></span></span>
-          <span><strong><span data-i18n="tab2.l1_rpu_mas_generoso_que_hdr10"></span></strong> ${tr('tab2.l1_peak_p1_nits_vs_sei', {p1: l1Peak.toFixed(0), seicll: seiCll, p3: ratio.toFixed(2)})}
-          </span>
-        </div>`;
-    }
-  }
+  // **El aviso de divergencia se fue al titular.** Comparar el pico
+  // medido con el máster declarado es una CONCLUSIÓN, y el titular
+  // tiene una frase para eso («La luz»). Tenerlo en los dos sitios era
+  // decir dos veces lo mismo con distinta redacción — y mientras usó el
+  // sniff de 30 s, decirlo mal en uno de ellos.
+
 
   return `
     <section class="dv-block">
@@ -1202,21 +1178,10 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
           </div>
         </div>
       </div>
-      ${declarado ? `
-        <div class="dv-mc-row-declarado">
-          <div class="dv-mc-row-label"><span data-i18n="tab2.hdr_declarado"></span> <span class="dv-mc-row-sub" data-i18n="tab2.segun_el_contenedor"></span></div>
-          <div class="dv-mc-row-content">${declarado}</div>
-        </div>` : ''}
       ${hdr10Line ? `
         <div class="dv-mc-row-hdr10">
           <div class="dv-mc-row-label"><span data-i18n="tab2.hdr10_metadata"></span> <span class="dv-mc-row-sub" data-i18n="tab2.sei_estatica"></span></div>
           <div class="dv-mc-row-content"><span class="dv-mc-hdr10-val">${hdr10Line}</span></div>
-        </div>` : ''}
-      ${divergenceBanner}
-      ${(l11Type || l11App) ? `
-        <div class="dv-mc-row-l11">
-          <div class="dv-mc-row-label" data-i18n="tab2.l11_content_type"></div>
-          <div class="dv-mc-row-content">${escHtml(l11Type)}${l11App ? ` <span class="dv-mc-row-sub">(${escHtml(l11App)})</span>` : ''}</div>
         </div>` : ''}
     </section>`;
 }
@@ -1400,36 +1365,6 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
       )
     : '';
 
-  const blockStream = `
-    <section class="dv-block">
-      <h5 class="dv-block-title" data-i18n="tab2.stream"></h5>
-      <div class="dv-grid-3">
-        ${cell('Profile', profile)}
-        ${cell(tr('tab2.cm_version'), cmLabel)}
-        ${cell('Frames', framesTotal ? framesTotal.toLocaleString(localeActual()) : '—', { tooltip: tr('tab2.total_de_frames_del_mkv') })}
-        ${cell(tr('tab1.duracion'), durationStr)}
-        ${cell('FPS', fps, { tooltip: tr('tab2.fps_del_track_de_video') })}
-        ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
-        ${cell('Codec', mainVideo?.codec || '—')}
-        ${cell(tr('tab2.perfil_codec'), perfilHevc, { tooltip: tr('tab2.perfil_codec_tip') })}
-        ${cell(tr('tab2.modo_de_tasa'), mainVideo?.framerate_mode || '—', { tooltip: tr('tab2.modo_de_tasa_tip'), status: modoTasaEstado })}
-        ${cell(tr('tab2.muestreo_croma'), senalColor, { tooltip: tr('tab2.muestreo_croma_tip') })}
-        ${cell('RPU', rpuSize, { tooltip: tr('tab2.tamano_total_estimado_del_rpu') })}
-        ${sceneCutsCell}
-        ${elVideo ? cell(tr('tab2.enhancement_layer'), `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
-      </div>
-    </section>`;
-
-  // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 2 · Cadena de mastering (sustituye al antiguo bloque
-  // tr('tab2.luminancia') + bloque "Gamut CIE 1931"). Toda la info de primaries,
-  // mastering display, container HEVC, DV L9/L10 y trim targets en una
-  // sola ficha escaneable. La luminancia DV L1 dinámica vive en el
-  // bloque del sparkline donde hay graficos + stats card; la HDR10
-  // estatica se muestra aqui como dato del SEI.
-  // ═══════════════════════════════════════════════════════════════
-  const blockMastering = _rgrfMasteringChain(dv, hdr, mainVideo);
-
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 3 · Active area (L5) con visualizador lateral
   // ═══════════════════════════════════════════════════════════════
@@ -1461,15 +1396,15 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
         </tr>`;
     }).join('');
     blockActiveArea = `
-      <section class="dv-block">
-        <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span>
-          <span class="dv-block-sub">${tr('tab2.l5_p1_zonas_detectadas_letterbox_dinamico', {p1: l5Zones.length})}</span>
-        </h5>
+      <div class="dv-ficha-encuadre">
+        <div class="dv-mc-row-label"><span data-i18n="tab2.active_area"></span>
+          <span class="dv-mc-row-sub">${tr('tab2.l5_p1_zonas_detectadas_letterbox_dinamico', {p1: l5Zones.length})}</span>
+        </div>
         <table class="dv-l5-zones-table">
           <thead><tr><th>#</th><th data-i18n="tab2.offsets_px"></th><th data-i18n="tab2.area_activa"></th><th data-i18n="tab2.ratio"></th><th data-i18n="tab2.frames"></th><th>%</th></tr></thead>
           <tbody>${zonesHtml}</tbody>
         </table>
-      </section>`;
+      </div>`;
   } else {
     // Caso clasico: una sola zona (uniform letterbox). Si tenemos light
     // profile, usamos los offsets de la zona dominante; si no, los del
@@ -1485,21 +1420,85 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     const sH = lLft === lRgt;
     const subLabel = _rgrfAlcance(!z0);
     blockActiveArea = `
-      <section class="dv-block">
-        <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span> <span class="dv-block-sub">${subLabel}</span></h5>
+      <div class="dv-ficha-encuadre">
+        <div class="dv-mc-row-label"><span data-i18n="tab2.active_area"></span> ${subLabel}</div>
         <div class="dv-split">
           <div class="dv-grid-2">
-            ${cell(tr('tab2.offsets_t_b'), `${lTop} / ${lBot} px`)}
-            ${cell(tr('tab2.offsets_l_r'), `${lLft} / ${lRgt} px`)}
             ${cell(tr('tab2.area_activa'), `${aWi} × ${aHi}`)}
             ${cell(tr('tab2.aspect_ratio'), aspectLabel)}
-            ${cell(tr('tab2.simetria_vertical'), sV ? 'T = B' : `Δ ${Math.abs(lTop - lBot)} px`, { status: sV ? 'ok' : 'warn' })}
-            ${cell(tr('tab2.simetria_horizontal'), sH ? 'L = R' : `Δ ${Math.abs(lLft - lRgt)} px`, { status: sH ? 'ok' : 'warn' })}
+            ${(sV && sH) ? '' : cell(tr('tab2.simetria'),
+                `${sV ? 'T = B' : `Δ ${Math.abs(lTop - lBot)} px`} · ${sH ? 'L = R' : `Δ ${Math.abs(lLft - lRgt)} px`}`,
+                { status: 'warn', tooltip: tr('tab2.simetria_tip') })}
           </div>
           <div class="dv-viz-side">${_rgrfL5Svg(dv, frameW, frameH)}</div>
         </div>
-      </section>`;
+      </div>`;
   }
+
+  // **El HDR declarado y el contenedor viven AQUÍ.**
+  //
+  // El primero estuvo unos días en la cadena de mastering y no es su
+  // sitio: describe lo que el fichero dice ser, igual que el códec y la
+  // señal de color, mientras la cadena describe dónde se hizo el grade.
+  // Y el contenedor era un bloque propio al final, con seis celdas —una
+  // sección entera para decir con qué se muxeó.
+  const declaradoHdr = _rgrfHdrDeclarado(dv, hdr);
+  const c = a.container;
+  const filaContenedor = !c ? '' : `
+      <div class="dv-ficha-contenedor">
+        <div class="dv-mc-row-label"><span data-i18n="tab2.contenedor"></span> <span class="dv-mc-row-sub" data-i18n="tab2.contenedor_sub"></span></div>
+        <div class="dv-grid-3">
+          ${cell(tr('tab2.formato'), [c.format, c.format_version].filter(Boolean).join(' v') || '—')}
+          ${cell(tr('tab2.tasa_media'), c.overall_bitrate_kbps
+              ? `${(c.overall_bitrate_kbps / 1000).toFixed(1)} Mbps${c.overall_bitrate_mode ? ` · ${escHtml(c.overall_bitrate_mode)}` : ''}`
+              : '—', { tooltip: tr('tab2.tasa_media_tip') })}
+          ${cell(tr('tab2.titulo_interno'), c.title ? escHtml(c.title) : '—', { tooltip: tr('tab2.titulo_interno_tip') })}
+          ${cell(tr('tab2.muxeado_con'), c.encoded_application ? escHtml(c.encoded_application) : '—')}
+          ${cell(tr('tab2.muxeado_el'), c.encoded_date ? escHtml(c.encoded_date) : '—')}
+          ${cell(tr('tab2.ids_externos'), (c.imdb_id || c.tmdb_id)
+              ? `${escHtml(c.imdb_id || '—')} · ${escHtml(c.tmdb_id || '—')}`
+              : '—', { tooltip: tr('tab2.ids_del_contenedor_tip') })}
+        </div>
+      </div>`;
+
+  const blockStream = `
+    <section class="dv-block">
+      <h5 class="dv-block-title"><span data-i18n="tab2.ficha_tecnica"></span>
+        <span class="dv-block-sub" data-i18n="tab2.ficha_tecnica_sub"></span>
+      </h5>
+      <div class="dv-grid-3">
+        ${cell('Profile', profile)}
+        ${cell(tr('tab2.cm_version'), cmLabel)}
+        ${cell('Frames', framesTotal ? framesTotal.toLocaleString(localeActual()) : '—', { tooltip: tr('tab2.total_de_frames_del_mkv') })}
+        ${cell(tr('tab1.duracion'), durationStr)}
+        ${cell('FPS', fps, { tooltip: tr('tab2.fps_del_track_de_video') })}
+        ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
+        ${cell('Codec', mainVideo?.codec || '—')}
+        ${cell(tr('tab2.perfil_codec'), perfilHevc, { tooltip: tr('tab2.perfil_codec_tip') })}
+        ${cell(tr('tab2.modo_de_tasa'), mainVideo?.framerate_mode || '—', { tooltip: tr('tab2.modo_de_tasa_tip'), status: modoTasaEstado })}
+        ${cell(tr('tab2.muestreo_croma'), senalColor, { tooltip: tr('tab2.muestreo_croma_tip') })}
+        ${cell('RPU', rpuSize, { tooltip: tr('tab2.tamano_total_estimado_del_rpu') })}
+        ${sceneCutsCell}
+        ${elVideo ? cell(tr('tab2.enhancement_layer'), `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
+      </div>
+      ${declaradoHdr ? `
+        <div class="dv-mc-row-declarado">
+          <div class="dv-mc-row-label"><span data-i18n="tab2.hdr_declarado"></span> <span class="dv-mc-row-sub" data-i18n="tab2.segun_el_contenedor"></span></div>
+          <div class="dv-mc-row-content">${declaradoHdr}</div>
+        </div>` : ''}
+      ${blockActiveArea}
+      ${filaContenedor}
+    </section>`;
+
+  // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 2 · Cadena de mastering (sustituye al antiguo bloque
+  // tr('tab2.luminancia') + bloque "Gamut CIE 1931"). Toda la info de primaries,
+  // mastering display, container HEVC, DV L9/L10 y trim targets en una
+  // sola ficha escaneable. La luminancia DV L1 dinámica vive en el
+  // bloque del sparkline donde hay graficos + stats card; la HDR10
+  // estatica se muestra aqui como dato del SEI.
+  // ═══════════════════════════════════════════════════════════════
+  const blockMastering = _rgrfMasteringChain(dv, hdr, mainVideo);
 
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 4 · Los niveles del RPU, en una tabla
@@ -1579,32 +1578,6 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     </section>`;
 
   // ═══════════════════════════════════════════════════════════════
-  // BLOQUE 7 · El contenedor: quién hizo este fichero y cómo
-  // ═══════════════════════════════════════════════════════════════
-  // Va el último a propósito: no dice nada de la imagen, dice de dónde
-  // sale el fichero. Y trae los dos identificadores que la app venía
-  // adivinando — muchos remuxes escriben el de IMDb y el de TMDb en las
-  // etiquetas del Matroska, y ahí son exactos.
-  const c = a.container;
-  const blockContainer = !c ? '' : `
-    <section class="dv-block">
-      <h5 class="dv-block-title"><span data-i18n="tab2.contenedor"></span>
-        <span class="dv-block-sub" data-i18n="tab2.contenedor_sub"></span>
-      </h5>
-      <div class="dv-grid-3">
-        ${cell(tr('tab2.formato'), [c.format, c.format_version].filter(Boolean).join(' v') || '—')}
-        ${cell(tr('tab2.tasa_media'), c.overall_bitrate_kbps
-            ? `${(c.overall_bitrate_kbps / 1000).toFixed(1)} Mbps${c.overall_bitrate_mode ? ` · ${escHtml(c.overall_bitrate_mode)}` : ''}`
-            : '—', { tooltip: tr('tab2.tasa_media_tip') })}
-        ${cell(tr('tab2.titulo_interno'), c.title ? escHtml(c.title) : '—', { tooltip: tr('tab2.titulo_interno_tip') })}
-        ${cell(tr('tab2.muxeado_con'), c.encoded_application ? escHtml(c.encoded_application) : '—')}
-        ${cell(tr('tab2.muxeado_el'), c.encoded_date ? escHtml(c.encoded_date) : '—')}
-        ${cell(tr('tab2.ids_externos'), (c.imdb_id || c.tmdb_id)
-            ? `${escHtml(c.imdb_id || '—')} · ${escHtml(c.tmdb_id || '—')}`
-            : '—', { tooltip: tr('tab2.ids_del_contenedor_tip') })}
-      </div>
-    </section>`;
-
   // ═══════════════════════════════════════════════════════════════
   //  Ensamblaje con toolbar superior compacta
   // ═══════════════════════════════════════════════════════════════
@@ -1617,10 +1590,8 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
       ${blockQuality}
       ${blockStream}
       ${blockMastering}
-      ${blockActiveArea}
       ${blockNiveles}
       ${blockLight}
-      ${blockContainer}
     </div>`;
 }
 

@@ -146,9 +146,7 @@ IGUAL_EN_INGLES = {
 
     # Ya están en inglés en el original: son cabeceras de tabla y leyendas de
     # gráfico que el castellano nunca tradujo.
-    "core.audio":            "cabecera de pista; en catalán sí se traduce",
-    "tab2.stream":           "cabecera de la columna de MediaInfo",
-    "tab2.frames":           "cabecera de tabla",
+    "core.audio":            "cabecera de pista; en catalán sí se traduce",    "tab2.frames":           "cabecera de tabla",
     "tab3.frames":           "etiqueta de dato",
     "cmv40_pipeline.resumen_fichero":
         "un icono, el nombre del fichero y su tamaño en GB: la línea no "
@@ -237,8 +235,6 @@ IGUAL_EN_INGLES = {
     "tab2.enhancement_layer": "nombre de la capa en la spec de Dolby Vision",
     "tab2.hdr10_metadata":   "nombre del estándar más la palabra que lo acompaña",
     "tab2.l11_content_type": "nombre del bloque del RPU y de su campo",
-    "tab2.offsets_l_r":      "campo del L5 del RPU, con las iniciales del lado",
-    "tab2.offsets_t_b":      "campo del L5 del RPU, con las iniciales del lado",
     "tab2.track_id_p1":      "`Track ID` es como lo llama mkvmerge en su salida",
     "tab3.timecode":         "unidad de tiempo del vídeo, igual en las tres",
     "tab3.gates":            "el nombre de los trust gates en la spec de la app; el log y la hoja de DoviTools los llaman así",
