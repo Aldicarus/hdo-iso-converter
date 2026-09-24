@@ -1877,7 +1877,6 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     _inicio = datetime.now(timezone.utc)
     workload.registrar(_clave, workload.TAB_RIP, _que)
 
-    global _series_create_progress
     # Etiqueta de origen amigable según tipo — sin jerga ('source_type' /
     # 'stype' eran términos internos). El usuario ve "Montando el ISO…",
     # no "Montando origen (iso)…".
@@ -1886,7 +1885,13 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         else tr('tab1.prog_preparando_bdmv') if stype == "bdmv_folder"
         else tr('tab1.prog_preparando_m2ts')
     )
-    _series_create_progress = {
+    # Se MUTA, no se reasigna: un dict de progreso reasignado deja con el
+    # objeto viejo a todo el que guarde la referencia, y entonces nadie ve
+    # los cambios y nada falla. Es la trampa que `analysis_progress` ya
+    # cerró —el modal que se quedaba en blanco al separar los routers— y la
+    # que impedía observar este progreso desde un test.
+    _series_create_progress.clear()
+    _series_create_progress.update({
         # De quién es este progreso. Sin el sello, dos trabajos de serie
         # comparten el mismo dict y el modal del segundo adopta el
         # `resultado` del primero como si fuera suyo.
@@ -1901,7 +1906,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         "current_episode_title": "",
         "pgs_pct": 0,
         "pgs_eta_s": 0,
-    }
+    })
 
     # Callback de progreso intra-episodio. Mapea líneas del log de
     # phase_a a los sub-pasos del modal para que la barra avance gradual
@@ -2159,8 +2164,6 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         _logger.exception("Error global en create-series-sessions")
         raise HTTPException(status_code=500, detail=tr('tab1.error_creando_sesiones', e=e))
 
-    # Marca progreso como terminado
-    _series_create_progress["running"] = False
     # Dos claves y no un sufijo de una letra: el plural del catalán no siempre
     # añade una `s` y el REGISTRO lo prohíbe por eso.
     _series_create_progress["current_label"] = tr(
@@ -2170,7 +2173,13 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
 
     # El resultado va al ESTADO, no de vuelta por HTTP: el POST respondió
     # hace rato. Es de donde lo saca el modal, que ya polleaba el progreso.
-    _series_create_progress["running"] = False
+    #
+    # **Y se escribe ANTES de bajar `running`**, que es el orden y no da
+    # igual: el modal trata «ya no corre y no hay resultado» como un fallo,
+    # así que un poll que cayera entre las dos líneas anunciaba que no se
+    # pudieron crear los proyectos con los proyectos ya creados. Eran los
+    # ~700 ms de una vuelta contra una ventana de microsegundos, pero el
+    # desenlace era decir lo contrario de lo que pasó.
     _series_create_progress["resultado"] = {
         "created": created_sessions,
         "failed": failed_episodes,
@@ -2179,6 +2188,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         "encolados": encolados,                # auto_execute
         "iso_path": body.iso_path,
     }
+    _series_create_progress["running"] = False
     workload.liberar(_clave)
     historial.anotar(
         id     = _clave,
@@ -2335,7 +2345,6 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
 
     created_sessions = []
     failed_episodes: list[dict] = []
-    global _series_create_progress
     _clave = _clave_de_serie(spath, body.season_number)
     _en_espera = {
         "job": _clave,
@@ -2390,7 +2399,8 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     # hay, este espera turno y el runner pondrá el suyo cuando le toque. El
     # sello `job` es lo que permite al modal saber de quién es lo que lee.
     if not _series_create_progress.get("running"):
-        _series_create_progress = _en_espera
+        _series_create_progress.clear()
+        _series_create_progress.update(_en_espera)
     return {"queued": True, "job": _clave, "total": len(body.episodes)}
 
 

@@ -159,6 +159,42 @@ class TestSinLaCasilla(SerieCase, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r["encolados"], 0)
 
 
+class TestElOrdenDeLasDosEscriturasDelFinal(SerieCase,
+                                             unittest.IsolatedAsyncioTestCase):
+    """El resultado se escribe ANTES de bajar la bandera de «corriendo».
+
+    El modal lee «ya no corre y no hay resultado» como un fallo, así que con
+    el orden inverso un poll que cayera entre las dos líneas anunciaba que no
+    se pudieron crear los proyectos **con los proyectos ya creados**. Era una
+    ventana de microsegundos contra vueltas de 700 ms, pero el desenlace era
+    decir lo contrario de lo que pasó.
+    """
+
+    async def test_primero_el_resultado_y_despues_la_bandera(self):
+        from routers import tab1
+
+        orden = []
+
+        class Espia(dict):
+            def __setitem__(self, k, v):
+                if k == "resultado" or (k == "running" and v is False):
+                    orden.append(k)
+                super().__setitem__(k, v)
+
+        with patch.object(tab1, "_series_create_progress", Espia()):
+            r = await self._crear(auto=True)
+
+        # Que el camino recorrido sea el bueno: sin esto el test pasaría con
+        # un runner que falla antes de llegar al final.
+        self.assertEqual(len(r["created"]), self.EPISODIOS)
+        self.assertIn("resultado", orden)
+        # La PRIMERA bajada de bandera, no la última: con una de más por
+        # delante el modal ya ha visto «no corre y no hay resultado», y
+        # comprobar sólo la última pasaría en verde.
+        self.assertLess(orden.index("resultado"), orden.index("running"),
+                        f"la bandera bajó antes del resultado: {orden}")
+
+
 class TestElFlagSobreviveALaEspera(ApiTestCase):
     """La cola puede despachar cuarenta minutos después de encolar.
 

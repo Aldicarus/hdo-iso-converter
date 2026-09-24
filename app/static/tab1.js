@@ -1711,6 +1711,15 @@ async function seriesCreateSessions() {
   if (data?.queued) {
     await refrescarWorkbar();
     const miJob = data.job;
+    // Cuántos episodios había creados en la vuelta anterior. El sidebar se
+    // refresca en cuanto ese número crece, así que los proyectos van
+    // apareciendo uno a uno en vez de todos al final: crear una temporada
+    // son varios minutos y la lista se quedaba vacía todo ese rato.
+    //
+    // Hace falta además del refresco por cambio de cola: sin «Ejecutar al
+    // crear» los episodios se crean y NO se encolan, así que la cola no se
+    // mueve y ahí no hay nada de lo que colgarse.
+    let hechos = 0;
     for (;;) {
       await new Promise(r => setTimeout(r, 700));
       const prog = await apiFetch('/api/series-create-progress', { silent: true });
@@ -1720,6 +1729,8 @@ async function seriesCreateSessions() {
       // adoptaba el resultado del otro trabajo como propio y daba por creados
       // episodios que no existían.
       if (prog.job && miJob && prog.job !== miJob) continue;   // aún es su turno
+      const n = (prog.completed || []).length;
+      if (n > hechos) { hechos = n; await loadSessions(); }
       if (prog.error) { data = null; break; }
       if (prog.resultado) { data = prog.resultado; break; }
       if (!prog.running) { data = null; break; }
@@ -4383,6 +4394,7 @@ function connectQueueWebSocket() {
   queueWs.onopen = () => { _queueWsReconnectDelay = 3000; }; // reset on success
   queueWs.onmessage = (e) => {
     const prevRunning = queueState.running;
+    const prevCola = (queueState.queue || []).join(',');
     try { queueState = JSON.parse(e.data); } catch { return; }
     updateSubtabQueuePill();
     if (queueState.running && queueState.running !== prevRunning) {
@@ -4396,6 +4408,18 @@ function connectQueueWebSocket() {
       refreshOpenProjectState(queueState.running);
       loadSessions();
     } else if (!queueState.running && prevRunning) {
+      loadSessions();
+    } else if ((queueState.queue || []).join(',') !== prevCola) {
+      // La cola cambió sin que cambiara el que corre: alguien encoló o
+      // quitó trabajos, así que los estados que el sidebar está pintando
+      // ya no son los de verdad (`pending` ↔ `queued`).
+      //
+      // Antes se miraba sólo el que corre, y con «Ejecutar al crear» eso
+      // dejaba el sidebar en blanco durante toda la creación: los diez
+      // episodios entraban en la cola, se veían en la columna de trabajo,
+      // y en la lista de proyectos no aparecía ninguno hasta que arrancó
+      // el primer rip —que es cuando `running` cambia— y entonces salían
+      // todos de golpe. Reportado el 2026-09-24.
       loadSessions();
     }
     // Actualizar proyecto anterior que dejó de ejecutarse
