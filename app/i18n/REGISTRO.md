@@ -39,6 +39,23 @@ asistente. En concreto:
   tranquilizar al lector. Lo comprueba
   `test_relato_tab1_tab2::TestElRegistroDeLosRotulos` sobre las situaciones y
   los titulares del relato.
+- **Una celda que DEFINE no comenta.** Las columnas de definición —«Qué
+  aporta» de la tabla de niveles del RPU es la que hay hoy— van en
+  sintagma nominal: empiezan por el sustantivo, sin artículo, y no llevan
+  dos puntos, raya, punto y coma ni aposición. «Ajustes de color del
+  máster CMv4.0», no «Ajustes del colorista en CMv4.0 — el único que el
+  disco no trae»; «Área activa de la imagen dentro del frame», no «Área
+  activa: dónde acaba la imagen y empiezan las barras». El motivo es que
+  las once celdas se leen en columna, una debajo de otra: una que opine
+  rompe la lectura de todas. Lo aplica
+  `test_registro_de_la_traduccion::TestLasDefinicionesDeNivelSonNominales`.
+
+  Un detector genérico de «tono conversacional» se midió y **se
+  descartó**, como el de n-gramas: los patrones específicos («es lo
+  normal», «de una vez») sólo cazaban lo ya corregido, y los genéricos
+  («suele», «se toca», «cosas») daban 6 coincidencias en 1.861 claves y
+  las seis eran legítimas. Lo que funciona es un criterio mecánico sobre
+  un conjunto cerrado de claves.
 - **Y se usa la palabra que la app YA usa.** «En marcha» era una tercera
   forma de decir lo que treinta cadenas llaman «En curso» — y el relato
   existe justamente para que el mismo estado no tenga dos nombres. Antes de

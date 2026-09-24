@@ -47,6 +47,25 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── Los literales de Tab 2 se alinean al registro (2026-09-24).
+    #    El usuario los leyó y dijo que habían caído en «modo conversación»:
+    #    aposiciones charlatanas, juicios de valor («es lo normal», «el único
+    #    que el disco no trae») y verbos coloquiales («se tocó», «sale del»,
+    #    «saca de él»). El REGISTRO pide justo lo contrario, así que esto no
+    #    es «mejorar el castellano de paso» sino cumplir la norma que la
+    #    tanda anterior incumplió.
+    "Extrae el RPU completo del MKV y saca de él":
+        "el registro de la app pide frases cortas y afirmativas y prohíbe el comentario editorial; esta cadena de Tab 2 se reescribió con ese criterio el 2026-09-24, a petición del usuario («vuelve a caer en modo conversación»). Lo que cambia es la FORMA, no lo que dice",
+    "dos cosas de una vez":
+        "el registro de la app pide frases cortas y afirmativas y prohíbe el comentario editorial; esta cadena de Tab 2 se reescribió con ese criterio el 2026-09-24, a petición del usuario («vuelve a caer en modo conversación»). Lo que cambia es la FORMA, no lo que dice",
+    ": los combos L8/L2 clasificados (FULL / CORE+ / CORE / sintético), que dicen si el master es de referencia o generado algorítmicamente, y el":
+        "el registro de la app pide frases cortas y afirmativas y prohíbe el comentario editorial; esta cadena de Tab 2 se reescribió con ese criterio el 2026-09-24, a petición del usuario («vuelve a caer en modo conversación»). Lo que cambia es la FORMA, no lo que dice",
+    "Sale del":
+        "el registro de la app pide frases cortas y afirmativas y prohíbe el comentario editorial; esta cadena de Tab 2 se reescribió con ese criterio el 2026-09-24, a petición del usuario («vuelve a caer en modo conversación»). Lo que cambia es la FORMA, no lo que dice",
+    "No está en ⟦⟧ . El análisis se conserva y se reaprovecha si el fichero vuelve.":
+        "el registro de la app pide frases cortas y afirmativas y prohíbe el comentario editorial; esta cadena de Tab 2 se reescribió con ese criterio el 2026-09-24, a petición del usuario («vuelve a caer en modo conversación»). Lo que cambia es la FORMA, no lo que dice",
+    "Re-analizar (5-10 min). Útil si el clasificador mejoró o el MKV cambió.":
+        "el registro de la app pide frases cortas y afirmativas y prohíbe el comentario editorial; esta cadena de Tab 2 se reescribió con ese criterio el 2026-09-24, a petición del usuario («vuelve a caer en modo conversación»). Lo que cambia es la FORMA, no lo que dice",
     # ── Las siete pills de «CMv4.0 levels extendidos» pasan a una tabla
     #    de once filas (2026-09-24, reportado por el usuario: «no entiendo
     #    el grupo» y «de L3 no veo nada más que está presente»). No era un

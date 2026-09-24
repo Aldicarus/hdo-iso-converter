@@ -519,7 +519,7 @@ class TestElEstiloSeSostiene(CatalogoCase):
 
 
 class TestElManualEstaCompleto(unittest.TestCase):
-    """Las secciones del catálogo tienen que ser las que el nav ofrece.
+    r"""Las secciones del catálogo tienen que ser las que el nav ofrece.
 
     Esto nació de un fallo real: al sacar el manual del bundle, la extracción
     buscaba las claves con `^  (\w+):` y se dejó **`why-upgrade`**, que lleva
@@ -580,6 +580,84 @@ class TestElManualEstaCompleto(unittest.TestCase):
                 self.assertEqual(otros, base, (
                     f"`{seccion}` en `{otra}` no tiene el mismo árbol de "
                     f"etiquetas que el castellano ({len(otros)} vs {len(base)})"))
+
+class TestLasDefinicionesDeNivelSonNominales(CatalogoCase):
+    """La columna «Qué aporta» define; no comenta.
+
+    Se escribió en modo conversación y el usuario tuvo que reportarlo dos
+    veces (2026-09-24): «Ajustes del colorista en CMv4.0 **— el único que
+    el disco no trae**», «Área activa**: dónde acaba la imagen y empiezan
+    las barras**», «Brillo por frame**, la base del tone-mapping**». Las
+    once celdas están una debajo de otra, así que una que opine rompe la
+    lectura de la columna entera.
+
+    **Un detector genérico de «tono conversacional» se midió y se
+    descartó**, igual que el de n-gramas y el de «palabra que el inglés
+    conserva»: los patrones específicos («es lo normal», «de una vez»)
+    sólo cazaban lo que ya se había corregido, y los genéricos («suele»,
+    «se toca», «cosas») daban 6 coincidencias en 1.861 claves y las seis
+    eran legítimas. Lo que sí es exacto es esto: un criterio mecánico
+    sobre un conjunto cerrado de claves.
+    """
+
+    #: las once definiciones de la tabla de niveles del RPU
+    CLAVES = tuple(f"tab2.niv_l{n}" for n in (1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 254))
+
+    #: lo que convierte una definición en un comentario
+    PROHIBIDO = {
+        ":": "los dos puntos abren una explicación; la definición es la celda entera",
+        "—": "la raya añade un comentario editorial",
+        ";": "el punto y coma encadena dos ideas en una celda",
+        ",": "la aposición («Brillo por frame, la base del tone-mapping») comenta",
+    }
+
+    #: un sintagma nominal no arranca con artículo ni con verbo conjugado
+    MAL_INICIO = ("el ", "la ", "los ", "las ", "un ", "una ", "es ", "son ",
+                  "the ", "a ", "an ", "is ", "are ")
+
+    def test_las_once_estan_en_los_tres_catalogos(self):
+        """Sin esto el guard pasaría en verde sobre un conjunto vacío.
+
+        Y hay que afirmar la CUENTA, no sólo recorrer la tupla: vaciarla
+        dejaba los otros dos tests iterando sobre nada y los tres pasaban.
+        Lo destapó la mutación.
+        """
+        self.assertEqual(len(self.CLAVES), 11,
+                         "son los once niveles que pinta la tabla del RPU")
+        for donde, cat in self.catalogos():
+            if donde != "frontend":
+                continue
+            for idioma in ("es", "en", "ca"):
+                faltan = [k for k in self.CLAVES if k not in cat[idioma]]
+                self.assertEqual(faltan, [], f"{idioma}: {faltan}")
+
+    def test_ninguna_definicion_comenta(self):
+        malas = []
+        for donde, cat in self.catalogos():
+            if donde != "frontend":
+                continue
+            for idioma in ("es", "en", "ca"):
+                for k in self.CLAVES:
+                    v = cat[idioma].get(k, "")
+                    for signo, motivo in self.PROHIBIDO.items():
+                        if signo in v:
+                            malas.append(f"[{idioma}] {k}: «{v}» → {motivo}")
+        self.assertEqual(sorted(malas), [], "\n  · ".join([""] + sorted(malas)))
+
+    def test_ninguna_empieza_por_articulo_ni_por_verbo(self):
+        malas = []
+        for donde, cat in self.catalogos():
+            if donde != "frontend":
+                continue
+            for idioma in ("es", "en", "ca"):
+                for k in self.CLAVES:
+                    v = cat[idioma].get(k, "")
+                    if v.lower().startswith(self.MAL_INICIO):
+                        malas.append(f"[{idioma}] {k}: «{v}»")
+        self.assertEqual(sorted(malas), [],
+                         "\n  · ".join(["una definición empieza por el sustantivo:"]
+                                       + sorted(malas)))
+
 
 
 if __name__ == "__main__":
