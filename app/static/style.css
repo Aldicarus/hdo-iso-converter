@@ -7837,6 +7837,44 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 /* ── La curva de luz ─────────────────────────────────────────────────
    El SVG escala al ancho del contenedor: iba a 720 px fijos dentro de un
    panel que puede pasar de 1000, así que se veía pequeño. */
+/* El puntero sobre la curva. La guía y el punto van dentro del SVG; el
+   tooltip es HTML, que es lo que permite colocarlo fuera del viewBox. */
+.dv-luz-host { position: relative; }
+.dv-luz-cursor {
+  stroke: var(--dv-accent-soft);
+  stroke-width: 1;
+  stroke-dasharray: 3,3;
+  pointer-events: none;
+}
+.dv-luz-dot {
+  fill: var(--dv-accent-soft);
+  stroke: var(--surface-1);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.dv-luz-tooltip {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--dv-block-bg);
+  border: 1px solid var(--dv-chart-border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--dv-shadow-md);
+  padding: 7px 10px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dv-luz-tip-fila { display: flex; gap: 6px; align-items: baseline; }
+.dv-luz-tip-fila strong { color: var(--dv-text-1); margin-left: auto; }
+.dv-luz-tip-ud { color: var(--dv-text-4); }
+.dv-luz-tip-t {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--dv-separator);
+  color: var(--dv-text-3);
+}
+
 .dv-luz-svg {
   width: 100%;
   height: 320px;

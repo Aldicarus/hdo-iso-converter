@@ -206,5 +206,50 @@ class TestOcupaElAnchoDelPanel(unittest.TestCase):
         self.assertLess(int(m.group(1)), 40)
 
 
+class TestElPunteroLeeLosValores(EnNode):
+    """«Es lo más parecido a tener zoom sin tenerlo», dijo el usuario.
+
+    El hover se perdió al reescribir el gráfico: la función seguía en el
+    fichero pero buscaba las clases viejas, así que era código muerto.
+    Con 240 puntos en el ancho del panel, leer el valor exacto de un
+    instante sustituye a encuadrar un tramo.
+    """
+
+    def test_el_svg_lleva_cursor_punto_y_tooltip(self):
+        svg = self.svg(WATCHMEN, {"avgSeries": [9] * 10, "minSeries": [0] * 10})
+        for pieza in ("dv-luz-cursor", "dv-luz-dot", "dv-luz-tooltip", "dv-luz-host"):
+            self.assertIn(pieza, svg, f"falta {pieza}")
+
+    def test_y_los_datos_que_el_hover_necesita(self):
+        svg = self.svg(WATCHMEN, {"avgSeries": [9] * 10, "minSeries": [0] * 10})
+        self.assertIn("data-series=", svg)
+        self.assertIn("data-geo=", svg)
+        self.assertIn("data-avg=", svg)
+
+    def test_la_geometria_incluye_la_escala_logaritmica(self):
+        """`data-geo` lleva L0 y L1: sin ellos el hover tendría que
+        recalcular la escala por su cuenta y el punto se despegaría de
+        la curva en cuanto una de las dos fórmulas cambiara."""
+        svg = self.svg(WATCHMEN)
+        geo = re.search(r'data-geo="([^"]+)"', svg).group(1).split(",")
+        self.assertEqual(len(geo), 8)
+        self.assertEqual(geo[-2:], ["0", "4"])   # L0=1 nit · L1=10.000
+
+    def test_el_hover_usa_la_MISMA_formula_que_el_render(self):
+        cuerpo = _funcion("_attachSparklineHover")
+        self.assertIn("Math.log10", cuerpo)
+        self.assertIn("dataset.geo", cuerpo)
+
+    def test_y_engancha_con_las_clases_que_se_pintan(self):
+        """Quedó apuntando a `.dv-sparkline-host`, que ya no existe."""
+        cuerpo = _funcion("_attachSparklineHover")
+        self.assertIn("dv-luz-host", cuerpo)
+        self.assertNotIn("dv-sparkline", cuerpo)
+        self.assertNotIn("dv-sparkline", JS)
+
+    def test_en_la_serie_plana_no_hay_nada_que_enganchar(self):
+        self.assertNotIn("dv-luz-host", self.svg(PLANA))
+
+
 if __name__ == "__main__":
     unittest.main()

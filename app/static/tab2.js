@@ -937,17 +937,25 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
       </div>`).join('');
 
   return `
-    <div class="dv-luz">
+    <div class="dv-luz dv-luz-host">
       <div class="dv-luz-ayuda" data-i18n-html="tab2.luz_como_se_lee"></div>
       <svg class="dv-luz-svg" viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="none"
-           role="img" data-dur="${durationSeconds || 0}">
+           role="img"
+           data-series="${escHtml(JSON.stringify(series))}"
+           data-avg="${avgSeries ? escHtml(JSON.stringify(avgSeries)) : ''}"
+           data-min="${minSeries ? escHtml(JSON.stringify(minSeries)) : ''}"
+           data-dur="${durationSeconds || 0}"
+           data-geo="${padL},${padR},${padT},${padB},${svgW},${svgH},${L0},${L1}">
         ${rejilla.join('')}
         ${banda}
         ${lineasRef.join('')}
         <path d="${linePath}" fill="none" stroke="var(--dv-accent-soft)" stroke-width="2"
               stroke-linejoin="round" />
         ${ejeX}
+        <line class="dv-luz-cursor" y1="${padT}" y2="${padT + usableH}" style="display:none" />
+        <circle class="dv-luz-dot" r="4" style="display:none" />
       </svg>
+      <div class="dv-luz-tooltip" style="display:none"></div>
       <div class="dv-luz-leyenda">
         <div class="dv-luz-fam">
           <span class="dv-luz-fam-rotulo" data-i18n="tab2.luz_fam_medido"></span>
@@ -2393,67 +2401,65 @@ function _renderMkvEditPanel(project = mkvProject) {
   _attachSparklineHover();
 }
 
-/**
- * Attach de mousemove al sparkline de luminancia: muestra crosshair vertical
- * + dot en la curva + tooltip con valor (nits) y timestamp en hh:mm:ss.
- * Idempotente — recorre todos los .dv-sparkline-host del documento (en
- * principio solo hay uno en Tab 2 a la vez). Los datos se leen via
- * data-series del SVG → no necesita acceso a mkvProject.
+/** El puntero sobre la curva: guía vertical, punto y valores.
+ *
+ *  Se perdió al reescribir el gráfico y el usuario lo echó en falta con
+ *  el mejor argumento posible: **es lo más parecido a tener zoom sin
+ *  tenerlo**. Con 240 puntos en el ancho del panel, poder leer el valor
+ *  exacto de un instante sustituye a encuadrar un tramo.
+ *
+ *  La `y` se calcula con la MISMA escala logarítmica que el render y
+ *  desde los mismos números —`data-geo` los lleva—, porque con la
+ *  fórmula escrita dos veces el punto se despega de la curva en cuanto
+ *  una de las dos cambie.
+ *
+ *  Idempotente: se llama tras cada render y el SVG se marca.
  */
 function _attachSparklineHover() {
-  document.querySelectorAll('.dv-sparkline-host').forEach(host => {
-    const svg = host.querySelector('.dv-sparkline-svg');
+  document.querySelectorAll('.dv-luz-host').forEach(host => {
+    const svg = host.querySelector('.dv-luz-svg');
     if (!svg || svg._hoverWired) return;
     svg._hoverWired = true;
 
-    let series, avgSer = null, minSer = null;
-    try { series = JSON.parse(svg.dataset.series); }
-    catch (_) { return; }
+    const leer = (n) => { try { return JSON.parse(svg.dataset[n] || 'null'); }
+                          catch (_) { return null; } };
+    const series = leer('series');
     if (!Array.isArray(series) || series.length < 2) return;
-    try { if (svg.dataset.avgSeries) avgSer = JSON.parse(svg.dataset.avgSeries); }
-    catch (_) { avgSer = null; }
-    try { if (svg.dataset.minSeries) minSer = JSON.parse(svg.dataset.minSeries); }
-    catch (_) { minSer = null; }
-
-    const dur   = parseFloat(svg.dataset.duration) || 0;
-    const padL  = parseFloat(svg.dataset.padL);
-    const padR  = parseFloat(svg.dataset.padR);
-    const padT  = parseFloat(svg.dataset.padT);
-    const padB  = parseFloat(svg.dataset.padB);
-    const svgW  = parseFloat(svg.dataset.svgW);
-    const svgH  = parseFloat(svg.dataset.svgH);
+    const avgSer = leer('avg');
+    const minSer = leer('min');
+    const [padL, padR, padT, padB, svgW, svgH, L0, L1] =
+      (svg.dataset.geo || '').split(',').map(Number);
+    const dur = parseFloat(svg.dataset.dur) || 0;
     const usableW = svgW - padL - padR;
     const usableH = svgH - padT - padB;
-    // yMax = escala efectiva del chart (peak con headroom). Lo lee el SVG
-    // del data-attribute para que coincida con el render.
-    const yMax = parseFloat(svg.dataset.yMax) || Math.max(...series) || 1;
+    const yOf = (v) => {
+      const l = Math.log10(Math.max(v, Math.pow(10, L0)));
+      const t = (l - L0) / (L1 - L0);
+      return padT + usableH - Math.max(0, Math.min(1, t)) * usableH;
+    };
 
-    const cursor  = svg.querySelector('.dv-sparkline-cursor');
-    const dot     = svg.querySelector('.dv-sparkline-dot');
-    const tooltip = host.querySelector('.dv-sparkline-tooltip');
-    if (!cursor || !dot || !tooltip) return;
+    const cursor = svg.querySelector('.dv-luz-cursor');
+    const dot = svg.querySelector('.dv-luz-dot');
+    const tip = host.querySelector('.dv-luz-tooltip');
+    if (!cursor || !dot || !tip) return;
+
+    const ocultar = () => {
+      cursor.style.display = 'none';
+      dot.style.display = 'none';
+      tip.style.display = 'none';
+    };
 
     svg.addEventListener('mousemove', (e) => {
       const rect = svg.getBoundingClientRect();
       if (rect.width <= 0) return;
-      const px = e.clientX - rect.left;        // pixel X relativo al SVG
-      const sx = (px / rect.width) * svgW;     // viewBox X
-      // Solo mostrar tooltip cuando el mouse esta dentro del area de chart
-      if (sx < padL || sx > svgW - padR) {
-        cursor.style.display = 'none';
-        dot.style.display = 'none';
-        tooltip.style.display = 'none';
-        return;
-      }
+      const px = e.clientX - rect.left;
+      const sx = (px / rect.width) * svgW;
+      if (sx < padL || sx > svgW - padR) { ocultar(); return; }
+
       const i = Math.max(0, Math.min(series.length - 1,
         Math.round(((sx - padL) / usableW) * (series.length - 1))));
-      const v = series[i];
-      const av = avgSer ? avgSer[i] : null;
-      const mn = minSer ? minSer[i] : null;
-      const t = dur * (i / (series.length - 1));
       const x = padL + (i / (series.length - 1)) * usableW;
-      const y = padT + usableH - Math.max(0, Math.min(1, v / yMax)) * usableH;
-
+      const y = yOf(series[i]);
       cursor.setAttribute('x1', x);
       cursor.setAttribute('x2', x);
       cursor.style.display = '';
@@ -2461,29 +2467,34 @@ function _attachSparklineHover() {
       dot.setAttribute('cy', y);
       dot.style.display = '';
 
-      // Tooltip: peak / avg / min en filas con codigo de color matching las curvas.
-      const lines = [];
-      lines.push(`<span style="color:#7cc4ff"><span data-i18n="tab2.peak"></span></span> ${v.toLocaleString(localeActual())} nits`);
-      if (av != null) lines.push(`<span style="color:#86efac"><span data-i18n="tab2.avg"></span></span> ${av.toLocaleString(localeActual())} nits`);
-      if (mn != null) lines.push(`<span style="color:#cbd5e1"><span data-i18n="tab2.min"></span></span> ${mn.toLocaleString(localeActual())} nits`);
-      if (dur > 0) lines.push(`<span style="color:var(--dv-text-4)">@</span> ${_rgrfFmtTime(t)}`);
-      tooltip.innerHTML = lines.join('<br>');
-      tooltip.style.display = '';
-      // Posiciona el tooltip cerca del cursor; si está en la mitad derecha
-      // del chart, mostrar a la izquierda para no salirse.
-      const tipPxX = (x / svgW) * rect.width;
-      const tipPxY = (y / svgH) * rect.height;
-      const onRight = px > rect.width / 2;
-      tooltip.style.left  = onRight ? '' : `${tipPxX + 14}px`;
-      tooltip.style.right = onRight ? `${rect.width - tipPxX + 14}px` : '';
-      tooltip.style.top   = `${Math.max(0, tipPxY - 56)}px`;
+      // El rótulo llega RESUELTO, no como clave: una clave interpolada
+      // en un `data-i18n` es indistinguible de un dato y se pinta en
+      // crudo si se escribe mal. Es el mismo helper que ya tropezó con
+      // esto en la card de calidad.
+      const fila = (rotulo, valor, color) =>
+        `<div class="dv-luz-tip-fila"><span style="color:${color}">${escHtml(rotulo)}</span>`
+        + `<strong>${valor.toLocaleString(localeActual())}</strong>`
+        + `<span class="dv-luz-tip-ud" data-i18n="tab2.nits"></span></div>`;
+      const filas = [fila(tr('tab2.peak'), series[i], 'var(--dv-accent-soft)')];
+      if (avgSer) filas.push(fila(tr('tab2.avg'), avgSer[i], 'var(--dv-text-2)'));
+      if (minSer) filas.push(fila(tr('tab2.min'), minSer[i], 'var(--dv-text-3)'));
+      if (dur > 0) {
+        filas.push(`<div class="dv-luz-tip-t">${
+          _rgrfFmtTime(dur * (i / (series.length - 1)))}</div>`);
+      }
+      tip.innerHTML = filas.join('');
+      pintarTextos(tip);
+      tip.style.display = '';
+      // En la mitad derecha el tooltip se ancla por la derecha: si no, se
+      // sale del panel — y en la captura del usuario tapaba la curva.
+      const tipX = (x / svgW) * rect.width, tipY = (y / svgH) * rect.height;
+      const derecha = px > rect.width / 2;
+      tip.style.left = derecha ? '' : `${tipX + 16}px`;
+      tip.style.right = derecha ? `${rect.width - tipX + 16}px` : '';
+      tip.style.top = `${Math.max(0, Math.min(rect.height - 96, tipY - 48))}px`;
     });
 
-    svg.addEventListener('mouseleave', () => {
-      cursor.style.display = 'none';
-      dot.style.display = 'none';
-      tooltip.style.display = 'none';
-    });
+    svg.addEventListener('mouseleave', ocultar);
   });
 }
 
