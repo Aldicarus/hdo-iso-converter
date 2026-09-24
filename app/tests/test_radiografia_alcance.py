@@ -79,6 +79,7 @@ def _funcion(nombre: str) -> str:
 
 FUNCIONES = ("_rgrfAlcance", "_rgrfRow", "_rgrfQualityAuditCard",
              "_rgrfMasteringChain", "_l8NitsLabel", "_rgrfL8Svg", "_rgrfTablaDeNiveles",
+             "_rgrfTitular",
              "escHtml", "_fmtBytes")
 
 DOM = """
@@ -316,6 +317,64 @@ class TestLaTablaDeNiveles(EnNode):
         html = self._tabla({})
         self.assertIn(">L1<", html)
         self.assertIn("no medido", html)
+
+
+class TestElTitular(EnNode):
+    """Las tres frases sustituyen a la card del veredicto."""
+
+    LECTURA = [
+        {"rotulo": "Qué es", "texto": "Dolby Vision Profile 7 FEL sobre HDR10.",
+         "conclusion": "La capa de mejora es completa."},
+        {"rotulo": "El máster", "texto": "Masterizado en BT.2020 a 1000 nits.",
+         "conclusion": "Master CMv2.9 nativo"},
+        {"rotulo": "La luz", "texto": "Pico 1001 nits y mediana 437.",
+         "conclusion": "El pico medido coincide con el máster."},
+    ]
+
+    def _titular(self, lectura, dv=None):
+        return self.evaluar("_rgrfTitular(A, DV)",
+                            f"const A = {json.dumps({'lectura': lectura})};\n"
+                            f"const DV = {json.dumps(dv or {})};")
+
+    def test_pinta_las_tres_con_su_conclusion(self):
+        html = self._titular(self.LECTURA)
+        for f in self.LECTURA:
+            self.assertIn(f["rotulo"], html)
+            self.assertIn(f["texto"], html)
+            self.assertIn(f["conclusion"], html)
+
+    def test_la_conclusion_se_distingue_del_dato(self):
+        """Lo interpretado no puede leerse igual que lo medido."""
+        self.assertIn("dv-titular-conclusion", self._titular(self.LECTURA))
+
+    def test_conserva_el_punto_de_color_del_veredicto(self):
+        """Es lo único de la card vieja que no era un número: dice de un
+        vistazo si el máster es bueno."""
+        html = self._titular(self.LECTURA, {"quality_verdict_color": "green",
+                                            "quality_classification": "real"})
+        self.assertIn("punto-conf alta", html)
+
+    def test_sin_auditoria_ofrece_el_analisis_extendido(self):
+        html = self._titular(self.LECTURA)
+        self.assertIn("data-analisis-extendido", html)
+
+    def test_y_con_ella_ofrece_re_analizar(self):
+        html = self._titular(self.LECTURA, {"quality_classification": "real"})
+        self.assertNotIn("data-analisis-extendido", html)
+        self.assertIn("_rgrfAuditQuality", html)
+
+    def test_sin_lectura_lo_dice_y_no_revienta(self):
+        html = self._titular(None)
+        self.assertIn("dv-titular-vacio", html)
+
+    def test_la_card_vieja_ya_no_encabeza_la_radiografia(self):
+        """El guard del caller: el test de arriba llama al titular
+        directamente y no vería que quien monta el bloque volviera a la
+        card — que es de lo que se trata."""
+        cuerpo = _funcion("_renderMkvDvRadiography")
+        linea = [l for l in cuerpo.splitlines() if "blockQuality =" in l]
+        self.assertEqual(len(linea), 1)
+        self.assertIn("_rgrfTitular", linea[0])
 
 
 if __name__ == "__main__":

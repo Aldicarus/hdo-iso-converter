@@ -7801,6 +7801,45 @@ input.cmv40-lookup-input:-webkit-autofill:active {
    Hereda de `.dv-l5-zones-table`, que es la otra tabla de este panel: dos
    tablas a dos centímetros con rejillas distintas se leen como dos cosas
    que no tienen que ver. */
+/* ── El titular: tres frases y su conclusión ──────────────────────────
+   Rótulo a la izquierda en columna fija, para que las tres frases
+   arranquen alineadas y se puedan comparar de un vistazo. */
+.dv-titular { position: relative; padding: 14px 16px; }
+.dv-titular-fila {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 4px 14px;
+  padding: 7px 0;
+}
+.dv-titular-fila + .dv-titular-fila { border-top: 1px solid var(--dv-separator); }
+.dv-titular-rotulo {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dv-text-3);
+  padding-top: 2px;
+}
+.dv-titular-texto { color: var(--dv-text-1); line-height: 1.55; }
+/* La conclusión es lo interpretado, no lo medido: va con el acento y
+   con marca a la izquierda para que se distinga del dato. */
+.dv-titular-conclusion {
+  margin-top: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--dv-accent-border);
+  color: var(--dv-text-2);
+  line-height: 1.5;
+}
+.dv-titular-punto { position: absolute; top: 16px; right: 16px; }
+.dv-titular-pie { display: flex; justify-content: flex-end; margin-top: 10px; }
+.dv-titular-vacio {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--dv-text-3);
+}
+
 .dv-niveles-tabla {
   width: 100%;
   border-collapse: collapse;

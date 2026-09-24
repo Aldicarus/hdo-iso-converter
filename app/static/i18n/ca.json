@@ -820,6 +820,7 @@
   "tab2.tasa_media": "Taxa mitjana",
   "tab2.tasa_media_tip": "Del fitxer complet, amb àudio i subtítols inclosos.",
   "tab2.tiene_perfil_de_luminancia_sirve_para": "Té perfil de luminància: serveix per al comparador A/B",
+  "tab2.titular_sin_datos": "Sense metadada HDR ni Dolby Vision per interpretar.",
   "tab2.titulo_interno": "Títol intern",
   "tab2.titulo_interno_tip": "Títol escrit al contenidor. Pot no coincidir amb el nom del fitxer.",
   "tab2.total_de_frames_del_mkv": "Total de frames del MKV (durada × FPS)",

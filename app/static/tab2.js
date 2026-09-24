@@ -1384,7 +1384,11 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 0 · Auditoría de calidad (quality_*) — encabeza la radiografía
   // ═══════════════════════════════════════════════════════════════
-  const blockQuality = _rgrfQualityAuditCard(dv, isV40);
+  // **El titular absorbe la card del veredicto.** Decidido con el usuario
+  // el 2026-09-24: el veredicto pasa a ser la conclusión de «El máster» y
+  // los cuatro stats bajan a la tabla de niveles, donde ya estaban casi
+  // todos. Una cosa menos que leer para decir lo mismo.
+  const blockQuality = _rgrfTitular(a, dv);
 
   // ═══════════════════════════════════════════════════════════════
   // BLOQUE 1 · Stream (profile + timing + structure)
@@ -1660,6 +1664,58 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
  *  fila. Y se pinta SIEMPRE: con `isV40` no existía en 8 de los 10 MKV
  *  del NAS, y con él se iba L4, que 5 de esos 8 tienen.
  */
+/** El titular: las tres frases que interpretan el análisis.
+ *
+ *  Sustituye a la card del veredicto —punto de color y cuatro cifras—,
+ *  que respondía a medias una sola de las tres preguntas que trae a
+ *  alguien a esta pantalla: qué es este fichero, cómo está masterizado y
+ *  cómo se ve. Los números no desaparecen: bajan a la tabla de niveles,
+ *  donde ya estaban casi todos.
+ *
+ *  **Las frases las compone el SERVIDOR** (`phases/mkv_lectura.py`), por
+ *  lo mismo que el relato: son una interpretación, y una interpretación
+ *  escrita dos veces se desincroniza. Aquí sólo se pintan.
+ *
+ *  El botón se queda: sin análisis extendido no hay frase de luz ni
+ *  detalle de grading, y es la única forma de conseguirlos.
+ */
+function _rgrfTitular(a, dv) {
+  const frases = Array.isArray(a?.lectura) ? a.lectura : [];
+  const hayAudit = !!dv?.quality_classification;
+  const boton = hayAudit
+    ? `<button class="btn btn-ghost btn-xs dv-titular-accion"
+              onclick="_rgrfAuditQuality(event)" data-i18n-tip="tab2.re_analizar_5_10_min_util"><span data-icono="refrescar"></span> <span data-i18n="tab2.re_analizar"></span></button>`
+    : `<button class="btn btn-primary btn-sm dv-titular-accion" data-analisis-extendido="1"
+              onclick="_rgrfAuditQuality(event)" data-i18n-tip="tab2.analisis_extendido_combos_l8_l2_perfil"><span><span data-icono="lupaOnda"></span></span> <span data-i18n="tab2.analisis_rpu_luz_5_10_min"></span></button>`;
+  if (!frases.length) {
+    return `
+      <section class="dv-block dv-titular">
+        <div class="dv-titular-vacio">
+          <span data-i18n="tab2.titular_sin_datos"></span>
+          ${boton}
+        </div>
+      </section>`;
+  }
+  // El punto de color del veredicto se conserva porque es lo único de la
+  // card que no era un número: dice de un vistazo si el máster es bueno.
+  const color = ({ green: 'alta', yellow: 'media', red: 'mala' })[dv?.quality_verdict_color] || '';
+  const filas = frases.map(f => `
+      <div class="dv-titular-fila">
+        <div class="dv-titular-rotulo">${escHtml(f.rotulo)}</div>
+        <div class="dv-titular-cuerpo">
+          <div class="dv-titular-texto">${escHtml(f.texto)}</div>
+          ${f.conclusion
+            ? `<div class="dv-titular-conclusion">${escHtml(f.conclusion)}</div>` : ''}
+        </div>
+      </div>`).join('');
+  return `
+    <section class="dv-block dv-titular${color ? ' dv-titular-' + color : ''}">
+      ${color ? `<span class="punto-conf ${color} dv-titular-punto"></span>` : ''}
+      ${filas}
+      <div class="dv-titular-pie">${boton}</div>
+    </section>`;
+}
+
 function _rgrfTablaDeNiveles(dv, hdr) {
   const n = (x) => (x || 0).toLocaleString(localeActual());
   const refs = dv?.l1_references || null;

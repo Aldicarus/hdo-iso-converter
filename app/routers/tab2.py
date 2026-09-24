@@ -417,6 +417,26 @@ async def list_mkv_files_in_isos():
     )
     return {"files": files}
 
+def _con_lectura(datos: dict) -> dict:
+    """Añade al análisis las tres frases que lo interpretan.
+
+    **Se compone al servir y NO se persiste**, como `session.plan` y como
+    el relato. El motivo es el mismo que ya obligó a re-derivar el
+    veredicto: la caché guarda texto, y un análisis hecho con la app en
+    castellano se servía en castellano para siempre. Todo lo que la
+    lectura usa son números que la caché sí tiene.
+
+    Un fallo aquí no puede costar el análisis entero: son tres frases.
+    """
+    try:
+        from phases.mkv_lectura import lectura_de
+        datos["lectura"] = lectura_de(datos)
+    except Exception as e:  # noqa: BLE001 - tres frases no tumban un análisis
+        _logger.warning("La lectura del MKV falló (no bloquea): %s", e)
+        datos["lectura"] = None
+    return datos
+
+
 
 @router.post("/api/mkv/analyze", summary="Analiza un MKV existente",
              dependencies=[Depends(workload.marca(
@@ -497,6 +517,7 @@ async def analyze_mkv_endpoint(body: dict):
     }
     cache_was_hit = False
 
+
     async def _mkv_progress_callback(step: str):
         nonlocal cache_was_hit
         try:
@@ -540,7 +561,7 @@ async def analyze_mkv_endpoint(body: dict):
             except Exception as e:
                 _logger.warning("Cache write falló (no bloquea): %s", e)
         analysis_progress.fijar(step="", done=True)
-        return result.model_dump()
+        return _con_lectura(result.model_dump())
     except Exception as e:
         analysis_progress.fijar(step="", done=True, error=str(e))
         _logger.exception("Error analizando MKV %s", mkv_full)
