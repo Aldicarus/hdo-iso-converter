@@ -47,6 +47,27 @@ RATIO_COINCIDE = 0.9
 NITS_ALTO = 300
 
 
+def _perfil(dv: dict) -> dict:
+    """El perfil de luminancia, esté donde esté.
+
+    **En el servidor vive anidado** (`dovi.light_profile.stats`) y en el
+    navegador aplanado (`dovi.l1_stats`), porque quien lo aplana es
+    `_mkvAplicarPerfilLuminancia` en el frontend. Esta función se ejecuta
+    en el servidor, así que leer sólo los campos planos la dejaba sin
+    frase de luz — comprobado en vivo con Drive: la lectura salía con
+    dos frases en vez de tres.
+
+    Se aceptan las dos formas porque el fallback es gratis y el módulo
+    se puede ejercitar con cualquiera de ellas.
+    """
+    lp = dv.get("light_profile") or {}
+    return {
+        "stats": lp.get("stats") or dv.get("l1_stats") or {},
+        "serie": lp.get("per_scene_max_cll") or dv.get("per_scene_max_cll") or [],
+        "refs": lp.get("references") or dv.get("l1_references") or {},
+    }
+
+
 def _frase(rotulo: str, texto: str, conclusion: str = "") -> dict:
     return {"rotulo": rotulo, "texto": texto, "conclusion": conclusion}
 
@@ -125,7 +146,7 @@ def _el_master(dv: dict, hdr: dict, q: dict) -> dict:
 
 def _pico_declarado(dv: dict, hdr: dict) -> int:
     """El pico del máster: L6 del RPU, y si no, el del SEI."""
-    refs = dv.get("l1_references") or {}
+    refs = _perfil(dv)["refs"]
     if refs.get("l6_master_max_nits"):
         return int(refs["l6_master_max_nits"])
     lum = hdr.get("mastering_display_luminance") or ""
@@ -136,8 +157,8 @@ def _pico_declarado(dv: dict, hdr: dict) -> int:
 
 def _la_luz(dv: dict, hdr: dict) -> dict | None:
     """Lo que el RPU dice frame a frame. None si no se ha medido."""
-    stats = dv.get("l1_stats") or {}
-    serie = dv.get("per_scene_max_cll") or []
+    perfil = _perfil(dv)
+    stats, serie = perfil["stats"], perfil["serie"]
     if not stats.get("peak") or not serie:
         return None
 

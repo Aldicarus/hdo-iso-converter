@@ -218,5 +218,40 @@ class TestElEndpointLaSirve(unittest.TestCase):
                           f"este retorno no sirve la lectura: {d}")
 
 
+class TestLaFormaQueELSERVIDORVE(unittest.TestCase):
+    """En el servidor el perfil viene ANIDADO, no aplanado.
+
+    Los fixtures de arriba usan `l1_stats` y `per_scene_max_cll` sueltos,
+    que es la forma del navegador: quien los aplana es
+    `_mkvAplicarPerfilLuminancia`, en el frontend. Esta lectura se
+    compone en el servidor, donde el perfil vive en
+    `dovi.light_profile.stats` — y con los fixtures planos el módulo
+    pasaba en verde mientras en vivo devolvía dos frases en vez de tres.
+    Comprobado contra el NAS con Drive.
+    """
+
+    #: exactamente lo que devuelve `/api/mkv/analyze`
+    COMO_LO_SIRVE_EL_SERVIDOR = {
+        "hdr": dict(HDR, mastering_display_primaries="Display P3"),
+        "dovi": {"profile": 7, "el_type": "FEL", "light_profile": {
+            "per_scene_max_cll": [100, 500, 1001],
+            "references": {"l6_master_max_nits": 1000},
+            "stats": {"peak": 1001, "p50": 437, "total": 222274,
+                      "bucket_high": 171151}}}}
+
+    def test_la_frase_de_luz_sale_con_la_forma_anidada(self):
+        rot = [f["rotulo"] for f in lectura_de(self.COMO_LO_SIRVE_EL_SERVIDOR)]
+        self.assertIn("La luz", rot)
+
+    def test_y_con_los_numeros_correctos(self):
+        f = _por_rotulo(self.COMO_LO_SIRVE_EL_SERVIDOR)["La luz"]
+        self.assertIn("1001", f["texto"])
+        self.assertIn("437", f["texto"])
+        self.assertIn("coincide", f["conclusion"])
+
+    def test_la_forma_aplanada_del_navegador_tambien_vale(self):
+        self.assertIn("La luz", [f["rotulo"] for f in lectura_de(PULP)])
+
+
 if __name__ == "__main__":
     unittest.main()
