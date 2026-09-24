@@ -1690,8 +1690,8 @@ function _cmv40NewUpdatePipelinePreview() {
 // - Trusted: corre todo A→H automáticamente.
 // - Unknown/generic: se detiene en D si los gates no pasan.
 function _cmv40NewUpdateAutoLabel(info) {
-  const span = document.querySelector('.cmv40-new-auto-toggle span');
-  const wrap = document.querySelector('.cmv40-new-auto-toggle');
+  const span = document.querySelector('.modal-auto-toggle span');
+  const wrap = document.querySelector('.modal-auto-toggle');
   if (!span) return;
   if (!info) {
     span.innerHTML = icono('rayo') + ' Auto-pipeline';

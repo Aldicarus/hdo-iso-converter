@@ -1487,12 +1487,34 @@ function seriesChangeEpisode(mplsPath, episodeNumberStr) {
   _renderSeriesEpisodesTable();
 }
 
+/** ¿Se encolan los episodios en cuanto se crean? */
+function _seriesAutoEjecuta() {
+  return !!document.getElementById('series-auto-execute')?.checked;
+}
+
+/** El rótulo del botón de crear, que dice si además va a ejecutar.
+ *
+ *  Lo componían tres sitios con la misma expresión, y el toggle habría
+ *  obligado a tocar los tres: con «Crear 10 proyectos» sobre la casilla
+ *  marcada, nada avisa de que eso son diez rips seguidos.
+ */
+function _seriesTextoBotonCrear(n) {
+  // Cada rama con su clave literal dentro de `tr(`. Elegir la clave en un
+  // ternario también vale, pero no cuando la condición lleva paréntesis:
+  // ahí el guard de claves-como-dato ya no la reconoce, y hace bien —
+  // desde fuera es indistinguible de una clave usada como texto.
+  const p = {n, p2: n === 1 ? '' : 's'};
+  return icono('mas') + ' ' + (_seriesAutoEjecuta()
+    ? tr('tab1.crear_y_ejecutar_n_proyectos', p)
+    : tr('tab1.crear_n_proyectos', p));
+}
+
 function _seriesUpdateCreateButton() {
   const btn = document.getElementById('series-create-btn');
   if (!btn) return;
   const m = _seriesState?.mapping || {};
   const selected = Object.values(m).filter(x => x.include && x.episode_number).length;
-  btn.innerHTML = icono('mas') + ' ' + tr('tab1.crear_n_proyectos', {n: selected, p2: selected === 1 ? '' : 's'});
+  btn.innerHTML = _seriesTextoBotonCrear(selected);
   // Solo habilitar si hay serie + temporada + al menos un episodio marcado
   btn.disabled = !(_seriesState?.selectedSeries && _seriesState?.selectedSeason && selected > 0);
 }
@@ -1620,6 +1642,8 @@ async function seriesCreateSessions() {
   // congela durante 1-3 minutos sin actividad visible).
   // El subtítulo lleva el nombre de la serie/temporada para que el
   // usuario sepa de qué se está analizando los capítulos.
+  // Antes de cerrar: el modal se desmonta y la casilla deja de existir.
+  const autoEjecutar = _seriesAutoEjecuta();
   closeModal('series-modal');
   const seriesTitle = s.selectedSeries.name || '—';
   const seriesYear = s.selectedSeries.year ? ` (${s.selectedSeries.year})` : '';
@@ -1650,6 +1674,7 @@ async function seriesCreateSessions() {
     season_number: s.selectedSeason.season_number,
     episodes,
     mode: createMode,
+    auto_execute: autoEjecutar,
   };
   if (s.probe.source_type) {
     payload.source_type = s.probe.source_type;
@@ -1676,7 +1701,7 @@ async function seriesCreateSessions() {
     cerrarModalDeTrabajo();
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = icono('mas') + ' ' + tr('tab1.crear_n_proyectos', {n: episodes.length, p2: episodes.length === 1 ? '' : 's'});
+      btn.innerHTML = _seriesTextoBotonCrear(episodes.length);
     }
     showToast(tr('tab1.ya_hay_un_analisis_en_marcha'),
               'warning');
@@ -1705,7 +1730,7 @@ async function seriesCreateSessions() {
     cerrarModalDeTrabajo();
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = icono('mas') + ' ' + tr('tab1.crear_n_proyectos', {n: episodes.length, p2: episodes.length === 1 ? '' : 's'});
+      btn.innerHTML = _seriesTextoBotonCrear(episodes.length);
     }
     showToast(tr('tab1.no_se_pudieron_crear_los_proyectos'), 'error');
     return;
@@ -1734,6 +1759,9 @@ async function seriesCreateSessions() {
     skippedExisting.length === 1 ? 'tab1.saltado_ya_existia_uno'
                                  : 'tab1.saltado_ya_existia_varios',
     {p1: skippedExisting.length}));
+  // Cuántos quedaron esperando turno. Va en el mismo renglón que los
+  // otros extras: es la diferencia entre «ya está pedido» y «ábrelos tú».
+  if (data.encolados) extras.push(tr('tab1.n_en_cola', {n: data.encolados}));
   const extrasStr = extras.length ? ` · ${extras.join(' · ')}` : '';
   if (failed.length) {
     const failWord = failed.length === 1 ? tr('tab1.fallo') : tr('tab1.fallaron');
@@ -1750,7 +1778,11 @@ async function seriesCreateSessions() {
   // respeta MAX_PROJECTS y rechaza si el slot está lleno — silenciamos
   // los toasts por episodio y mostramos uno único al final si hubo skip.
   await loadSessions();
-  if (created.length > 0) {
+  // Con «Ejecutar al crear» no se abre ninguna: el sentido de esa casilla es
+  // no tener que tocar los episodios, y diez sub-pestañas encima del panel
+  // serían justo el trabajo que se acaba de evitar. Lo que hay que seguir
+  // está en la columna de trabajo, que ya los enseña esperando turno.
+  if (created.length > 0 && !autoEjecutar) {
     const availableSlots = Math.max(0, MAX_PROJECTS - openProjects.length);
     const toOpen = created.slice(0, availableSlots);
     const skipped = created.length - toOpen.length;

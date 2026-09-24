@@ -4777,7 +4777,7 @@ select { appearance: none; cursor: pointer;
   gap: 12px;
   flex-wrap: wrap;
 }
-.cmv40-new-auto-toggle {
+.modal-auto-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -4785,7 +4785,7 @@ select { appearance: none; cursor: pointer;
   cursor: pointer;
   color: var(--text-2);
 }
-.cmv40-new-auto-toggle input[type="checkbox"] { margin: 0; }
+.modal-auto-toggle input[type="checkbox"] { margin: 0; }
 .cmv40-new-actions {
   display: inline-flex;
   gap: 8px;
@@ -9313,7 +9313,13 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   border-top: 1px solid var(--sep);
   background: var(--surface-1);
   margin-top: 0;
+  /* El toggle a la izquierda y los botones a la derecha, como el pie del
+     modal de Tab 3: `.modal-footer` alinea todo a la derecha y ahí el
+     toggle quedaría pegado a «Cancelar», leyéndose como un tercer botón. */
+  justify-content: space-between;
+  align-items: center;
 }
+.series-modal-acciones { display: inline-flex; gap: 8px; align-items: center; }
 
 /* Toggle TMDb / Manual — pills horizontales coherentes con el resto */
 .series-mode-toggle {

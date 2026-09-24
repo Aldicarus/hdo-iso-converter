@@ -1621,6 +1621,17 @@ class CreateSeriesSessionsRequest(_BaseModel):
     season_number: int
     episodes: list[SeriesEpisodeSelection]
     mode: str = "add_only"  # 'add_only' | 'replace' | 'skip_existing'
+    # Encola cada episodio en cuanto se crea, sin pasar por el panel.
+    #
+    # Un disco de una temporada son diez proyectos y hasta ahora había que
+    # abrirlos y lanzarlos de uno en uno; con la selección automática de
+    # pistas dada por buena, eso son veinte clics para no cambiar nada.
+    #
+    # **Solo para series.** En una película el proyecto es uno y revisarlo
+    # antes de gastar cuarenta minutos es justo lo que hay que hacer; lo que
+    # cansa es repetir esa revisión diez veces sobre episodios del mismo
+    # disco, que traen las mismas pistas y las mismas reglas.
+    auto_execute: bool = False
 
 
 def _clave_de_serie(spath: str, temporada) -> str:
@@ -1848,6 +1859,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     # diálogo de conflictos (saltar / reemplazar / cancelar) tiene que
     # responderse en el acto, no cuando la cola llegue a este trabajo.
     episodes_to_process = episodios
+    encolados = 0
     created_sessions = []
     failed_episodes: list[dict] = []
     audio_dcp = "audio dcp" in (spath or "").lower()
@@ -2128,6 +2140,14 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 )
                 _series_create_progress["current_episode_step"] = "save"
                 save_session(session)
+                if body.auto_execute:
+                    # En el momento de crearlo, para que el orden de la cola
+                    # sea el de los episodios. No arranca nada todavía: este
+                    # trabajo tiene el turno hasta que termine de crearlos.
+                    session.status = "queued"
+                    save_session(session)
+                    await _encolar_rip(session)
+                    encolados += 1
                 created_sessions.append(_session_payload(session))
                 _series_create_progress["completed"].append(ep_label)
                 _series_create_progress["current_episode_step"] = "done"
@@ -2156,6 +2176,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         "failed": failed_episodes,
         "skipped_existing": skipped_existing,  # mode=skip_existing
         "replaced_ids": to_replace_ids,        # mode=replace — sesiones borradas antes de crear las nuevas
+        "encolados": encolados,                # auto_execute
         "iso_path": body.iso_path,
     }
     workload.liberar(_clave)
