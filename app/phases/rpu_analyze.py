@@ -231,8 +231,22 @@ _EXPORT_LEVELS = ("level1", "level2", "level3", "level8")
 # rellenarlos y su tabla «los dos RPU, lado a lado» enseñaba un guion en las
 # dos columnas mientras la fila «Niveles» afirmaba que el bin trae L9. Es la
 # regla de siempre: un solo parser de ese JSON en el repo.
+#: **El índice 0 NO se presenta como «BT.709».**
+#:
+#: Medido sobre los RPU reales: `source_primary_index` vale 0 en el 100 %
+#: de los frames de todos los que hay en el NAS. Y en los dos MKV donde
+#: la radiografía llegaba a enseñarlo decía «BT.709» —el gamut de HD y
+#: SDR, imposible en un máster UHD HDR— mientras MediaInfo leía «Display
+#: P3» del mastering display. Dos caminos, uno correcto y el otro no.
+#:
+#: Así que 0 se mantiene DETECTABLE —`rellenar_l9_l11` distingue ausente
+#: de cero a propósito, y eso no cambia— pero se traduce a cadena vacía:
+#: el dato que hay es «el RPU no declara primarios», y quien sí los sabe
+#: es el mastering display del contenedor.
+PRIMARIES_NO_DECLARADO = 0
+
 PRIMARIES_POR_INDICE = {
-    0: "BT.709", 1: "Reserved", 2: "Reserved", 3: "Reserved",
+    0: "", 1: "Reserved", 2: "Reserved", 3: "Reserved",
     4: "BT.470M", 5: "BT.470BG", 6: "BT.601", 7: "SMPTE 240M",
     8: "Generic", 9: "BT.2020", 10: "SMPTE ST 428",
     11: "DCI-P3", 12: "DCI-P3 D65",
@@ -256,6 +270,8 @@ def rellenar_l9_l11(niveles: dict, dovi) -> None:
           if isinstance(r, dict) and r.get("source_primary_index") is not None]
     if l9:
         idx = l9[0]["source_primary_index"]
+        # `has_l9` sí: el bloque ESTÁ. Lo que no hay es un primario que
+        # enseñar cuando el índice es el no declarado.
         dovi.l9_primaries = PRIMARIES_POR_INDICE.get(idx, f"Index {idx}")
         dovi.has_l9 = True
 

@@ -79,6 +79,7 @@ def _funcion(nombre: str) -> str:
 
 FUNCIONES = ("_rgrfAlcance", "_rgrfRow", "_rgrfQualityAuditCard",
              "_rgrfMasteringChain", "_l8NitsLabel", "_rgrfL8Svg", "_rgrfTablaDeNiveles",
+             "_rgrfSparklineSvg", "_rgrfFmtTime",
              "_rgrfTitular",
              "escHtml", "_fmtBytes")
 
@@ -420,6 +421,40 @@ class TestLosTargetsSeDicenUNAVEZ(EnNode):
         """«Escala L8» no decía nada: son las pantallas de destino."""
         self.assertIn("tab2.l8_pantallas", JS)
         self.assertNotIn("tab2.l8_escala\"", JS)
+
+
+class TestElGraficoPintaLosTrimsDELNIVELQUEMANDA(EnNode):
+    """Se pintaban sólo los de L2, con la etiqueta «Trim 100n».
+
+    En un RPU CMv4.0 —que lleva los dos— eso dibuja los del nivel que NO
+    gobierna y calla los del que sí, y sin decir de cuál es la línea.
+    Reportado por el usuario el 2026-09-24 mirando el gráfico.
+    """
+
+    REFS = {"l8_trim_nits_full": [100, 1000],
+            "l2_trim_targets_nits": [100, 600, 1000]}
+
+    def _spark(self, refs):
+        return self.evaluar(
+            "_rgrfSparklineSvg(SERIE, '1000 nits', 6000, {refs: REFS})",
+            f"const SERIE = [100, 500, 900, 1001];\n"
+            f"const REFS = {json.dumps(refs)};")
+
+    def test_las_lineas_dicen_de_que_nivel_son(self):
+        svg = self._spark(self.REFS)
+        self.assertIn("L8 1000n", svg)
+        self.assertIn("L2 600n", svg)
+        self.assertNotIn("Trim 1000n", svg)
+
+    def test_un_target_en_los_dos_no_se_pinta_dos_veces(self):
+        """100 está en L8 y en L2: una sola línea, la del que manda."""
+        svg = self._spark(self.REFS)
+        self.assertEqual(svg.count("100n"), svg.count("L8 100n"))
+        self.assertNotIn("L2 100n", svg)
+
+    def test_y_sin_l8_se_pintan_los_de_l2(self):
+        svg = self._spark({"l2_trim_targets_nits": [100, 600]})
+        self.assertIn("L2 600n", svg)
 
 
 if __name__ == "__main__":

@@ -93,12 +93,21 @@ class TestL8TrimTargets(NivelesCase):
 class TestL9Primaries(NivelesCase):
     """El caso que el código viejo habría roto igualmente: el índice 0."""
 
-    async def test_indice_cero_es_bt709_y_no_ausente(self):
-        # `source_primary_index` es 0 en los RPUs reales. Un `or` lo trataría
-        # como ausente y el nivel se perdería.
+    async def test_indice_cero_se_detecta_pero_no_declara_primarios(self):
+        """El bloque SE DETECTA, pero el índice 0 no se PRESENTA.
+
+        Son dos cosas distintas y antes se confundían. Distinguir
+        «ausente» de «cero» sigue importando —un `or` descartaría el
+        nivel por falsy—, pero traducir ese 0 a «BT.709» produjo un dato
+        falso: medido sobre el NAS, vale 0 en el 100 % de los RPU, y en
+        los dos MKV donde la radiografía lo enseñaba decía «BT.709»
+        mientras MediaInfo leía «Display P3» del mastering display.
+        BT.709 es el gamut de HD y SDR: en un máster UHD HDR no puede
+        ser. Lo reportó el usuario el 2026-09-24.
+        """
         d = await self.enriquecer(l9_primary=0)
         self.assertTrue(d.has_l9)
-        self.assertEqual(d.l9_primaries, "BT.709")
+        self.assertEqual(d.l9_primaries, "")
 
     async def test_otros_indices_conocidos(self):
         for idx, nombre in ((9, "BT.2020"), (11, "DCI-P3"), (12, "DCI-P3 D65")):
@@ -142,13 +151,13 @@ class TestL11ContentType(NivelesCase):
 
 
 class TestLosTresNivelesJuntos(NivelesCase):
-    """Un RPU como los reales: L8 con dos targets, L9 a BT.709, L11 Cinema."""
+    """Un RPU como los reales: L8 con dos targets, L9 sin declarar, L11 Cinema."""
 
     async def test_rellena_todo_lo_que_hay(self):
         d = await self.enriquecer(l8_indices=[1, 28], l9_primary=0,
                                   l11_content_type=1)
         self.assertEqual(d.l8_trim_nits, [100, 600])
-        self.assertEqual(d.l9_primaries, "BT.709")
+        self.assertEqual(d.l9_primaries, "")   # índice 0: no declarado
         self.assertEqual(d.l11_content_type, "Cinema")
         self.assertTrue(d.has_l8 and d.has_l9 and d.has_l11)
 

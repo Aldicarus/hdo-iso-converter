@@ -192,10 +192,17 @@ class TestElL9YElL11TambienSeMiden(FaseACase):
         self.assertEqual(dv.l11_content_type, "Cinema")
 
     async def test_el_indice_CERO_no_se_pierde(self):
-        """`source_primary_index` vale 0 (BT.709) en los RPUs reales, así
-        que el parseo compara contra `None`. Con un `or` el nivel se
-        descartaría por falsy y la fila diría «—» teniendo el dato — el
-        mismo fallo mudo que CLAUDE.md ya documenta para el L11."""
+        """El bloque SE DETECTA, pero el índice 0 no se PRESENTA.
+
+        Son dos cosas distintas y antes se confundían. Distinguir
+        «ausente» de «cero» sigue importando —un `or` descartaría el
+        nivel por falsy—, pero traducir ese 0 a «BT.709» produjo un dato
+        falso: medido sobre el NAS, vale 0 en el 100 % de los RPU, y en
+        los dos MKV donde la radiografía lo enseñaba decía «BT.709»
+        mientras MediaInfo leía «Display P3» del mastering display.
+        BT.709 es el gamut de HD y SDR: en un máster UHD HDR no puede
+        ser. Lo reportó el usuario el 2026-09-24.
+        """
         from phases.cmv40_pipeline import run_phase_a_analyze_source
         session = self.prepare()
         self.tb.define_rpu_levels("RPU_source.bin", l9_primary=0,
@@ -203,7 +210,7 @@ class TestElL9YElL11TambienSeMiden(FaseACase):
         await run_phase_a_analyze_source(session, log_callback=self.log)
         dv = session.source_dv_info
         self.assertTrue(dv.has_l9, "el índice 0 se descartó por falsy")
-        self.assertEqual(dv.l9_primaries, "BT.709")
+        self.assertEqual(dv.l9_primaries, "")
         self.assertTrue(dv.has_l11)
         self.assertEqual(dv.l11_content_type, "Reserved")
 

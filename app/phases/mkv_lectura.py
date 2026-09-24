@@ -112,6 +112,11 @@ def _que_es(dv: dict, hdr: dict) -> dict:
 
 def _el_master(dv: dict, hdr: dict, q: dict) -> dict:
     """Dónde se hizo el grade y cuánto trabajo lleva encima."""
+    # El orden es L9 y luego el mastering display, pero **el L9 con el
+    # índice no declarado llega vacío**, así que el `or` cae solo al que
+    # sí sabe. Antes ese índice se traducía a «BT.709» y el titular
+    # decía «Masterizado en BT.709» de un UHD HDR, contradiciendo a la
+    # cadena de mastering dos bloques más abajo.
     primarios = (dv.get("l9_primaries")
                  or hdr.get("mastering_display_primaries") or "").strip()
     pico_master = _pico_declarado(dv, hdr)

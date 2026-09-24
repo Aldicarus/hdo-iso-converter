@@ -878,10 +878,21 @@ function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
     if (val <= yMax) refsToDraw.push({ val, label, color });
     else refsOutOfRange.push({ val, label, color });
   };
-  if (Array.isArray(refs.l2_trim_targets_nits)) {
-    refs.l2_trim_targets_nits.forEach(n =>
-      _addRef(n, `Trim ${n}n`, '#f59e0b')); // amber
-  }
+  // **Las líneas de trim dicen de qué NIVEL son.**
+  //
+  // Se pintaban sólo las de L2 con la etiqueta «Trim 100n», sin decir
+  // cuál. En un RPU CMv4.0 —que lleva L2 y L8— eso dibuja los del nivel
+  // que NO manda y calla los del que sí, y con el bug del `trim_slope`
+  // además estaban en otra escala. Lo preguntó el usuario el 2026-09-24.
+  //
+  // Se pintan los dos, cada uno con su nombre y su tono: L8 en el ámbar
+  // fuerte porque es el que gobierna en un CMv4.0, y L2 más apagado.
+  (refs.l8_trim_nits_full || []).forEach(n =>
+    _addRef(n, `L8 ${n}n`, '#f59e0b'));
+  const yaPuesto = new Set(refs.l8_trim_nits_full || []);
+  (refs.l2_trim_targets_nits || []).forEach(n => {
+    if (!yaPuesto.has(n)) _addRef(n, `L2 ${n}n`, '#fbbf24');
+  });
   _addRef(refs.hdr10_max_cll, `MaxCLL ${refs.hdr10_max_cll}n`, '#ec4899'); // pink
   _addRef(refs.hdr10_max_fall, `MaxFALL ${refs.hdr10_max_fall}n`, '#a855f7'); // purple
   _addRef(refs.l6_master_max_nits, tr('tab2.master_p1_n', {p1: refs.l6_master_max_nits}), '#64748b'); // slate
