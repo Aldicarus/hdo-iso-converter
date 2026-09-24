@@ -772,218 +772,192 @@ function _rgrfFmtTime(secs) {
 
 /** Sparkline MaxCLL — smooth curve con gradient fill + shadow filter + grid +
  *  EJE DE TIEMPO con 5 ticks + marcador del pico con su timestamp. */
+/** La curva de luz de la película, en escala logarítmica.
+ *
+ *  Lo que había no se podía leer, y el usuario lo describió con tres
+ *  capturas (2026-09-24): «se ve pequeño, las líneas se solapan, juntan
+ *  5 o 6 conceptos en el mismo sitio». Las tres cosas medidas:
+ *
+ *  · **La escala lineal es la equivocada para HDR.** En Watchmen la
+ *    mediana (119 nits sobre un pico de 2354) caía al **4,4 %** de la
+ *    altura: la mitad de la película vivía en nueve píxeles. En
+ *    logarítmica sube al 60,5 %. Apocalypse pasa del 10 % al 72,8 % y
+ *    El padrino del 21,9 % al 82 %.
+ *  · **Once conceptos a la vez**: tres curvas, tres referencias
+ *    dibujadas y cinco chips de «fuera del chart».
+ *  · **Las etiquetas se pisaban**: MaxCLL 1000 y L2 1001 se rotulaban
+ *    uno encima del otro, literalmente ilegibles.
+ *
+ *  De ahí las tres decisiones, tomadas con el usuario:
+ *
+ *  1. **Una línea y una banda.** El pico manda; el mínimo y el medio
+ *     van de sombra detrás. Las tres series siguen ahí, pero sólo una
+ *     compite por la atención.
+ *  2. **Las referencias no se rotulan en el lienzo.** Se dibujan finas
+ *     y sus nombres van a una leyenda agrupada por FAMILIA —lo que el
+ *     disco declara contra los objetivos de trim—, que es la distinción
+ *     que antes no se veía.
+ *  3. **La película entera al abrir.**
+ *
+ *  Y si la serie es constante no se dibuja nada: le pasa a 3 de los 7
+ *  MKV medidos, donde el relleno azul parecía un dato y no lo era.
+ */
 function _rgrfSparklineSvg(series, labelMax, durationSeconds, opts = {}) {
   if (!Array.isArray(series) || series.length < 2) return '';
-  const svgW = 720, svgH = 200, padL = 56, padR = 118, padT = 18, padB = 44;
-  // Curvas opcionales (mismo length que series) + referencias en nits.
+  const distintos = new Set(series).size;
+  if (distintos <= 1) {
+    return `<div class="dv-luz-plana" data-i18n-html="tab2.luz_plana_grafico"></div>`;
+  }
   const avgSeries = Array.isArray(opts.avgSeries) && opts.avgSeries.length === series.length
     ? opts.avgSeries : null;
   const minSeries = Array.isArray(opts.minSeries) && opts.minSeries.length === series.length
     ? opts.minSeries : null;
   const refs = (opts.refs && typeof opts.refs === 'object') ? opts.refs : {};
-  const peakV = Math.max(...series);
-  // Y-axis: peak con 10% headroom. Las referencias que caigan dentro se
-  // pintan como lineas; las que excedan se listan como chips a la derecha.
-  const yMax = Math.max(1, Math.ceil(peakV * 1.15 / 10) * 10);
+
+  // ── Geometría ────────────────────────────────────────────────────
+  // El SVG escala al ancho del contenedor (`viewBox` + `width:100%`) en
+  // vez de ir a 720 px fijos, y el margen derecho baja de 118 a 16: esos
+  // 102 px eran sólo para los rótulos que ahora están en la leyenda.
+  const svgW = 1000, svgH = 320;
+  const padL = 62, padR = 16, padT = 16, padB = 34;
   const usableW = svgW - padL - padR;
   const usableH = svgH - padT - padB;
-  const xOf = (i) => padL + (i / (series.length - 1)) * usableW;
-  const yOf = (v) => padT + usableH - Math.max(0, Math.min(1, v / yMax)) * usableH;
-  // Mapa index-del-bucket → segundo del movie (proporcional a duracion)
-  const tOf = (i) => (durationSeconds && durationSeconds > 0)
-    ? durationSeconds * (i / (series.length - 1))
-    : null;
 
-  // Helper: genera path Catmull-Rom suavizado para una serie de [x, y] points
+  // ── Escala logarítmica ───────────────────────────────────────────
+  // El suelo es la década por debajo del mínimo y el techo la de encima
+  // del pico, así que el eje siempre cae en potencias de diez y las
+  // marcas son 1 · 10 · 100 · 1000 · 10000 — como se lee una gráfica de
+  // brillo en cualquier sitio.
+  // **El suelo es 1 nit, no la década del mínimo.** Con el suelo pegado
+  // al valor más bajo el eje se estrecha y la curva vuelve a aplastarse:
+  // en Watchmen (mínimo 118, pico 2354) el rango quedaba en 100-10.000 y
+  // la mediana caía otra vez al 4 %. Con el eje completo —1 a la década
+  // del pico— sube al 52 %, que es la mejora que se midió. Y la parte
+  // baja no se desperdicia: ahí vive la banda del mínimo, que en estas
+  // películas baja de 10 nits.
+  const vMax = Math.max(...series, 10);
+  const L0 = 0;
+  const L1 = Math.max(1, Math.ceil(Math.log10(vMax)));
+  const yOf = (v) => {
+    const l = Math.log10(Math.max(v, Math.pow(10, L0)));
+    const t = (l - L0) / (L1 - L0);
+    return padT + usableH - Math.max(0, Math.min(1, t)) * usableH;
+  };
+  const xOf = (i) => padL + (i / (series.length - 1)) * usableW;
+  const tOf = (i) => (durationSeconds && durationSeconds > 0)
+    ? (i / (series.length - 1)) * durationSeconds : 0;
+
   const _smoothPath = (pts) => {
     if (pts.length < 2) return '';
     let p = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
     for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[Math.max(0, i - 1)];
-      const p1 = pts[i];
-      const p2 = pts[i + 1];
-      const p3 = pts[Math.min(pts.length - 1, i + 2)];
-      const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
-      const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
-      const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
-      const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+      const p0 = pts[Math.max(0, i - 1)], p1 = pts[i];
+      const p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+      const cp1x = p1[0] + (p2[0] - p0[0]) / 6, cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+      const cp2x = p2[0] - (p3[0] - p1[0]) / 6, cp2y = p2[1] - (p3[1] - p1[1]) / 6;
       p += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
     }
     return p;
   };
 
+  // ── La banda: entre el mínimo y el medio ─────────────────────────
+  let banda = '';
+  if (avgSeries && minSeries) {
+    const arriba = avgSeries.map((v, i) => [xOf(i), yOf(v)]);
+    const abajo = minSeries.map((v, i) => [xOf(i), yOf(v)]).reverse();
+    banda = `<path d="${_smoothPath(arriba)} L ${abajo.map(pt => `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' L ')} Z"
+                   fill="var(--dv-accent-bg-2)" stroke="none" />`;
+  }
+
   const peakPts = series.map((v, i) => [xOf(i), yOf(v)]);
   const linePath = _smoothPath(peakPts);
-  const areaPath = `${linePath} L ${peakPts[peakPts.length-1][0].toFixed(1)},${padT + usableH} L ${peakPts[0][0].toFixed(1)},${padT + usableH} Z`;
-  const avgPath = avgSeries
-    ? _smoothPath(avgSeries.map((v, i) => [xOf(i), yOf(v)]))
-    : '';
-  const minPath = minSeries
-    ? _smoothPath(minSeries.map((v, i) => [xOf(i), yOf(v)]))
-    : '';
 
-  // Grid en 0/25/50/75/100% del yMax
-  const gridLines = [0, 0.25, 0.5, 0.75, 1.0].map(pct => {
-    const y = padT + usableH - pct * usableH;
-    const val = Math.round(yMax * pct);
-    return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="rgba(15,23,42,0.06)" stroke-dasharray="3,4" />
-            <text x="${padL - 8}" y="${y + 4}" fill="var(--dv-text-3)" font-size="11" font-family="SF Mono,monospace" text-anchor="end" font-weight="500">${val}</text>`;
-  }).join('');
+  // ── Rejilla: una línea por década ────────────────────────────────
+  const rejilla = [];
+  for (let d = L0; d <= L1; d++) {
+    const v = Math.pow(10, d), y = yOf(v);
+    rejilla.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${svgW - padR}" y2="${y.toFixed(1)}"
+                        stroke="var(--dv-grid)" stroke-dasharray="3,4" />`);
+    rejilla.push(`<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end"
+                        class="dv-luz-eje">${v >= 1000 ? (v / 1000) + 'k' : v}</text>`);
+  }
 
-  const gid = `sp-${Math.random().toString(36).slice(2, 7)}`;
-
-  // Eje X con 5 ticks de tiempo (0%, 25%, 50%, 75%, 100%) + linea base
-  const TICK_FRACS = [0, 0.25, 0.5, 0.75, 1.0];
-  const axisY = padT + usableH;
-  let timeTicks = `<line x1="${padL}" y1="${axisY}" x2="${svgW - padR}" y2="${axisY}"
-                         stroke="rgba(15,23,42,0.15)" stroke-width="1" />`;
-  TICK_FRACS.forEach(frac => {
-    const x = padL + frac * usableW;
-    const t = durationSeconds ? durationSeconds * frac : null;
-    const label = t !== null ? _rgrfFmtTime(t) : (frac === 0 ? 'inicio' : (frac === 1 ? 'final' : ''));
-    timeTicks += `<line x1="${x}" y1="${axisY - 3}" x2="${x}" y2="${axisY + 3}"
-                         stroke="rgba(15,23,42,0.3)" stroke-width="1.2" />`;
-    if (label) {
-      const anchor = frac === 0 ? 'start' : (frac === 1 ? 'end' : 'middle');
-      timeTicks += `<text x="${x}" y="${axisY + 18}" fill="var(--dv-text-2)" font-size="11"
-                          font-family="SF Mono,monospace" text-anchor="${anchor}" font-weight="500">${label}</text>`;
-    }
-  });
-
-  // Marcador del pico: busca el índice del valor máximo y dibuja círculo + línea + label
-  const peakIdx = series.indexOf(peakV);
-  const peakX = xOf(peakIdx);
-  const peakY = yOf(peakV);
-  const peakTime = tOf(peakIdx);
-  const peakLabelText = peakTime !== null ? `${peakV} nits @ ${_rgrfFmtTime(peakTime)}` : tr('tab2.pico_p1', {p1: labelMax});
-  // Decidir lado del label (izq si el pico está en la mitad derecha, para no salirse)
-  const peakOnRight = peakIdx / series.length > 0.5;
-  const peakLabelX = peakOnRight ? peakX - 8 : peakX + 8;
-  const peakLabelAnchor = peakOnRight ? 'end' : 'start';
-  const peakMarker = `
-    <line x1="${peakX}" y1="${peakY}" x2="${peakX}" y2="${axisY}"
-          stroke="#007AFF" stroke-width="1" stroke-dasharray="2,3" opacity="0.45" />
-    <circle cx="${peakX}" cy="${peakY}" r="9" fill="#007AFF" fill-opacity="0.15" />
-    <circle cx="${peakX}" cy="${peakY}" r="4.5" fill="#007AFF" stroke="#ffffff" stroke-width="2" />
-    <text x="${peakLabelX}" y="${peakY + 4}" fill="var(--dv-accent-text)" font-size="11.5"
-          font-family="SF Mono,monospace" text-anchor="${peakLabelAnchor}" font-weight="700">${peakLabelText}</text>`;
-
-  // ── Líneas de referencia (L2 trims, HDR10 MaxCLL, L6 master) ─────
-  // Las que caben dentro del yMax se dibujan como líneas dasheadas con
-  // label a la derecha. Las que exceden se listan abajo como chips.
-  const refsToDraw = [];
-  const refsOutOfRange = [];
-  const _addRef = (val, label, color) => {
-    if (!val || val <= 0) return;
-    if (val <= yMax) refsToDraw.push({ val, label, color });
-    else refsOutOfRange.push({ val, label, color });
-  };
-  // **Las líneas de trim dicen de qué NIVEL son.**
-  //
-  // Se pintaban sólo las de L2 con la etiqueta «Trim 100n», sin decir
-  // cuál. En un RPU CMv4.0 —que lleva L2 y L8— eso dibuja los del nivel
-  // que NO manda y calla los del que sí, y con el bug del `trim_slope`
-  // además estaban en otra escala. Lo preguntó el usuario el 2026-09-24.
-  //
-  // Se pintan los dos, cada uno con su nombre y su tono: L8 en el ámbar
-  // fuerte porque es el que gobierna en un CMv4.0, y L2 más apagado.
-  (refs.l8_trim_nits_full || []).forEach(n =>
-    _addRef(n, `L8 ${n}n`, '#f59e0b'));
-  const yaPuesto = new Set(refs.l8_trim_nits_full || []);
-  (refs.l2_trim_targets_nits || []).forEach(n => {
-    if (!yaPuesto.has(n)) _addRef(n, `L2 ${n}n`, '#fbbf24');
-  });
-  _addRef(refs.hdr10_max_cll, `MaxCLL ${refs.hdr10_max_cll}n`, '#ec4899'); // pink
-  _addRef(refs.hdr10_max_fall, `MaxFALL ${refs.hdr10_max_fall}n`, '#a855f7'); // purple
-  _addRef(refs.l6_master_max_nits, tr('tab2.master_p1_n', {p1: refs.l6_master_max_nits}), '#64748b'); // slate
-  _addRef(refs.l6_max_cll, `L6 CLL ${refs.l6_max_cll}n`, '#dc2626'); // red
-
-  const refLines = refsToDraw.map(r => {
-    const y = yOf(r.val);
-    return `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}"
-                  stroke="${r.color}" stroke-width="1" stroke-dasharray="4,3" opacity="0.55" />
-            <text x="${svgW - padR + 4}" y="${y + 4}" fill="${r.color}"
-                  font-size="10" font-family="SF Mono,monospace" font-weight="600"
-                  text-anchor="start">${r.label}</text>`;
-  }).join('');
-  // Chips para refs fuera de rango — se renderizan abajo del SVG
-  const outOfRangeChips = refsOutOfRange.length > 0
-    ? `<div class="dv-sparkline-out-chips">
-         <span class="dv-sparkline-out-label"><span data-i18n="tab2.fuera_del_chart"></span></span>
-         ${refsOutOfRange.map(r =>
-            `<span class="dv-sparkline-out-chip" style="--chip-c:${r.color}">${r.label}</span>`
-         ).join('')}
-       </div>`
-    : '';
-
-  // Leyenda compacta: peak / avg / min cuando aplica + refs (max 3)
-  const legendParts = [
-    `<span class="dv-sl-leg-item" style="--c:#007AFF" data-i18n="tab2.peak_max_pq"></span>`,
+  // ── Referencias: línea fina y SIN rótulo ─────────────────────────
+  // El nombre va a la leyenda. Aquí un rótulo por cada una es lo que
+  // producía «MaxCLL 1000n» encima de «L2 1001n».
+  const familias = [
+    { clave: 'declara', color: 'var(--dv-text-3)', items: [
+        ['master', refs.l6_master_max_nits], ['MaxCLL', refs.hdr10_max_cll],
+        ['MaxFALL', refs.hdr10_max_fall], ['L6 CLL', refs.l6_max_cll]] },
+    // L8 va primero y L2 sólo aporta los que él no trae: un target que
+    // está en los dos es UNA pantalla de destino, y pintarla dos veces
+    // deja dos líneas en el mismo píxel — el problema de las etiquetas
+    // encimadas, con otra cara.
+    { clave: 'trim', color: 'var(--amber)', items: (() => {
+        const l8 = refs.l8_trim_nits_full || [];
+        const ya = new Set(l8);
+        return [...l8.map(n => ['L8', n]),
+                ...(refs.l2_trim_targets_nits || [])
+                    .filter(n => !ya.has(n)).map(n => ['L2', n])];
+      })() },
   ];
-  if (avgPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#22c55e" data-i18n="tab2.avg_avg_pq"></span>`);
-  if (minPath) legendParts.push(`<span class="dv-sl-leg-item" style="--c:#94a3b8" data-i18n="tab2.min_min_pq"></span>`);
-  refsToDraw.slice(0, 4).forEach(r =>
-    legendParts.push(`<span class="dv-sl-leg-item dashed" style="--c:${r.color}">${r.label}</span>`));
-  const legendHtml = `<div class="dv-sparkline-legend">${legendParts.join('')}</div>`;
+  const lineasRef = [];
+  const leyenda = [];
+  const techo = Math.pow(10, L1);
+  for (const fam of familias) {
+    const dentro = [], fuera = [];
+    for (const [nombre, val] of fam.items) {
+      if (!val || val <= 0) continue;
+      (val <= techo ? dentro : fuera).push([nombre, val]);
+      if (val <= techo) {
+        lineasRef.push(`<line x1="${padL}" y1="${yOf(val).toFixed(1)}" x2="${svgW - padR}"
+                              y2="${yOf(val).toFixed(1)}" stroke="${fam.color}"
+                              stroke-width="1" stroke-dasharray="6,5" opacity="0.7" />`);
+      }
+    }
+    if (dentro.length || fuera.length) {
+      leyenda.push({ clave: fam.clave, color: fam.color, dentro, fuera });
+    }
+  }
 
-  // Crosshair y dot del hover — ocultos hasta que el usuario mueva el mouse
-  // sobre el chart. La hidratación se hace en _attachSparklineHover().
-  // Usamos vector-effect="non-scaling-stroke" para que el grosor se
-  // mantenga aunque el SVG estire en X (preserveAspectRatio="none").
-  const hoverCursor = `
-    <line class="dv-sparkline-cursor" x1="0" y1="${padT}" x2="0" y2="${axisY}"
-          stroke="#007AFF" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.7"
-          style="display:none" vector-effect="non-scaling-stroke" />
-    <circle class="dv-sparkline-dot" cx="0" cy="0" r="4.5" fill="#007AFF"
-            stroke="#ffffff" stroke-width="2" style="display:none" />`;
+  const ejeX = [0, 0.25, 0.5, 0.75, 1].map(p => {
+    const i = Math.round(p * (series.length - 1));
+    return `<text x="${xOf(i).toFixed(1)}" y="${svgH - 12}" text-anchor="${
+      p === 0 ? 'start' : p === 1 ? 'end' : 'middle'}"
+      class="dv-luz-eje">${_rgrfFmtTime(tOf(i))}</text>`;
+  }).join('');
 
-  // Datos serializados para el handler de mouse (no se renderizan visualmente).
-  const seriesAttr = JSON.stringify(series).replace(/"/g, '&quot;');
-  const avgAttr = avgSeries ? JSON.stringify(avgSeries).replace(/"/g, '&quot;') : '';
-  const minAttr = minSeries ? JSON.stringify(minSeries).replace(/"/g, '&quot;') : '';
-  const dur = durationSeconds || 0;
+  const chips = (arr, color, fuera) => arr.map(([n, v]) =>
+    `<span class="dv-luz-chip${fuera ? ' dv-luz-chip-fuera' : ''}" style="--chip-c:${color}">${
+      escHtml(n)} ${v.toLocaleString(localeActual())}n</span>`).join('');
+  const leyendaHtml = leyenda.map(f => `
+      <div class="dv-luz-fam">
+        <span class="dv-luz-fam-rotulo" data-i18n="tab2.luz_fam_${f.clave}"></span>
+        ${chips(f.dentro, f.color, false)}${chips(f.fuera, f.color, true)}
+      </div>`).join('');
 
   return `
-    <div class="dv-sparkline-host" style="position:relative">
-    <svg class="dv-sparkline-svg" viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none"
-         data-series="${seriesAttr}" data-avg-series="${avgAttr}" data-min-series="${minAttr}"
-         data-duration="${dur}" data-y-max="${yMax}"
-         data-pad-l="${padL}" data-pad-r="${padR}" data-pad-t="${padT}" data-pad-b="${padB}"
-         data-svg-w="${svgW}" data-svg-h="${svgH}"
-         style="display:block; max-width:100%" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="${gid}-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"  stop-color="#66b0ff" stop-opacity="0.40"/>
-          <stop offset="60%" stop-color="#66b0ff" stop-opacity="0.16"/>
-          <stop offset="100%" stop-color="#66b0ff" stop-opacity="0.00"/>
-        </linearGradient>
-        <linearGradient id="${gid}-line" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%"   stop-color="#007AFF"/>
-          <stop offset="100%" stop-color="#3395ff"/>
-        </linearGradient>
-        <filter id="${gid}-shadow" x="-2%" y="-10%" width="104%" height="120%">
-          <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
-          <feOffset dy="1.5"/>
-          <feComponentTransfer><feFuncA type="linear" slope="0.22"/></feComponentTransfer>
-          <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-      ${gridLines}
-      ${refLines}
-      <path d="${areaPath}" fill="url(#${gid}-area)" />
-      ${minPath ? `<path d="${minPath}" fill="none" stroke="var(--dv-text-4)" stroke-width="1.2"
-            stroke-dasharray="4,3" opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />` : ''}
-      ${avgPath ? `<path d="${avgPath}" fill="none" stroke="#22c55e" stroke-width="1.6"
-            stroke-linejoin="round" stroke-linecap="round" opacity="0.85" />` : ''}
-      <path d="${linePath}" fill="none" stroke="url(#${gid}-line)" stroke-width="2.2"
-            stroke-linejoin="round" stroke-linecap="round" filter="url(#${gid}-shadow)" />
-      ${timeTicks}
-      ${peakMarker}
-      ${hoverCursor}
-    </svg>
-    <div class="dv-sparkline-tooltip" style="display:none"></div>
-    ${legendHtml}
-    ${outOfRangeChips}
+    <div class="dv-luz">
+      <div class="dv-luz-ayuda" data-i18n-html="tab2.luz_como_se_lee"></div>
+      <svg class="dv-luz-svg" viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="none"
+           role="img" data-dur="${durationSeconds || 0}">
+        ${rejilla.join('')}
+        ${banda}
+        ${lineasRef.join('')}
+        <path d="${linePath}" fill="none" stroke="var(--dv-accent-soft)" stroke-width="2"
+              stroke-linejoin="round" />
+        ${ejeX}
+      </svg>
+      <div class="dv-luz-leyenda">
+        <div class="dv-luz-fam">
+          <span class="dv-luz-fam-rotulo" data-i18n="tab2.luz_fam_medido"></span>
+          <span class="dv-luz-chip dv-luz-chip-linea" style="--chip-c:var(--dv-accent-soft)"
+                data-i18n="tab2.luz_pico_frame"></span>
+          <span class="dv-luz-chip dv-luz-chip-banda" style="--chip-c:var(--dv-accent-bg-2)"
+                data-i18n="tab2.luz_banda"></span>
+        </div>
+        ${leyendaHtml}
+      </div>
     </div>`;
 }
 

@@ -585,6 +585,12 @@ class TestLosFragmentosSeCosenBien(unittest.TestCase):
 # sueltas a propósito. Cada una dice por qué; ampliar la lista es una
 # decisión, no un arreglo.
 FRAGMENTOS_ACEPTADOS = {
+    # Los dos rótulos de la familia «Medido» en la leyenda de la curva
+    # de luz. No son una frase partida: son las etiquetas de la línea y
+    # de la banda, cada una con su marca de color delante, y se leen por
+    # separado igual que «peak» y «avg» de los ejes.
+    "tab2.luz_pico_frame": "etiqueta de una marca de la leyenda",
+    "tab2.luz_banda": "etiqueta de la otra marca de la leyenda",
     # La leyenda de confianza del modal de series intercala PUNTOS DE COLOR
     # con su propio tooltip entre los trozos de prosa
     # (`<span class="punto-conf alta" data-i18n-tip="…">`). Fusionarla metería

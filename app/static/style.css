@@ -7726,24 +7726,6 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-family: SF Mono, Menlo, monospace;
   font-weight: 600;
 }
-.dv-sl-leg-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.dv-sl-leg-item::before {
-  content: '';
-  display: inline-block;
-  width: 16px;
-  height: 2px;
-  background: var(--c, var(--blue));
-  border-radius: var(--r-xxs);
-}
-.dv-sl-leg-item.dashed::before {
-  background: transparent;
-  border-top: 2px dashed var(--c, #f59e0b);
-  height: 0;
-}
 
 /* Chips para refs que exceden el rango Y del chart (ej. trim 1000 nits
    en una peli con peak L1 de 176 nits) */
@@ -7851,6 +7833,71 @@ input.cmv40-lookup-input:-webkit-autofill:active {
 }
 .dv-ficha-encuadre .dv-mc-row-label,
 .dv-ficha-contenedor .dv-mc-row-label { margin-bottom: 8px; }
+
+/* ── La curva de luz ─────────────────────────────────────────────────
+   El SVG escala al ancho del contenedor: iba a 720 px fijos dentro de un
+   panel que puede pasar de 1000, así que se veía pequeño. */
+.dv-luz-svg {
+  width: 100%;
+  height: 320px;
+  display: block;
+  background: var(--dv-chart-bg);
+  border: 1px solid var(--dv-chart-border);
+  border-radius: var(--r-md);
+}
+.dv-luz-eje {
+  font-size: var(--fs-xs);
+  fill: var(--dv-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.dv-luz-ayuda {
+  font-size: var(--fs-sm);
+  color: var(--dv-text-3);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+/* La leyenda por FAMILIAS: lo medido · lo que el disco declara · los
+   objetivos de trim. Era una fila de once chips sin agrupar, que es lo
+   que hacía imposible saber qué comparaba uno con qué. */
+.dv-luz-leyenda { margin-top: 10px; display: grid; gap: 6px; }
+.dv-luz-fam { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.dv-luz-fam-rotulo {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dv-text-3);
+  min-width: 132px;
+}
+.dv-luz-chip {
+  /* `--chip-c` la fija el JS en línea y el respaldo va DENTRO del
+     `var()`: es la convención que ya usa `.dv-mc-trim-chip`, y la que
+     el guard de la paleta reconoce como respaldo de verdad. */
+  font-size: var(--fs-sm);
+  color: var(--dv-text-2);
+  padding-left: 18px;
+  position: relative;
+  font-variant-numeric: tabular-nums;
+}
+.dv-luz-chip::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 13px; height: 0;
+  border-top: 2px dashed var(--chip-c, var(--dv-text-3));
+}
+.dv-luz-chip-linea::before { border-top-style: solid; }
+.dv-luz-chip-banda::before { height: 9px; top: calc(50% - 4px); border: none; background: var(--chip-c, var(--dv-text-3)); }
+/* Una referencia por encima del techo del eje no se dibuja, y se dice. */
+.dv-luz-chip-fuera { opacity: var(--op-medio); font-style: italic; }
+.dv-luz-plana {
+  padding: 22px 18px;
+  text-align: center;
+  color: var(--dv-text-2);
+  background: var(--dv-chart-bg-alt);
+  border: 1px dashed var(--dv-block-border);
+  border-radius: var(--r-md);
+}
 
 .dv-niveles-tabla {
   width: 100%;

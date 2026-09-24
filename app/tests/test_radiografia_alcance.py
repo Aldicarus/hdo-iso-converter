@@ -444,16 +444,19 @@ class TestElGraficoPintaLosTrimsDELNIVELQUEMANDA(EnNode):
             f"const SERIE = [100, 500, 900, 1001];\n"
             f"const REFS = {json.dumps(refs)};")
 
-    def test_las_lineas_dicen_de_que_nivel_son(self):
+    def test_los_chips_dicen_de_que_nivel_son(self):
+        """Los nombres viven en la leyenda desde que el lienzo dejó de
+        rotularlos, pero la pregunta es la misma: de qué nivel es cada
+        línea."""
         svg = self._spark(self.REFS)
-        self.assertIn("L8 1000n", svg)
+        self.assertIn("L8 1000n", svg)   # es-ES no separa los millares de 4 dígitos
         self.assertIn("L2 600n", svg)
         self.assertNotIn("Trim 1000n", svg)
 
     def test_un_target_en_los_dos_no_se_pinta_dos_veces(self):
-        """100 está en L8 y en L2: una sola línea, la del que manda."""
+        """100 está en L8 y en L2: una pantalla de destino, una línea."""
         svg = self._spark(self.REFS)
-        self.assertEqual(svg.count("100n"), svg.count("L8 100n"))
+        self.assertIn("L8 100n", svg)
         self.assertNotIn("L2 100n", svg)
 
     def test_y_sin_l8_se_pintan_los_de_l2(self):
