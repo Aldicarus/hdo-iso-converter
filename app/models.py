@@ -63,6 +63,42 @@ class HdrMetadata(BaseModel):
     Este es el gamut donde el colorista hizo el grade — distinto del
     container_primaries (que es el espacio del stream HDR10/DV)."""
 
+    # ── Lo que MediaInfo dice del HDR, sin reinterpretar ──────────────
+    #
+    # `hdr_format` de arriba lo DERIVA la app de `transfer_characteristics`
+    # («PQ» → «HDR10»), así que en un disco con Dolby Vision decía «HDR10»
+    # a secas y se perdía todo lo demás. Estos campos son el texto de
+    # MediaInfo tal cual: es lo que cita cualquier análisis de un UHD y lo
+    # que responde la pregunta práctica de con qué se puede reproducir.
+
+    hdr_format_raw: str = ""
+    """`HDR_Format` literal: 'Dolby Vision / SMPTE ST 2086'."""
+
+    hdr_format_compatibility: str = ""
+    """`HDR_Format_Compatibility`: 'Blu-ray / HDR10'. Con qué es compatible
+    el stream — la pregunta práctica de «¿esto lo reproduce mi equipo?»."""
+
+    dv_profile_string: str = ""
+    """`HDR_Format_Profile` de la parte DV: 'dvhe.07'. NO es el `profile`
+    de `DoviInfo`, que sale de dovi_tool: éste es lo que el contenedor
+    DECLARA, y cuando los dos discrepan es justo lo que hay que enseñar
+    (el bug de «Te van a matar» era exactamente eso)."""
+
+    dv_level: str = ""
+    """`HDR_Format_Level` de la parte DV: '06'."""
+
+    dv_layers: str = ""
+    """`HDR_Format_Settings`: 'BL+EL+RPU' · 'BL+RPU'."""
+
+    matrix_coefficients: str = ""
+    """'BT.2020 non-constant'."""
+
+    colour_range: str = ""
+    """'Limited' · 'Full'."""
+
+    chroma_subsampling: str = ""
+    """'4:2:0'."""
+
 
 class DoviInfo(BaseModel):
     """Análisis RPU de Dolby Vision via dovi_tool."""
@@ -1061,6 +1097,85 @@ class MkvTrackInfo(BaseModel):
     Distinto de DoviInfo.frame_count que es muestreado (--limit en
     extract-rpu). 0 si no aplicable."""
 
+    # ── La ficha técnica que MediaInfo ya daba y no se leía ───────────
+    #
+    # De los 400 campos que MediaInfo devuelve sobre un MKV real se
+    # guardaban 136. Éstos son los que cita un análisis de un UHD y los
+    # que hacían falta para poder concluir algo mirando la pantalla.
+
+    format_profile: str = ""
+    """Vídeo: 'Main 10'. Audio: perfil del codec si lo hay."""
+
+    format_level: str = ""
+    """'5.1' — el nivel del perfil HEVC."""
+
+    format_tier: str = ""
+    """'High' · 'Main'."""
+
+    framerate_mode: str = ""
+    """'CFR' · 'VFR'. Un VFR en un remux de disco es una señal de aviso."""
+
+    bitrate_mode: str = ""
+    """'VBR' · 'CBR'."""
+
+    stream_size_bytes: int = 0
+    """Lo que esta pista ocupa dentro del fichero."""
+
+    stream_size_pct: float = 0.0
+    """Su porcentaje sobre el total. Es lo que contesta «¿en qué se va el
+    fichero?» sin tener que dividir a mano ocho cifras."""
+
+    channel_positions: str = ""
+    """Audio: 'Front: L C R, Side: L R, LFE'. El layout legible, que no es
+    lo mismo que `channel_layout` ('C L R Ls Rs LFE')."""
+
+    delay_ms: float = 0.0
+    """Desfase declarado de la pista. Distinto de cero es digno de verse."""
+
+
+class ContainerInfo(BaseModel):
+    """Lo que el CONTENEDOR dice de sí mismo.
+
+    Va aparte de las pistas porque su alcance es otro: describe el fichero
+    —quién lo muxeó, cuándo y a qué ritmo—, no lo que hay dentro. Y trae
+    dos datos que la app venía adivinando: los identificadores de IMDb y
+    TMDb, que muchos remuxes escriben en las etiquetas del Matroska.
+    """
+
+    format: str = ""
+    """'Matroska'."""
+
+    format_version: str = ""
+    """'4'."""
+
+    title: str = ""
+    """Título del contenedor, que no es el nombre del fichero."""
+
+    overall_bitrate_kbps: int = 0
+    """Ritmo medio del fichero entero, audio y subtítulos incluidos."""
+
+    overall_bitrate_mode: str = ""
+    """'VBR' · 'CBR'."""
+
+    encoded_application: str = ""
+    """'mkvmerge v64.0.0 (Willows) 64-bit' — con qué se hizo el remux."""
+
+    encoded_library: str = ""
+    """'libebml v1.4.2 + libmatroska v1.6.4'."""
+
+    encoded_date: str = ""
+    """Cuándo se muxeó, en UTC."""
+
+    imdb_id: str = ""
+    """'tt0780504', de las etiquetas del Matroska. Es un dato EXACTO: hoy
+    la ficha de TMDb se resuelve por parseo del nombre y match difuso."""
+
+    tmdb_id: str = ""
+    """'movie/64690', misma procedencia."""
+
+    is_streamable: bool = False
+    """Si el índice está al principio del fichero."""
+
 
 class MkvAnalysisResult(BaseModel):
     """Resultado del análisis de un MKV existente con mkvmerge -J + MediaInfo."""
@@ -1094,6 +1209,8 @@ class MkvAnalysisResult(BaseModel):
 
     dovi: DoviInfo | None = None
     """Info Dolby Vision (de MediaInfo sobre MKV — básica, sin dovi_tool)."""
+
+    container: ContainerInfo | None = None
 
     mediainfo_raw: dict | None = None
     """JSON completo de MediaInfo para diagnóstico."""

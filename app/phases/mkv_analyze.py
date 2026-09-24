@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from models import Chapter, DoviInfo, HdrMetadata, MkvAnalysisResult, MkvEditRequest, MkvTrackInfo
+from models import Chapter, ContainerInfo, DoviInfo, HdrMetadata, MkvAnalysisResult, MkvEditRequest, MkvTrackInfo
 
 _logger = logging.getLogger(__name__)
 
@@ -68,7 +68,13 @@ TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
 # analizado con una versión distinta se invalida automáticamente y se
 # re-analiza al próximo open. Historial:
 #   v1 (mayo 2026) — versión inicial del cache.
-CACHE_VERSION_BASIC = 1
+#   v2 (sep 2026)  — la ficha técnica de MediaInfo: `ContainerInfo`, el
+#                    HDR declarado (formato crudo, compatibilidad, perfil
+#                    DV, capas) y los campos de pista (perfil/nivel/tier,
+#                    modo de tasa, tamaño y % del fichero, delay). Un
+#                    bloque v1 no los trae, y sin invalidar se leerían
+#                    como «no presentes» en vez de «no medidos».
+CACHE_VERSION_BASIC = 2
 
 # Versión del análisis profundo del RPU (L8/L2 combos + classify_l8 +
 # classify_l8_quality). Bumpear cuando cambien los umbrales del clasificador
@@ -78,6 +84,116 @@ CACHE_VERSION_BASIC = 1
 #                    %neutro alto con muchos combos: audit #3) + flags
 #                    mid_contrast/clip_trim sólo si != 2048 (audit #14).
 CACHE_VERSION_QUALITY = 2
+
+
+# ── La ficha técnica de MediaInfo ────────────────────────────────────
+
+def _pistas_raw(raw: dict | None, tipo: str) -> list[dict]:
+    """Los tracks de un tipo del JSON de MediaInfo, en orden de stream.
+
+    MediaInfo NO garantiza el orden de la lista, así que se ordena por
+    `StreamOrder` — el mismo criterio que ya usa el enriquecimiento de
+    audio, y por el mismo motivo: emparejar por posición metía el bitrate
+    en la pista de al lado.
+    """
+    if not raw:
+        return []
+    ts = [t for t in (raw.get("media") or {}).get("track") or []
+          if t.get("@type") == tipo]
+    return sorted(ts, key=lambda t: int(str(t.get("StreamOrder") or 0) or 0))
+
+
+def _parte_dv(valor: str) -> str:
+    """La parte Dolby Vision de un campo de MediaInfo con dos mitades.
+
+    Con DV y HDR10 a la vez, MediaInfo emite los campos emparejados por
+    ` / `: `HDR_Format_Profile` vale `'dvhe.07 / '` —la primera mitad es
+    la del Dolby Vision y la segunda, vacía, la del SMPTE ST 2086—. Sin
+    esto el valor llega con la barra y el espacio pegados detrás.
+    """
+    return str(valor or "").split("/")[0].strip()
+
+
+def _entero(valor) -> int:
+    """El primer entero de un campo de MediaInfo, o 0."""
+    try:
+        return int(float(str(valor).strip()))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _volcar_hdr_declarado(hdr_meta, rv: dict) -> None:
+    """Lo que MediaInfo dice del HDR, sin reinterpretar.
+
+    `hdr_format` lo DERIVA la app de la curva de transferencia («PQ» →
+    «HDR10»), así que en un disco con Dolby Vision decía «HDR10» a secas
+    y se perdían el perfil declarado, las capas y —sobre todo— con qué es
+    compatible, que es la pregunta práctica de «¿esto lo reproduce mi
+    equipo?».
+
+    Es una función aparte y no cuatro líneas dentro de `analyze_mkv`
+    porque ahí no hay forma de ejercitarla: una mutación que la vaciara
+    entera pasaba en verde.
+    """
+    hdr_meta.max_cll = _nits_de_mediainfo(rv.get("MaxCLL"))
+    hdr_meta.max_fall = _nits_de_mediainfo(rv.get("MaxFALL"))
+    hdr_meta.mastering_display_luminance = str(rv.get("MasteringDisplay_Luminance") or "")
+    hdr_meta.mastering_display_primaries = str(rv.get("MasteringDisplay_ColorPrimaries") or "")
+    hdr_meta.hdr_format_raw = str(rv.get("HDR_Format") or "")
+    hdr_meta.hdr_format_compatibility = str(rv.get("HDR_Format_Compatibility") or "")
+    hdr_meta.dv_profile_string = _parte_dv(rv.get("HDR_Format_Profile"))
+    hdr_meta.dv_level = _parte_dv(rv.get("HDR_Format_Level"))
+    hdr_meta.dv_layers = _parte_dv(rv.get("HDR_Format_Settings"))
+    hdr_meta.matrix_coefficients = str(rv.get("matrix_coefficients") or "")
+    hdr_meta.colour_range = str(rv.get("colour_range") or "")
+    hdr_meta.chroma_subsampling = str(rv.get("ChromaSubsampling") or "")
+
+
+def _contenedor_de(raw: dict | None, tamano_total: int) -> "ContainerInfo | None":
+    """`ContainerInfo` del track General, o None si MediaInfo no lo trae."""
+    generales = _pistas_raw(raw, "General")
+    if not generales:
+        return None
+    g = generales[0]
+    extra = g.get("extra") or {}
+    tasa = _entero(g.get("OverallBitRate"))
+    return ContainerInfo(
+        format=str(g.get("Format") or ""),
+        format_version=str(g.get("Format_Version") or ""),
+        title=str(g.get("Title") or g.get("Movie") or ""),
+        overall_bitrate_kbps=tasa // 1000,
+        overall_bitrate_mode=str(g.get("OverallBitRate_Mode") or ""),
+        encoded_application=str(g.get("Encoded_Application") or ""),
+        encoded_library=str(g.get("Encoded_Library") or ""),
+        encoded_date=str(g.get("Encoded_Date") or ""),
+        imdb_id=str(extra.get("IMDB") or ""),
+        tmdb_id=str(extra.get("TMDB") or ""),
+        is_streamable=str(g.get("IsStreamable") or "").lower() == "yes",
+    )
+
+
+def _ficha_de_pista(pista, raw_track: dict, tamano_total: int) -> None:
+    """Vuelca en la pista los campos de ficha técnica de su track raw.
+
+    Muta en vez de devolver porque el enriquecimiento de MediaInfo ya
+    funciona así, pista a pista, y mezclar los dos estilos en la misma
+    función la haría ilegible.
+    """
+    pista.format_profile = str(raw_track.get("Format_Profile") or "")
+    pista.format_level = str(raw_track.get("Format_Level") or "")
+    pista.format_tier = str(raw_track.get("Format_Tier") or "")
+    pista.framerate_mode = str(raw_track.get("FrameRate_Mode") or "")
+    pista.bitrate_mode = str(raw_track.get("BitRate_Mode") or "")
+    pista.channel_positions = str(raw_track.get("ChannelPositions") or "")
+    tam = _entero(raw_track.get("StreamSize"))
+    pista.stream_size_bytes = tam
+    if tam and tamano_total:
+        pista.stream_size_pct = round(tam * 100 / tamano_total, 2)
+    try:
+        pista.delay_ms = round(float(raw_track.get("Delay") or 0) * 1000, 1)
+    except (TypeError, ValueError):
+        pista.delay_ms = 0.0
+
 
 
 def _quality_workdir_base() -> str | None:
@@ -291,6 +407,7 @@ async def analyze_mkv(
     await _emit("mediainfo")
     hdr_meta = None
     mediainfo_raw = None
+    container_info = None
     try:
         from phases.phase_a import run_mediainfo
         mi = await run_mediainfo(mkv_path)
@@ -307,6 +424,13 @@ async def analyze_mkv(
                           key=lambda t: t.stream_order)
         mi_subs  = sorted((t for t in mi.tracks if t.track_type == "text"),
                           key=lambda t: t.stream_order)
+        # Los tracks CRUDOS, para los campos de ficha que `MediaInfoTrack`
+        # no modela. Van por separado en vez de ampliar ese modelo porque
+        # lo comparte Tab 1 y aquí sólo hace falta leer.
+        raw_audio = _pistas_raw(mi.raw_json, "Audio")
+        raw_text = _pistas_raw(mi.raw_json, "Text")
+        tamano_fichero = p.stat().st_size if p.exists() else 0
+        container_info = _contenedor_de(mi.raw_json, tamano_fichero)
 
         # Enriquecer pistas de vídeo
         video_tracks_list = [t for t in tracks if t.type == "video"]
@@ -317,6 +441,8 @@ async def analyze_mkv(
             video_tracks_list[0].color_primaries = mv.color_primaries
             hdr_fmt = "HDR10" if mv.transfer_characteristics == "PQ" else ("HLG" if mv.transfer_characteristics == "HLG" else "")
             video_tracks_list[0].hdr_format = hdr_fmt
+            rv = (_pistas_raw(mi.raw_json, "Video") or [{}])[0]
+            _ficha_de_pista(video_tracks_list[0], rv, tamano_fichero)
             if hdr_fmt:
                 hdr_meta = HdrMetadata(
                     hdr_format=hdr_fmt,
@@ -324,15 +450,7 @@ async def analyze_mkv(
                     transfer_characteristics=mv.transfer_characteristics,
                     bit_depth=mv.bit_depth,
                 )
-                # MaxCLL/MaxFALL del raw
-                if mi.raw_json:
-                    for rt in mi.raw_json.get("media", {}).get("track", []):
-                        if rt.get("@type") == "Video" and rt.get("@typeorder", "1") == "1":
-                            hdr_meta.max_cll = _nits_de_mediainfo(rt.get("MaxCLL"))
-                            hdr_meta.max_fall = _nits_de_mediainfo(rt.get("MaxFALL"))
-                            hdr_meta.mastering_display_luminance = rt.get("MasteringDisplay_Luminance", "")
-                            hdr_meta.mastering_display_primaries = rt.get("MasteringDisplay_ColorPrimaries", "")
-                            break
+                _volcar_hdr_declarado(hdr_meta, rv)
 
         # Enriquecer pistas de audio
         audio_idx = 0
@@ -343,6 +461,8 @@ async def analyze_mkv(
                 t.format_commercial = ma.format_commercial
                 t.channel_layout = ma.channel_layout
                 t.compression_mode = ma.compression_mode
+                if audio_idx < len(raw_audio):
+                    _ficha_de_pista(t, raw_audio[audio_idx], tamano_fichero)
                 audio_idx += 1
 
         # Enriquecer pistas de subtítulos — resolution del bitmap PGS + bitrate
@@ -354,6 +474,8 @@ async def analyze_mkv(
                     t.pixel_dimensions = ms.resolution
                 if ms.bitrate_kbps:
                     t.bitrate_kbps = ms.bitrate_kbps
+                if sub_idx < len(raw_text):
+                    _ficha_de_pista(t, raw_text[sub_idx], tamano_fichero)
                 sub_idx += 1
 
     except Exception as e:
@@ -407,6 +529,7 @@ async def analyze_mkv(
         has_fel=has_fel,
         hdr=hdr_meta,
         dovi=dovi_info,
+        container=container_info,
         mediainfo_raw=mediainfo_raw,
     )
 
@@ -476,10 +599,16 @@ def _compute_provenance_hints(
         if not has_l11:
             hints.append(tr('mkv_analyze.sin_l11_confirma_origen_automatico_los_conversores'))
 
-    elif classification == "indeterminate":
-        hints.append(tr('mkv_analyze.l8_ambiguo_el_clasificador_no_puede_decidir'))
-        if has_l11 and has_l254:
-            hints.append(tr('mkv_analyze.pero_l11_l254_sugieren_master_nativo_dudoso'))
+    elif classification == "tone_mapping":
+        # El tercer veredicto, que esta pestaña no conocía: sin trims de
+        # colorista pero con el análisis automático de Dolby (L3/L9/L11),
+        # que el Blu-ray no trae. `classify_l8` dejó de devolver
+        # «indeterminate» hace meses, así que la rama que había aquí era
+        # inalcanzable y este caso caía al `else` — veredicto gris
+        # «ambiguo» sobre un bin perfectamente descrito.
+        hints.append(tr('mkv_analyze.hint_tone_mapping'))
+        if has_l11:
+            hints.append(tr('mkv_analyze.hint_tone_mapping_l11'))
 
     return hints
 
@@ -611,10 +740,16 @@ def _textos_de_calidad(
         # "real" sin tier — minimal real
         verdict = tr('mkv_analyze.veredicto_cmv40_minimal')
         color = "yellow"
+    elif classification == "tone_mapping":
+        verdict = tr('mkv_analyze.veredicto_cmv40_tone_mapping')
+        color = "yellow"
     elif classification == "default":
         verdict = tr('mkv_analyze.veredicto_cmv40_sintetico')
         color = "red"
-    else:  # indeterminate
+    else:
+        # No debería llegar nada más: `classify_l8` devuelve exactamente
+        # `real`, `tone_mapping` o `default`. Se deja el gris como red por
+        # si un bloque cacheado trae una clasificación de otra época.
         verdict = tr('mkv_analyze.veredicto_cmv40_ambiguo')
         color = "gray"
 

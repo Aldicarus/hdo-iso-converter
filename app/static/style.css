@@ -8289,6 +8289,62 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   gap: 8px;
   margin-bottom: 10px;
 }
+/* ── El alcance de un número: película o muestra de 30 s ──────────────
+   Sólo se destaca la muestra. El badge de película existe para los sitios
+   donde antes se decía «validado en todo el film» y quitarlo sería perder
+   la confirmación; va apagado a propósito para que el ojo se vaya al otro. */
+.dv-alcance {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.dv-alcance-muestra {
+  color: var(--amber-text);
+  background: var(--amber-dim);
+  border: 1px solid var(--amber-border);
+}
+.dv-alcance-film {
+  color: var(--dv-text-3);
+  background: var(--dv-chart-bg-alt);
+  border: 1px solid var(--dv-block-border);
+}
+
+/* El stat del que sale el veredicto, entre los que sólo acompañan. */
+.dv-quality-stat-clave {
+  border-color: var(--dv-accent-border);
+  background: var(--dv-accent-bg);
+}
+.dv-quality-stat-clave .dv-quality-stat-value { color: var(--dv-accent-text); }
+
+/* L3: informa, no decide — y por eso es un renglón y no un stat. */
+.dv-quality-nota {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--dv-text-3);
+  line-height: 1.5;
+}
+.dv-quality-nota strong { color: var(--dv-text-2); }
+
+/* Lo que el contenedor declara del HDR. */
+.dv-mc-row-declarado { display: flex; gap: 12px; padding: 7px 0; }
+.dv-mc-dec-fmt {
+  font-family: SF Mono, Menlo, monospace;
+  font-size: var(--fs-sm);
+  color: var(--dv-text-1);
+}
+.dv-mc-dec-compat { font-size: var(--fs-sm); color: var(--dv-text-2); }
+.dv-mc-dec-compat strong { color: var(--dv-text-1); }
+/* Un perfil declarado que no coincide con el medido: no es decorativo,
+   es la firma del MKV que se anuncia dual-layer sin capa de mejora. */
+.dv-mc-chip-warn {
+  color: var(--red-text);
+  background: var(--red-dim);
+  border-color: var(--red-border);
+}
+
 .dv-quality-stat {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);

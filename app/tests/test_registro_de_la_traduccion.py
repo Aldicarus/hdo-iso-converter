@@ -99,6 +99,10 @@ NOMBRE_PROPIO = {
 }
 
 IGUAL_EN_INGLES = {
+    "tab2.ids_externos":
+        "«IMDb / TMDb» son dos nombres propios: la etiqueta de la celda que "
+        "enseña los identificadores que el remux escribió dentro del "
+        "fichero. No hay nada que traducir en ninguna de las tres",
     "comun.error":
         "«Error» se escribe igual en las tres lenguas. Es la etiqueta de la "
         "fila del resumen de un trabajo terminado en el modal de la columna",

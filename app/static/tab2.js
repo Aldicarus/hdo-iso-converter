@@ -507,6 +507,34 @@ function undoMkvEdits() {
 
 /** Fila factual de la tabla: label + valor + tooltip opcional.
  *  `status`: 'ok' (verde), 'warn' (ámbar), 'absent' (gris tenue), 'neutral' */
+/** De DÓNDE sale un número: de la película, o de los primeros 30 s.
+ *
+ *  `dovi_tool info --summary` corre sobre un sniff de **720 frames**, así
+ *  que el L5, el L6 y el pico L1 que devuelve son de los primeros treinta
+ *  segundos — que en una película suelen ser logos y créditos oscuros. El
+ *  resto de la pantalla (MediaInfo, mkvmerge, el análisis extendido) mide
+ *  el fichero entero.
+ *
+ *  Mezclarlos sin decirlo es lo que hacía que la pantalla se contradijera:
+ *  el banner de divergencia comparaba el pico de 30 s contra el MaxCLL de
+ *  todo el metraje y sacaba «máster conservador» en Pulp Fiction, cuyo
+ *  pico real (1001 nits) coincide con el declarado (1000) — y el propio
+ *  gráfico de luminancia, cinco centímetros más abajo, lo decía.
+ *
+ *  **Sólo se marca la muestra.** Un badge en cada celda sería ruido: lo
+ *  que el lector necesita saber es cuál de los números NO describe la
+ *  película. Los tres bloques que tenían su propia redacción para esto
+ *  (L5, L8 y ahora el pico L1) pasan por aquí.
+ */
+function _rgrfAlcance(esMuestra) {
+  if (!esMuestra) {
+    return `<span class="dv-alcance dv-alcance-film" data-i18n="tab2.alcance_pelicula"
+                  data-i18n-tip="tab2.alcance_pelicula_tip"></span>`;
+  }
+  return `<span class="dv-alcance dv-alcance-muestra" data-i18n="tab2.alcance_muestra"
+                data-i18n-tip="tab2.alcance_muestra_tip"></span>`;
+}
+
 function _rgrfRow(label, value, { tooltip = '', status = 'neutral' } = {}) {
   if (value == null || value === '' || value === undefined) {
     value = '<span style="color:var(--text-3); font-style:italic">—</span>';
@@ -1083,13 +1111,46 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
   const hdr10Fall = hdr?.max_fall != null ? `MaxFALL ${hdr.max_fall} nits` : '';
   const hdr10Line = [hdr10Cll, hdr10Fall].filter(Boolean).join(' · ');
 
-  // L1 vs HDR10 divergence: comparar el peak L1 RPU (de dovi_tool info
-  // sample 30s, ya disponible en dv.l1_max_cll) vs el MaxCLL del SEI
-  // estático. Si difieren >1.8×, suele indicar master con tone-mapping
-  // agresivo etiquetado conservadoramente (caso BR2049: L1=176, SEI=1000).
-  // Si L1 > SEI, lo contrario: SEI conservador, RPU más generoso.
+  // **Lo que el fichero declara de sí mismo**, que no es lo mismo que lo
+  // que la app deduce. `hdr_format` se derivaba de la curva de
+  // transferencia («PQ» → «HDR10»), así que un disco con Dolby Vision
+  // decía «HDR10» a secas: se perdían el perfil declarado, las capas y
+  // —lo más útil de todo— con qué es compatible, que es la pregunta de
+  // «¿esto lo reproduce mi equipo?».
+  //
+  // Y cuando el perfil declarado no coincide con el que `dovi_tool` lee
+  // del RPU, eso es justo lo que hay que enseñar: es la firma del bug de
+  // «Te van a matar», un MKV anunciado `dvhe.07` con el EL descartado.
+  const dvDeclarado = (hdr?.dv_profile_string || '').trim();
+  const perfilMedido = dv?.profile ? `dvhe.0${dv.profile}` : '';
+  const discrepa = !!(dvDeclarado && perfilMedido
+                      && dvDeclarado.toLowerCase() !== perfilMedido.toLowerCase());
+  const declarado = [
+    hdr?.hdr_format_raw ? `<span class="dv-mc-dec-fmt">${escHtml(hdr.hdr_format_raw)}</span>` : '',
+    dvDeclarado ? `<span class="dv-mc-trim-chip${discrepa ? ' dv-mc-chip-warn' : ''}"${
+      discrepa ? ` data-i18n-tip="tab2.perfil_declarado_no_coincide"` : ''
+      }>${escHtml(dvDeclarado)}${hdr.dv_level ? `.${escHtml(hdr.dv_level)}` : ''}</span>` : '',
+    hdr?.dv_layers ? `<span class="dv-mc-trim-chip">${escHtml(hdr.dv_layers)}</span>` : '',
+    hdr?.hdr_format_compatibility
+      ? `<span class="dv-mc-dec-compat"><span data-i18n="tab2.compatible_con"></span> <strong>${escHtml(hdr.hdr_format_compatibility)}</strong></span>`
+      : '',
+  ].filter(Boolean).join(' ');
+
+  // Lo que el disco DICE de sí mismo (MaxCLL del SEI, de todo el metraje)
+  // contra lo que el RPU trae MEDIDO. Si difieren mucho hay algo que
+  // contar: un máster etiquetado conservador, o un RPU más generoso que
+  // la etiqueta.
+  //
+  // **El pico tiene que ser el de la PELÍCULA.** Salía de `l1_max_cll`,
+  // que es el sniff de 30 s, y comparado contra un MaxCLL de todo el
+  // metraje no responde a nada: medido sobre los MKV del NAS fallaba en
+  // 2 de 4, y en las dos direcciones — Pulp Fiction daba el banner rojo
+  // de «máster conservador» (395 del sniff contra 1000, ratio 0,40)
+  // cuando su pico real es 1001, y Apocalypse Now se callaba teniendo
+  // 4082 contra 1000. Sin análisis extendido no hay pico de película, y
+  // entonces **no se opina**: un aviso falso es peor que ninguno.
   let divergenceBanner = '';
-  const l1Peak  = dv?.l1_max_cll || 0;
+  const l1Peak  = dv?.l1_stats?.peak || 0;
   const seiCll  = hdr?.max_cll || 0;
   if (l1Peak > 10 && seiCll > 10) {
     const ratio = l1Peak / seiCll;
@@ -1147,6 +1208,11 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
         <div class="dv-mc-row-label">DV trim targets <span class="dv-mc-row-sub">L2 target_max_pq</span></div>
         <div class="dv-mc-row-content">${trimChips}</div>
       </div>
+      ${declarado ? `
+        <div class="dv-mc-row-declarado">
+          <div class="dv-mc-row-label"><span data-i18n="tab2.hdr_declarado"></span> <span class="dv-mc-row-sub" data-i18n="tab2.segun_el_contenedor"></span></div>
+          <div class="dv-mc-row-content">${declarado}</div>
+        </div>` : ''}
       ${hdr10Line ? `
         <div class="dv-mc-row-hdr10">
           <div class="dv-mc-row-label"><span data-i18n="tab2.hdr10_metadata"></span> <span class="dv-mc-row-sub" data-i18n="tab2.sei_estatica"></span></div>
@@ -1289,6 +1355,19 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     : (rpuBytesPerFrame ? `${rpuBytesPerFrame} B/f` : '—');
   const cmLabel = dv.cm_version ? dv.cm_version.toUpperCase() : '—';
 
+  // La ficha técnica que MediaInfo ya daba y no se leía. `Main 10@L5.1`
+  // con su tier es la forma en que se cita un stream HEVC en cualquier
+  // análisis, y la terna croma/rango/matriz es la señal de color completa
+  // —hasta ahora sólo se enseñaban los primarios—.
+  const perfilHevc = [mainVideo?.format_profile,
+                      mainVideo?.format_level ? `@L${mainVideo.format_level}` : '',
+                      mainVideo?.format_tier].filter(Boolean).join(' ').trim() || '—';
+  // Un VFR en un remux de disco no es normal: el disco es de tasa fija.
+  const modoTasaEstado = !mainVideo?.framerate_mode ? 'neutral'
+    : (mainVideo.framerate_mode.toUpperCase() === 'CFR' ? 'ok' : 'warn');
+  const senalColor = [hdr?.chroma_subsampling, hdr?.colour_range,
+                      hdr?.matrix_coefficients].filter(Boolean).join(' · ') || '—';
+
   const hasLightProfile = Array.isArray(dv.per_scene_max_cll) && dv.per_scene_max_cll.length > 0;
 
   // L5 (active area)
@@ -1334,6 +1413,9 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
         ${cell('FPS', fps, { tooltip: tr('tab2.fps_del_track_de_video') })}
         ${cell('Bit depth', mainVideo?.bit_depth ? `${mainVideo.bit_depth}-bit` : '—')}
         ${cell('Codec', mainVideo?.codec || '—')}
+        ${cell(tr('tab2.perfil_codec'), perfilHevc, { tooltip: tr('tab2.perfil_codec_tip') })}
+        ${cell(tr('tab2.modo_de_tasa'), mainVideo?.framerate_mode || '—', { tooltip: tr('tab2.modo_de_tasa_tip'), status: modoTasaEstado })}
+        ${cell(tr('tab2.muestreo_croma'), senalColor, { tooltip: tr('tab2.muestreo_croma_tip') })}
         ${cell('RPU', rpuSize, { tooltip: tr('tab2.tamano_total_estimado_del_rpu') })}
         ${sceneCutsCell}
         ${elVideo ? cell(tr('tab2.enhancement_layer'), `${escHtml(elVideo.codec || 'HEVC')} · ${escHtml(elVideo.pixel_dimensions || '')}`) : ''}
@@ -1403,7 +1485,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     const aHi = frameH - lTop - lBot;
     const sV = lTop === lBot;
     const sH = lLft === lRgt;
-    const subLabel = z0 ? tr('tab2.l5_validado_en_todo_el_film') : tr('tab2.l5_sample_30s_corre_el_perfil');
+    const subLabel = _rgrfAlcance(!z0);
     blockActiveArea = `
       <section class="dv-block">
         <h5 class="dv-block-title"><span data-i18n="tab2.active_area"></span> <span class="dv-block-sub">${subLabel}</span></h5>
@@ -1490,7 +1572,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
         ${cmv4StatsTable}
         ${l8Effective && l8Effective.length ? `
           <div class="dv-viz-inline">
-            <div class="dv-viz-caption">${tr(l8FromLightProfile && l8FromLightProfile.length ? 'tab2.l8_escala_validado_film_completo' : 'tab2.l8_escala_sample_30s')}</div>
+            <div class="dv-viz-caption"><span data-i18n="tab2.l8_escala"></span> ${_rgrfAlcance(!(l8FromLightProfile && l8FromLightProfile.length))}</div>
             ${_rgrfL8Svg(l8Effective)}
           </div>` : ''}
       </section>`;
@@ -1566,6 +1648,33 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
     </section>`;
 
   // ═══════════════════════════════════════════════════════════════
+  // BLOQUE 7 · El contenedor: quién hizo este fichero y cómo
+  // ═══════════════════════════════════════════════════════════════
+  // Va el último a propósito: no dice nada de la imagen, dice de dónde
+  // sale el fichero. Y trae los dos identificadores que la app venía
+  // adivinando — muchos remuxes escriben el de IMDb y el de TMDb en las
+  // etiquetas del Matroska, y ahí son exactos.
+  const c = a.container;
+  const blockContainer = !c ? '' : `
+    <section class="dv-block">
+      <h5 class="dv-block-title"><span data-i18n="tab2.contenedor"></span>
+        <span class="dv-block-sub" data-i18n="tab2.contenedor_sub"></span>
+      </h5>
+      <div class="dv-grid-3">
+        ${cell(tr('tab2.formato'), [c.format, c.format_version].filter(Boolean).join(' v') || '—')}
+        ${cell(tr('tab2.tasa_media'), c.overall_bitrate_kbps
+            ? `${(c.overall_bitrate_kbps / 1000).toFixed(1)} Mbps${c.overall_bitrate_mode ? ` · ${escHtml(c.overall_bitrate_mode)}` : ''}`
+            : '—', { tooltip: tr('tab2.tasa_media_tip') })}
+        ${cell(tr('tab2.titulo_interno'), c.title ? escHtml(c.title) : '—', { tooltip: tr('tab2.titulo_interno_tip') })}
+        ${cell(tr('tab2.muxeado_con'), c.encoded_application ? escHtml(c.encoded_application) : '—')}
+        ${cell(tr('tab2.muxeado_el'), c.encoded_date ? escHtml(c.encoded_date) : '—')}
+        ${cell(tr('tab2.ids_externos'), (c.imdb_id || c.tmdb_id)
+            ? `${escHtml(c.imdb_id || '—')} · ${escHtml(c.tmdb_id || '—')}`
+            : '—', { tooltip: tr('tab2.ids_del_contenedor_tip') })}
+      </div>
+    </section>`;
+
+  // ═══════════════════════════════════════════════════════════════
   //  Ensamblaje con toolbar superior compacta
   // ═══════════════════════════════════════════════════════════════
   return `
@@ -1580,6 +1689,7 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
       ${blockActiveArea}
       ${blockCmv4}
       ${blockLight}
+      ${blockContainer}
     </div>`;
 }
 
@@ -1631,7 +1741,16 @@ function _rgrfQualityAuditCard(dv, isV40) {
   const tierLabel = dv.quality_tier_label || '';
   const reason = dv.quality_reason || dv.quality_tier_description || '';
 
-  // 4 mini-stats
+  // **Los stats son los que APLICAN, y el que decide va marcado.**
+  //
+  // Eran cinco fijos, así que un RPU CMv2.9 enseñaba tres ceros grandes
+  // —L8, L3 y «cobertura CMv4.0»— y el número que sostiene su veredicto
+  // (los combos L2) iba en segunda posición sin distinguirse de ellos.
+  // Con tres de cada cinco cifras a cero no hay nada que concluir.
+  //
+  // El criterio de «esto es CMv2.9» es el MISMO que usa el backend para
+  // elegir el veredicto (`is_cmv29_only`), y a propósito: si divergieran,
+  // la card explicaría con unos números un veredicto decidido con otros.
   const l8Count = dv.quality_l8_unique_count || 0;
   const l2Count = dv.quality_l2_unique_count || 0;
   const l3Count = dv.quality_l3_unique_count || 0;
@@ -1642,6 +1761,43 @@ function _rgrfQualityAuditCard(dv, isV40) {
   const cmv40Frames = dv.quality_frames_with_cmv40 || 0;
   const cmv40Pct = totalFrames > 0 ? Math.round(cmv40Frames * 100 / totalFrames) : 0;
   const combosPerShot = scenes > 0 ? (l8Count / scenes).toFixed(2) : '—';
+  const esCmv29 = cmv40Frames === 0 && l8Count === 0;
+  const nQty = (n) => n.toLocaleString(localeActual());
+  // El tooltip llega RESUELTO, no como clave: una clave interpolada en un
+  // `data-i18n-tip` es indistinguible de un dato y acaba pintada en crudo
+  // si alguien la escribe mal — hay dos guards que lo prohíben por eso.
+  const stat = (valor, etiqueta, { clave = false, extra = '', tip = '' } = {}) => `
+        <div class="dv-quality-stat${clave ? ' dv-quality-stat-clave' : ''}"${
+          tip ? ` data-tooltip="${escHtml(tip)}"` : ''}>
+          <div class="dv-quality-stat-value">${valor}</div>
+          <div class="dv-quality-stat-label">${etiqueta}${extra}</div>
+        </div>`;
+  const statsHtml = esCmv29
+    ? [
+        stat(nQty(l2Count), '<span data-i18n="tab2.combos_l2_unicos"></span>',
+             { clave: true, tip: tr('tab2.l2_decide_en_cmv29') }),
+        stat(nQty((dv.quality_l2_target_pqs || []).length),
+             '<span data-i18n="tab2.objetivos_de_trim"></span>',
+             { tip: tr('tab2.objetivos_de_trim_tip') }),
+        stat(nQty(scenes), '<span data-i18n="tab2.scene_cuts"></span>'),
+        stat(nQty(totalFrames), '<span data-i18n="tab2.frames_analizados"></span>'),
+      ].join('')
+    : [
+        stat(nQty(l8Count), '<span data-i18n="tab2.combos_l8_unicos"></span>',
+             { clave: true, tip: tr('tab2.l8_maxdelta_que_es'),
+               extra: l8Delta ? ` <span style="opacity:.7">· maxΔ ${nQty(l8Delta)}</span>` : '' }),
+        stat(nQty(l2Count), '<span data-i18n="tab2.combos_l2_unicos"></span>'),
+        stat(nQty(scenes), '<span data-i18n="tab2.scene_cuts"></span>',
+             { extra: ` <span style="opacity:.6">(~${combosPerShot} L8/shot)</span>` }),
+        stat(`${cmv40Pct}%`, '<span data-i18n="tab2.cobertura_cmv4_0"></span>'),
+      ].join('');
+  // **L3 no entra en el veredicto y por eso no es un stat.** Sobre 40 bins
+  // medidos acierta el 57 % —azar— porque lo produce el análisis de Dolby,
+  // no el colorista. Al lado de los que sí deciden se leía como si pesara
+  // lo mismo. Queda como renglón informativo, que es lo que es.
+  const l3Html = l3Count > 0 ? `
+      <div class="dv-quality-nota" data-i18n-tip="tab2.l3_que_es">${
+        escHtml(tr('tab2.l3_nota', {n: nQty(l3Count)}))}</div>` : '';
 
   return `
     <section class="dv-block dv-quality-card ${color.cls}">
@@ -1654,29 +1810,8 @@ function _rgrfQualityAuditCard(dv, isV40) {
         <button class="btn btn-ghost btn-xs dv-quality-reaudit"
                 onclick="_rgrfAuditQuality(event)" data-i18n-tip="tab2.re_analizar_5_10_min_util"><span data-icono="refrescar"></span> <span data-i18n="tab2.re_analizar"></span></button>
       </div>
-      <div class="dv-quality-stats">
-        <div class="dv-quality-stat" data-i18n-tip="tab2.l8_maxdelta_que_es">
-          <div class="dv-quality-stat-value">${l8Count.toLocaleString(localeActual())}</div>
-          <div class="dv-quality-stat-label"><span data-i18n="tab2.combos_l8_unicos"></span>${
-            l8Delta ? ` <span style="opacity:.7">· maxΔ ${l8Delta.toLocaleString(localeActual())}</span>` : ''}</div>
-        </div>
-        <div class="dv-quality-stat">
-          <div class="dv-quality-stat-value">${l2Count.toLocaleString(localeActual())}</div>
-          <div class="dv-quality-stat-label" data-i18n="tab2.combos_l2_unicos"></div>
-        </div>
-        <div class="dv-quality-stat" data-i18n-tip="tab2.l3_que_es">
-          <div class="dv-quality-stat-value">${l3Count.toLocaleString(localeActual())}</div>
-          <div class="dv-quality-stat-label" data-i18n="tab2.combos_l3_unicos"></div>
-        </div>
-        <div class="dv-quality-stat">
-          <div class="dv-quality-stat-value">${scenes.toLocaleString(localeActual())}</div>
-          <div class="dv-quality-stat-label"><span data-i18n="tab2.scene_cuts"></span> <span style="opacity:.6">(~${combosPerShot} L8/shot)</span></div>
-        </div>
-        <div class="dv-quality-stat">
-          <div class="dv-quality-stat-value">${cmv40Pct}%</div>
-          <div class="dv-quality-stat-label" data-i18n="tab2.cobertura_cmv4_0"></div>
-        </div>
-      </div>
+      <div class="dv-quality-stats">${statsHtml}</div>
+      ${l3Html}
       ${(dv.quality_provenance_hints?.length || 0) > 0 ? `
         <div class="dv-quality-hints">
           <div class="dv-quality-hints-label" data-i18n="tab2.procedencia_probable"></div>
