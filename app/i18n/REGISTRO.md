@@ -39,6 +39,22 @@ asistente. En concreto:
   tranquilizar al lector. Lo comprueba
   `test_relato_tab1_tab2::TestElRegistroDeLosRotulos` sobre las situaciones y
   los titulares del relato.
+- **Lo que se lee describe el FICHERO del usuario, nunca la historia de
+  la aplicación.** «La escala lineal *dejaba* la mitad del metraje
+  aplastada contra el eje» explica por qué cambiamos algo a alguien que
+  no sabe que hubo un antes; lo que necesita es cómo se lee el eje que
+  tiene delante. Lo mismo con los juicios en lugar del dato: «lo normal
+  es que coincidan» → «solo aparece cuando hay diferencia». Lo aplica
+  `test_registro_de_la_traduccion::TestNingunaCadenaJustificaUnCambioDeLaApp`,
+  con agujas concretas y sus excepciones escritas: un detector amplio no
+  vale, porque una cadena SÍ puede decir que un fichero ya no está donde
+  estaba, y «highlights aplastados» es el término de colorimetría para el
+  recorte de altas luces.
+
+  **Es la tercera reincidencia por el mismo sitio** (2026-09-24), así que
+  la regla vale más que el arreglo: el motivo por el que algo cambió va
+  al comentario del código y al mensaje del commit, nunca a la interfaz.
+
 - **Una celda que DEFINE no comenta.** Las columnas de definición —«Qué
   aporta» de la tabla de niveles del RPU es la que hay hoy— van en
   sintagma nominal: empiezan por el sustantivo, sin artículo, y no llevan

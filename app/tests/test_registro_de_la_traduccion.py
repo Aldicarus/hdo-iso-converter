@@ -596,8 +596,14 @@ class TestLasDefinicionesDeNivelSonNominales(CatalogoCase):
     sobre un conjunto cerrado de claves.
     """
 
-    #: las once definiciones de la tabla de niveles del RPU
-    CLAVES = tuple(f"tab2.niv_l{n}" for n in (1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 254))
+    #: las once definiciones de la tabla de niveles del RPU, más los
+    #: subtítulos de bloque — que son el mismo tipo de celda: describen
+    #: qué hay debajo, no le hablan a nadie. «Qué es este fichero y de
+    #: dónde viene» era una pregunta indirecta usada como rótulo, y es
+    #: la tercera vez que el registro se rompe por el mismo sitio.
+    CLAVES = (tuple(f"tab2.niv_l{n}" for n in (1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 254))
+              + ("tab2.ficha_tecnica_sub", "tab2.contenedor_sub",
+                 "tab2.niveles_del_rpu_sub"))
 
     #: lo que convierte una definición en un comentario
     PROHIBIDO = {
@@ -607,9 +613,18 @@ class TestLasDefinicionesDeNivelSonNominales(CatalogoCase):
         ",": "la aposición («Brillo por frame, la base del tone-mapping») comenta",
     }
 
+    #: Las enumeraciones sí llevan coma y no son aposiciones.
+    CON_COMA = ("tab2.ficha_tecnica_sub",)
+
     #: un sintagma nominal no arranca con artículo ni con verbo conjugado
     MAL_INICIO = ("el ", "la ", "los ", "las ", "un ", "una ", "es ", "son ",
-                  "the ", "a ", "an ", "is ", "are ")
+                  "the ", "a ", "an ", "is ", "are ",
+                  # Ni por un interrogativo: «Qué es este fichero y de
+                  # dónde viene» es una pregunta indirecta usada como
+                  # rótulo, y se coló con el guard puesto.
+                  "qué ", "que ", "cómo ", "dónde ", "cuándo ", "cuánto ",
+                  "por qué ", "what ", "how ", "where ", "when ",
+                  "què ", "com ", "on ", "quan ", "quant ")
 
     def test_las_once_estan_en_los_tres_catalogos(self):
         """Sin esto el guard pasaría en verde sobre un conjunto vacío.
@@ -618,8 +633,8 @@ class TestLasDefinicionesDeNivelSonNominales(CatalogoCase):
         dejaba los otros dos tests iterando sobre nada y los tres pasaban.
         Lo destapó la mutación.
         """
-        self.assertEqual(len(self.CLAVES), 11,
-                         "son los once niveles que pinta la tabla del RPU")
+        self.assertEqual(len(self.CLAVES), 14,
+                         "los once niveles de la tabla y los tres subtítulos")
         for donde, cat in self.catalogos():
             if donde != "frontend":
                 continue
@@ -636,6 +651,8 @@ class TestLasDefinicionesDeNivelSonNominales(CatalogoCase):
                 for k in self.CLAVES:
                     v = cat[idioma].get(k, "")
                     for signo, motivo in self.PROHIBIDO.items():
+                        if signo == "," and k in self.CON_COMA:
+                            continue
                         if signo in v:
                             malas.append(f"[{idioma}] {k}: «{v}» → {motivo}")
         self.assertEqual(sorted(malas), [], "\n  · ".join([""] + sorted(malas)))
@@ -653,6 +670,77 @@ class TestLasDefinicionesDeNivelSonNominales(CatalogoCase):
         self.assertEqual(sorted(malas), [],
                          "\n  · ".join(["una definición empieza por el sustantivo:"]
                                        + sorted(malas)))
+
+class TestNingunaCadenaJustificaUnCambioDeLaApp(CatalogoCase):
+    """Lo que el usuario lee describe SU fichero, no nuestra historia.
+
+    Tercera reincidencia del mismo defecto, y la señaló él: «La escala
+    lineal **dejaba** la mitad del metraje aplastada contra el eje» —
+    una frase que explica por qué cambiamos algo, a alguien que no sabe
+    que había un antes. Lo mismo con «lo normal es que coincidan», que
+    es un juicio en vez del dato.
+
+    Las agujas son concretas a propósito. Un detector genérico de «tono
+    conversacional» ya se midió y se descartó: los patrones amplios
+    («suele», «se toca», «ya no está») dan falsos positivos legítimos,
+    porque una cadena SÍ puede decir que un fichero ya no está donde
+    estaba. Lo que no puede es hablar de la aplicación.
+    """
+
+    AGUJAS = {
+        "la escala lineal": "justifica el cambio de escala",
+        "dejaba":           "habla de lo que la app hacía antes",
+        "dejaban":          "habla de lo que la app hacía antes",
+        "aplastad":         "metáfora coloquial",
+        "solía":            "habla de lo que la app hacía antes",
+        "lo normal es":     "juicio de valor en vez del dato",
+        "es lo normal":     "juicio de valor en vez del dato",
+        "lo habitual es":   "juicio de valor en vez del dato",
+    }
+
+    #: clave → por qué la aguja no aplica ahí
+    ACEPTADO = {
+        "cmv40_pipeline.gate_maxcll_ack":
+            "«highlights aplastados» es el término de colorimetría para el "
+            "recorte de altas luces: describe lo que se verá en la imagen, "
+            "no una metáfora sobre la interfaz",
+    }
+
+    def test_cada_excepcion_sigue_existiendo(self):
+        claves = {k for _d, cat in self.catalogos()
+                  for i in IDIOMAS for k in cat[i]}
+        muertas = sorted(set(self.ACEPTADO) - claves)
+        self.assertEqual(muertas, [], f"excepciones sin clave real: {muertas}")
+
+    def test_ninguna(self):
+        malas = []
+        for donde, cat in self.catalogos():
+            for idioma in IDIOMAS:
+                for k, v in cat[idioma].items():
+                    if k in self.ACEPTADO:
+                        continue
+                    bajo = v.lower()
+                    for aguja, motivo in self.AGUJAS.items():
+                        if aguja in bajo:
+                            malas.append(f"[{idioma}] {k}: {motivo}\n        «{v[:88]}»")
+        self.assertEqual(sorted(malas), [], "\n  · ".join([""] + sorted(malas)))
+
+    def test_el_guard_detecta_de_verdad(self):
+        """Un guard de agujas con cero incidencias es inmutable: quitar
+        una aguja no rompe nada porque no hay cadena que la dispare. Se
+        comprueba contra un caso de prueba, que es la frase exacta que
+        el usuario señaló.
+        """
+        caso = ("Brillo del RPU. La escala lineal dejaba la mitad del "
+                "metraje aplastada contra el eje.")
+        disparan = [a for a in self.AGUJAS if a in caso.lower()]
+        self.assertEqual(sorted(disparan),
+                         ["aplastad", "dejaba", "la escala lineal"])
+
+    def test_el_guard_mira_los_dos_catalogos(self):
+        """Con los catálogos mal leídos pasaría en verde sin mirar nada."""
+        n = sum(len(cat[i]) for _d, cat in self.catalogos() for i in IDIOMAS)
+        self.assertGreater(n, 5000, f"sólo {n} cadenas revisadas")
 
 
 
