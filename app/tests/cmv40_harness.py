@@ -893,6 +893,26 @@ def main():
 
 
 def dovi_tool(sc, sub, json_args):
+    if sub == "info" and opt("-f") is not None:
+        # **`info -f N` NO es el summary: imprime UN frame en JSON.**
+        # Cayendo en la rama de abajo escribía el summary, así que el
+        # consumidor —que busca `"Level254"`— no encontraba nada nunca y
+        # el test pasaba en verde sin poder ver el dato. El formato es el
+        # real: la cabecera «Parsing RPU file...», y el nivel como CLAVE
+        # del bloque dentro de `ext_metadata_blocks`.
+        props = read_props(opt("-i"), sc)
+        bloques = []
+        if props.get("cm_version") == "v4.0":
+            bloques.append('{"Level254": {"dm_mode": 0, "dm_version_index": 2}}')
+        if props.get("has_l8", False):
+            bloques.append('{"Level8": {"target_display_index": 1}}')
+        sys.stdout.write(
+            "Parsing RPU file...\n{\n"
+            '  "dovi_profile": %s,\n'
+            '  "vdr_dm_data": {"cmv40_metadata": {"ext_metadata_blocks": [%s]}}\n}\n'
+            % (props.get("profile", 7), ", ".join(bloques)))
+        return 0
+
     if sub == "info":
         # `info --summary <path>` y `info -s -i <path>` son la misma consulta.
         target = opt("--summary") or opt("-i")

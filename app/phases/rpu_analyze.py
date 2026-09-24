@@ -1137,12 +1137,30 @@ def motivo_de_l8(n: dict, classification: str) -> str:
             else:
                 profile = "CORE"
             return tr('rpu_analyze.l8_trabajado_por_colorista_l8_unique_count', l8_unique_count=n["l8_unique_count"], p2=format((1.0 - n["l8_neutral_pct"]) * 100, '.0f'), profile=profile)
+        # **El motivo dice el criterio que DECIDE, que es la magnitud.**
+        #
+        # Este texto describía el criterio anterior —«usa los controles
+        # exclusivos de CMv4.0 ({lista})»—, que exigía `mid_contrast` o
+        # `clip_trim`. Desde que la clasificación se decide por `maxΔ > 50`
+        # se llega aquí sin ninguno de los dos, y la lista salía vacía: el
+        # usuario leyó «usa los controles exclusivos de CMv4.0 ()».
+        # Medido sobre el `/config` del NAS, **1 de 1** de los proyectos en
+        # esta rama, y el caso es justo el que el recalibrado vino a
+        # rescatar: Posesión infernal, 2 combos y maxΔ 328.
+        #
+        # Son dos claves y no una con paréntesis opcional para que no se
+        # pueda volver a quedar vacío.
         extras = []
         if n["l8_has_mid_contrast"]:
             extras.append("mid_contrast")
         if n["l8_has_clip_trim"]:
             extras.append("clip_trim")
-        return tr('rpu_analyze.l8_minimal_trabajado_l8_unique_count_combos', l8_unique_count=n["l8_unique_count"], p2=', '.join(extras))
+        if extras:
+            return tr('rpu_analyze.l8_minimal_con_controles',
+                      combos=n["l8_unique_count"], delta=n["l8_max_delta"],
+                      controles=', '.join(extras))
+        return tr('rpu_analyze.l8_minimal',
+                  combos=n["l8_unique_count"], delta=n["l8_max_delta"])
 
     if classification == "tone_mapping":
         return tr('rpu_analyze.aporta_tone_mapping',

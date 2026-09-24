@@ -206,6 +206,17 @@ class DoviInfo(BaseModel):
     has_l4: bool = False
     """L4: Legacy CMv2.9 trim — a veces coexiste con v4.0 como compat."""
 
+    niveles_medidos: bool = False
+    """Si el export por niveles del RPU llegó a ejecutarse.
+
+    Sin esto no se puede distinguir «este nivel no está» de «no hemos
+    podido mirarlo»: el enriquecimiento va en un `try` que no bloquea, y
+    cuando falla los `has_lN` se quedan en su default `False` — que la
+    tabla leería como ausencia comprobada. Es el mismo defecto que tenía
+    L254 cuando no se medía, y la razón de que la tabla tenga tres
+    estados y no dos.
+    """
+
     has_l254: bool = False
     """L254: DV metadata version marker. Sentinel de CMv4.0 correctamente marcado."""
 

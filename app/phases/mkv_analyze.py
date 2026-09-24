@@ -661,6 +661,13 @@ def numeros_del_bloque_quality(q: dict) -> dict:
         "l8_has_clip_trim": bool(q.get("quality_l8_has_clip_trim")),
         "l2_unique_count": q.get("quality_l2_unique_count") or 0,
         "l2_target_pqs": len(q.get("quality_l2_target_pqs") or []),
+        # Los dos que los MOTIVOS interpolan. Faltaban, y como el motivo se
+        # re-deriva desde la caché al servirla —para que un análisis hecho
+        # en castellano se lea en inglés—, el texto salía con ceros: «hasta
+        # 0 unidades sobre el neutro», «aporta 0 combinaciones L3». Un cero
+        # con pinta de dato, que es lo que este repo persigue.
+        "l8_max_delta": q.get("quality_l8_max_delta") or 0,
+        "l3_unique_count": q.get("quality_l3_unique_count") or 0,
     }
 
 
@@ -1549,13 +1556,54 @@ async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
     # se encendió. Medido sobre 21 MKVs CMv4.0 de la biblioteca: **los 21
     # tienen L3**, de 1 a 224 combos en 90 s de muestra.
     #
-    # L254 (el marker CMv4.0) se queda sin fuente: `--levels` no lo acepta y
-    # sacarlo pediría el volcado completo, que son 682 MB. Mejor no saberlo
-    # que fingir que se comprueba.
     for nivel, campo in (("level3", "has_l3"), ("level4", "has_l4"),
                          ("level10", "has_l10")):
         if any(isinstance(r, dict) for r in niveles.get(nivel, [])):
             setattr(dovi, campo, True)
+
+    # ── L254 · el marcador CMv4.0 ─────────────────────────────────────
+    # `--levels` llega hasta `level11` y no lo acepta (comprobado contra
+    # dovi_tool 2.3.3), así que se daba por no medible: el volcado entero
+    # (`-d all`) son 682 MB sobre un UHD.
+    #
+    # Pero **`info -f N` imprime UN frame**, y ese frame trae los nueve
+    # niveles, L254 incluido. Medido sobre un RPU de 114 MB: 3,5 s, y el
+    # coste no depende del frame que se pida. Sobre el RPU del sniff, que
+    # es lo que hay aquí, son milisegundos.
+    await _marcar_l254(dovi, rpu_path)
+    # Llegar aquí significa que el export corrió y sus niveles se leyeron:
+    # a partir de ahora un `has_lN` en False es una ausencia COMPROBADA.
+    dovi.niveles_medidos = True
+
+
+async def _marcar_l254(dovi: DoviInfo, rpu_path: str) -> None:
+    """Pone `has_l254` mirando dos frames sueltos del RPU.
+
+    **Dos y no uno**: con uno, un primer frame atípico haría decir
+    «ausente» de un RPU que sí lo lleva. Y no más, porque cada llamada
+    reparsea el fichero: dos bastan para lo que este dato es —un
+    marcador que acompaña a la metadata CMv4.0— y el alcance que se
+    enseña ya dice que es una muestra.
+
+    No bloquea: si `dovi_tool` falla, el flag se queda como estaba.
+    """
+    frames = [0]
+    if dovi.frame_count and dovi.frame_count > 2:
+        frames.append(dovi.frame_count // 2)
+    for f in frames:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                DOVI_TOOL_BIN, "info", "-i", rpu_path, "-f", str(f),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except (OSError, asyncio.TimeoutError) as e:
+            _logger.info("info -f %s falló sobre %s: %s", f, rpu_path, e)
+            return
+        # El nivel es la CLAVE del bloque (`{"Level254": {…}}`), igual que
+        # en el volcado de `export`: basta con buscarla en el texto.
+        if b'"Level254"' in out:
+            dovi.has_l254 = True
+            return
 
 
 def _pq_code_to_nits_local(code_value: float) -> float:

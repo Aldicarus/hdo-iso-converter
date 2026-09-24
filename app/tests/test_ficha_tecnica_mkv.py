@@ -273,5 +273,77 @@ class TestLaCacheSeInvalida(unittest.TestCase):
                              "la auditoría de 10 min NO se puede perder")
 
 
+class TestL254SeMide(unittest.IsolatedAsyncioTestCase):
+    """`--levels` no lo acepta, pero `info -f` sí lo trae.
+
+    Se daba por no medible —«sacarlo pediría el volcado completo, que son
+    682 MB»— y eso sólo es cierto del volcado ENTERO. Lo preguntó el
+    usuario el 2026-09-24: «¿por qué L254 sale siempre no medido si
+    tenemos el análisis extendido?». Medido contra dovi_tool 2.3.3:
+    `info -f N` imprime un frame con los nueve niveles en **3,5 s** sobre
+    un RPU de 114 MB, y el coste no depende del frame que se pida.
+    """
+
+    def setUp(self):
+        import shutil as _sh
+        import tempfile
+        from cmv40_harness import FakeToolbox
+        self.tmp = Path(tempfile.mkdtemp(prefix="l254_"))
+        self.addCleanup(_sh.rmtree, self.tmp, ignore_errors=True)
+        self.tb = FakeToolbox(self.tmp)
+        self.tb.install()
+        self.addCleanup(self.tb.uninstall)
+
+    async def _marcar(self, cm_version, frames=1000):
+        from models import DoviInfo
+        rpu = self.tmp / "RPU.bin"
+        rpu.write_bytes(b"x")
+        self.tb.define_rpu(rpu.name, profile=7, el_type="FEL",
+                           cm_version=cm_version, frames=frames)
+        dovi = DoviInfo(frame_count=frames)
+        await MA._marcar_l254(dovi, str(rpu))
+        return dovi.has_l254
+
+    async def test_un_rpu_cmv40_lo_tiene(self):
+        self.assertTrue(await self._marcar("v4.0"))
+
+    async def test_y_uno_cmv29_no(self):
+        """Aquí «ausente» es un dato, no un «no lo hemos mirado»."""
+        self.assertFalse(await self._marcar("v2.9"))
+
+    async def test_un_fallo_de_dovi_tool_no_bloquea(self):
+        from models import DoviInfo
+        dovi = DoviInfo(frame_count=10)
+        await MA._marcar_l254(dovi, "/no/existe/RPU.bin")
+        self.assertFalse(dovi.has_l254)
+
+    async def test_el_enriquecimiento_declara_que_midio(self):
+        """Sin esta marca la tabla no puede decir «ausente».
+
+        Los `has_lN` nacen en `False`, así que un export que no llegó a
+        correr —va en un `try` que no bloquea— produce exactamente los
+        mismos flags que un RPU sin esos niveles. Es lo que distingue
+        «no está» de «no lo hemos mirado».
+        """
+        from models import DoviInfo
+        rpu = self.tmp / "RPU.bin"
+        rpu.write_bytes(b"x")
+        self.tb.define_rpu(rpu.name, profile=7, el_type="FEL",
+                           cm_version="v4.0", frames=100)
+        dovi = DoviInfo(frame_count=100)
+        self.assertFalse(dovi.niveles_medidos)
+        await MA._enrich_dovi_from_json_export(dovi, str(rpu))
+        self.assertTrue(dovi.niveles_medidos,
+                        "el export corrió y nadie lo anotó")
+
+    async def test_mira_DOS_frames(self):
+        """Con uno, un primer frame atípico haría decir «ausente» de un
+        RPU que sí lo lleva."""
+        await self._marcar("v2.9")
+        pedidos = [c.opt_name("-f") for c in self.tb.calls
+                   if c.binary == "dovi_tool"]
+        self.assertEqual(pedidos, ["0", "500"])
+
+
 if __name__ == "__main__":
     unittest.main()

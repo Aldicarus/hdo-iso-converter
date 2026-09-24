@@ -1669,6 +1669,15 @@ function _rgrfTablaDeNiveles(dv, hdr) {
   // los primeros 30 s. Lo que viene del análisis extendido es de la
   // película entera.
   const M = true, F = false;   // muestra · película
+  // **«Ausente» sólo se puede decir si se ha mirado.** Los niveles que
+  // salen del export del RPU (L3, L4, L10 y L254) dependen de que ese
+  // export corriera: va en un `try` que no bloquea, y al fallar los
+  // flags se quedan en su `False` por defecto. Sin distinguirlo, la
+  // tabla afirmaría una ausencia comprobada sobre un análisis que no
+  // llegó a ejecutarse — el defecto que tenía L254 cuando de verdad no
+  // se medía.
+  const medidos = !!dv?.niveles_medidos;
+  const delExport = (presente) => (presente ? 'si' : (medidos ? 'no' : 'nm'));
 
   // Cada fila: [nivel, qué aporta, valor, estado, alcance]
   //   estado: 'si' | 'no' | 'nm'  (nm = no medido)
@@ -1706,10 +1715,10 @@ function _rgrfTablaDeNiveles(dv, hdr) {
   if (l3c) {
     fila('L3', tr('tab2.niv_l3'), tr('tab2.niv_combos', {combos: n(l3c)}), 'si', F);
   } else {
-    fila('L3', tr('tab2.niv_l3'), '', dv?.has_l3 ? 'si' : 'no', M);
+    fila('L3', tr('tab2.niv_l3'), '', delExport(dv?.has_l3), M);
   }
 
-  fila('L4', tr('tab2.niv_l4'), '', dv?.has_l4 ? 'si' : 'no', M);
+  fila('L4', tr('tab2.niv_l4'), '', delExport(dv?.has_l4), M);
 
   // ── L5 · el encuadre ───────────────────────────────────────────────
   const zonas = refs?.l5_zones || [];
@@ -1750,11 +1759,15 @@ function _rgrfTablaDeNiveles(dv, hdr) {
   fila('L9', tr('tab2.niv_l9'), escHtml(dv?.l9_primaries || ''),
        dv?.has_l9 ? 'si' : 'no', M);
   fila('L10', tr('tab2.niv_l10'), escHtml(dv?.l10_primaries || ''),
-       dv?.has_l10 ? 'si' : 'no', M);
+       delExport(dv?.has_l10), M);
   fila('L11', tr('tab2.niv_l11'), escHtml(dv?.l11_content_type || ''),
        dv?.has_l11 ? 'si' : 'no', M);
-  // El único que no se mide, y se dice. `--levels` no lo acepta.
-  fila('L254', tr('tab2.niv_l254'), '', 'nm', null);
+  // **Se mide con `info -f`, no con `--levels`.** Se daba por no medible
+  // porque `--levels` llega hasta `level11`; lo que sí lo trae es un
+  // frame suelto, y eso cuesta segundos. Lo preguntó el usuario el
+  // 2026-09-24: «¿por qué L254 sale siempre no medido si tenemos el
+  // análisis extendido?».
+  fila('L254', tr('tab2.niv_l254'), '', delExport(dv?.has_l254), M);
 
   const cuerpo = filas.map(f => `
       <tr class="dv-niv-${f.estado}">

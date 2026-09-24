@@ -216,7 +216,7 @@ PULP_COMPLETO = {
     "quality_l2_unique_count": 1605, "quality_l2_target_pqs": [2081, 2851, 3079],
     "quality_l3_unique_count": 0, "quality_l8_unique_count": 0,
     "l1_stats": {"peak": 1001, "avg_of_max": 87},
-    "l1_references": {"l6_master_max_nits": 1000},
+    "l1_references": {"l6_master_max_nits": 1000}, "niveles_medidos": True,
 }
 BACKROOMS = {
     "cm_version": "v4.0", "has_l3": True, "has_l4": True, "has_l8": True,
@@ -225,6 +225,7 @@ BACKROOMS = {
     "l8_trim_nits": [100, 600], "quality_classification": "tone_mapping",
     "quality_l3_unique_count": 1, "quality_l2_unique_count": 8,
     "quality_l8_unique_count": 3, "quality_l8_max_delta": 12,
+    "niveles_medidos": True,
 }
 
 
@@ -236,20 +237,38 @@ class TestLaTablaDeNiveles(EnNode):
                             f"const DV = {json.dumps(dv)};\n"
                             f"const HDR = {json.dumps(hdr or {})};")
 
-    def test_l254_dice_que_NO_SE_MIDE(self):
-        """`--levels` no lo acepta y sacarlo pediría el volcado de 682 MB.
-        La pill apagada decía «no está», que es otra cosa."""
-        html = self._tabla(BACKROOMS)
-        fila = [f for f in html.split("<tr") if ">L254<" in f]
-        self.assertEqual(len(fila), 1, "falta la fila de L254")
-        self.assertIn("no medido", fila[0])
-        self.assertNotIn("ausente", fila[0])
+    def test_l254_YA_SE_MIDE(self):
+        """`--levels` no lo acepta, pero `info -f` trae el frame entero.
 
-    def test_y_un_nivel_medido_y_ausente_dice_otra_cosa(self):
-        """L10 sí se pide al export: su ausencia es un dato."""
+        Lo preguntó el usuario el 2026-09-24 —«¿por qué sale siempre no
+        medido si tenemos el análisis extendido?»— y la respuesta era que
+        sólo se había mirado una de las dos vías.
+        """
+        fila = [f for f in self._tabla(BACKROOMS).split("<tr") if ">L254<" in f]
+        self.assertEqual(len(fila), 1, "falta la fila de L254")
+        self.assertNotIn("no medido", fila[0])
+
+    def test_un_nivel_medido_y_ausente_dice_ausente(self):
+        """L10 se pide al export y sale vacío: su ausencia es un dato."""
         fila = [f for f in self._tabla(BACKROOMS).split("<tr") if ">L10<" in f]
         self.assertIn("ausente", fila[0])
         self.assertNotIn("no medido", fila[0])
+
+    def test_pero_sin_export_NINGUNO_dice_ausente(self):
+        """«Ausente» sólo se puede afirmar si se ha mirado.
+
+        El enriquecimiento va en un `try` que no bloquea; al fallar, los
+        flags se quedan en su `False` por defecto y la tabla estaría
+        afirmando una ausencia comprobada sobre un análisis que no llegó
+        a correr. Es el defecto que tenía L254, con otra causa.
+        """
+        sin = {k: v for k, v in BACKROOMS.items() if k != "niveles_medidos"}
+        html = self._tabla(sin)
+        # Sólo los que NO tienen el flag puesto: uno en True se midió por
+        # definición, y ahí «presente» es correcto con export o sin él.
+        for nivel in ("L10", "L254"):
+            fila = [f for f in html.split("<tr") if f">{nivel}<" in f][0]
+            self.assertIn("no medido", fila, f"{nivel} afirma una ausencia sin mirar")
 
     def test_l3_ya_dice_CUANTO(self):
         """Un combo y ochocientos eran la misma pill verde."""
