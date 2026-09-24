@@ -43,7 +43,8 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
-from frontend_sources import argv_node, html, js_completo, motor_i18n  # noqa: E402
+from frontend_sources import (anclajes_de_panel, argv_node,  # noqa: E402
+                              html, js_completo, motor_i18n)
 
 NODE = shutil.which("node")
 JS = js_completo()
@@ -219,6 +220,10 @@ class Tab2EnNode(unittest.TestCase):
     def evaluar(self, guion: str):
         script = "\n".join([
             DOM, BLOQUE_ESTADO, BLOQUE_SUBTABS,
+            # Los dos anclajes del scroll viven en `core.js` y los llama
+            # `switchMkvSubTab`: sin ellos el arnés muere con un
+            # `ReferenceError`. Se piden enteros, no se enumeran.
+            anclajes_de_panel(),
             *(_funcion(n) for n in self.SUELTAS),
             guion,
         ])

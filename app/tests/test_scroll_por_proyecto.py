@@ -19,10 +19,15 @@ buscar de nuevo dónde se estaba.
 Lo que este fichero fija:
 
 - **La posición es de cada panel y sobrevive a ir y volver**, en las tres.
-- **El orden de las dos llamadas**, que es lo único delicado: se guarda ANTES
-  de ocultar el saliente (un contenedor cuyo contenido acaba de encoger ya lee
-  cero) y se restaura DESPUÉS de mostrar el entrante (sin su altura, el
-  navegador recorta lo que se le asigne). Las dos mutaciones tienen test.
+- **Guardar va ANTES de ocultar el saliente.** Al cambiar a un panel más
+  corto el contenedor encoge, así que leer el scroll después del cambio
+  devuelve un cero y el panel que se deja pierde su sitio. Hace falta un
+  panel corto en el fixture para verlo: con dos igual de altos la mutación
+  pasa en verde, que es como estuvo el primer intento.
+- Restaurar va al final por orden natural y **no** por necesidad: medido que
+  en Chrome escribir el `scrollTop` con el contenedor vacío y poblarlo a
+  continuación conserva el valor, incluso forzando un layout en medio. No se
+  afirma en ningún test, porque pasaría en los dos órdenes.
 - **Un panel nuevo empieza arriba**, aunque el contenedor viniera scrolleado.
 - **La posición se va con el panel al cerrar**: se guarda en su `dataset`, no
   en un registro por id, así que no hay nada que limpiar — un registro
@@ -86,7 +91,8 @@ _CUERPO = """
   };
 
   // Un recorrido idéntico para las tres: scrollear en A, ir a B (nuevo),
-  // scrollear en B, volver a A y volver a B.
+  // scrollear en B, volver a A y volver a B. Y luego el paso por C, que es
+  // CORTO: es el único que destapa el orden de las dos llamadas.
   function recorrido(contId, panelDe, ir) {
     const c = document.getElementById(contId);
     const r = {};
@@ -102,6 +108,17 @@ _CUERPO = """
     // Y lo que quedó escrito en cada panel.
     r.datosA = panelDe('A').dataset.scroll;
     r.datosB = panelDe('B').dataset.scroll;
+
+    // El paso por un panel CORTO. Con dos paneles igual de altos, ocultar
+    // uno y mostrar otro en el mismo tick mantiene la altura y el scroll
+    // aguanta aunque se lea tarde; con el entrante más corto el contenedor
+    // encoge y lo que se lea después del cambio ya viene recortado. Es el
+    // caso normal —un MKV sin análisis junto a uno con la radiografía
+    // entera— y el único que distingue guardar a tiempo de guardar tarde.
+    ir('A');
+    c.scrollTop = 600;
+    ir('C');                   r.enC = c.scrollTop;
+    ir('A');                   r.trasElCorto = c.scrollTop;
     return r;
   }
 
@@ -111,20 +128,23 @@ _CUERPO = """
       // ── Tab 1 ────────────────────────────────────────────────────
       switchTab(1);
       const p1 = {id: 'sA', sessionId: 'x', session: {}},
-            p2 = {id: 'sB', sessionId: 'y', session: {}};
-      openProjects.push(p1, p2);
+            p2 = {id: 'sB', sessionId: 'y', session: {}},
+            p3 = {id: 'sC', sessionId: 'w', session: {}};
+      openProjects.push(p1, p2, p3);
       [p1, p2].forEach(p => { createProjectPanel(p);
         alto(document.getElementById('panel-project-' + p.id)); });
+      createProjectPanel(p3);   // corto: sin relleno
       out.tab1 = recorrido('subtab-main',
         k => document.getElementById('panel-project-s' + k),
         k => switchSubTab('s' + k));
 
       // ── Tab 2 ────────────────────────────────────────────────────
       switchTab(2);
-      const m1 = {id: 'mA'}, m2 = {id: 'mB'};
-      openMkvProjects.push(m1, m2);
+      const m1 = {id: 'mA'}, m2 = {id: 'mB'}, m3 = {id: 'mC'};
+      openMkvProjects.push(m1, m2, m3);
       [m1, m2].forEach(p => { _mkvCreatePanel(p);
         alto(document.getElementById('mkv-panel-' + p.id)); });
+      _mkvCreatePanel(m3);      // corto: sin relleno
       out.tab2 = recorrido('mkv-edit-panel',
         k => document.getElementById('mkv-panel-m' + k),
         k => switchMkvSubTab('m' + k));
@@ -132,13 +152,13 @@ _CUERPO = """
       // ── Tab 3 ────────────────────────────────────────────────────
       switchTab(3);
       const host = document.getElementById('cmv40-subtab-content');
-      ['cA', 'cB'].forEach(id => {
+      ['cA', 'cB', 'cC'].forEach(id => {
         openCMv40Projects.push({id, session: {id}});
         const d = document.createElement('div');
         d.className = 'cmv40-panel subtab-panel';
         d.id = 'cmv40-panel-' + id;
         d.style.display = 'none';
-        host.appendChild(alto(d));
+        host.appendChild(id === 'cC' ? d : alto(d));   // cC, corto
       });
       out.tab3 = recorrido('cmv40-subtab-content',
         k => document.getElementById('cmv40-panel-c' + k),
@@ -159,13 +179,13 @@ _CUERPO = """
         panel: !!document.getElementById('panel-project-sB'),
         // Un panel nuevo con el MISMO hueco empieza arriba.
         nuevo: (() => {
-          const p = {id: 'sC', sessionId: 'z', session: {}};
+          const p = {id: 'sD', sessionId: 'z', session: {}};
           openProjects.push(p);
           createProjectPanel(p);
-          alto(document.getElementById('panel-project-sC'));
+          alto(document.getElementById('panel-project-sD'));
           switchSubTab('sA');
           c1.scrollTop = 500;
-          switchSubTab('sC');
+          switchSubTab('sD');
           return c1.scrollTop;
         })(),
       };
@@ -248,27 +268,27 @@ class TestCadaPanelRecuerdaSuSitio(ScrollCase):
                 self.assertEqual(r["datosB"], "200", nombre)
 
 
-class TestElOrdenDeLasDosLlamadas(ScrollCase):
-    """Las dos reglas que sólo el navegador puede demostrar.
+class TestGuardarVaAntesDeOcultar(ScrollCase):
+    """La única regla de orden que existe, y sólo el navegador la demuestra.
 
-    Guardar después de ocultar escribe un cero —el contenedor ya encogió— y
-    restaurar antes de mostrar lo recorta por lo mismo. En los dos casos el
-    síntoma es exactamente el bug que esto arregla, así que los cubren los
-    tests de arriba; aquí se deja constancia del porqué con el dato medido.
+    De las dos mitades que parecían simétricas, ésta es la real. La otra
+    —restaurar después de mostrar— **no se manifiesta**: comprobado por
+    mutación que en Chrome escribir el `scrollTop` con el contenedor todavía
+    vacío y poblarlo a continuación conserva el valor, incluso forzando un
+    layout en medio. No hay test de eso porque pasaría en los dos órdenes, y
+    un test que no distingue el comportamiento sólo aparenta cobertura.
     """
 
-    def test_guardar_ocurre_con_el_panel_todavia_visible(self):
-        # Si se guardara después de ocultarlo, `datosA` valdría "0".
+    def test_guardar_ocurre_antes_de_ocultar_el_saliente(self):
+        # Al pasar por un panel corto el contenedor encoge, así que leer el
+        # scroll después del cambio devuelve el valor ya recortado: A
+        # volvería arriba. Con dos paneles igual de altos esto NO se ve —
+        # el fixture no lo tenía y la mutación pasaba en verde.
         for nombre, r in self.tabs():
             with self.subTest(nombre):
-                self.assertNotEqual(r["datosA"], "0", f"{nombre}: se guardó tarde")
-
-    def test_restaurar_ocurre_con_el_panel_ya_visible(self):
-        # Si se restaurara antes de mostrarlo, el contenedor no tendría
-        # altura y `vueltaA` se recortaría a 0.
-        for nombre, r in self.tabs():
-            with self.subTest(nombre):
-                self.assertGreater(r["vueltaA"], 0, f"{nombre}: se restauró pronto")
+                self.assertEqual(r["enC"], 0, f"{nombre}: el corto no encogió")
+                self.assertEqual(r["trasElCorto"], 600,
+                                 f"{nombre}: se guardó tarde y A perdió su sitio")
 
 
 class TestLoQueNoHayQueTocar(ScrollCase):

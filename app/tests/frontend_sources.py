@@ -222,6 +222,25 @@ def sistema_de_iconos() -> str:
     ])
 
 
+
+
+def anclajes_de_panel() -> str:
+    """Las dos funciones que conservan el scroll de cada pestaña de proyecto.
+
+    Viven en `core.js` y las llaman los tres `switch*`, así que un arnés que
+    cargue sólo `tab2.js` o `tab3.js` se queda sin ellas y muere con un
+    `ReferenceError`. Es el mismo caso que `sistema_de_iconos()` y
+    `motor_i18n()`: una pieza compartida que, enumerada a mano, rompe todos
+    los arneses a la vez cuando cambia.
+    """
+    js = js_completo()
+
+    def fn(nombre: str) -> str:
+        i = js.index(f"\nfunction {nombre}(")
+        return js[i + 1:js.index("\n}\n", i + 1) + 3]
+
+    return "\n".join([fn("guardarScrollDePanel"), fn("restaurarScrollDePanel")])
+
 # ── i18n para los arneses ──────────────────────────────────────────────
 #
 # Mismo problema que resolvió `sistema_de_iconos()`, y la misma solución: cada

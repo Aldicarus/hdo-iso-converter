@@ -668,10 +668,16 @@ function switchTab(n) {
  *  nada que limpiar: un registro por id tendría que enterarse de cada
  *  cierre, y el que se olvidara filtraría en silencio.
  *
- *  **El orden no es negociable**, y es lo que fija el test: guardar ANTES
- *  de ocultar el saliente —un contenedor cuyo contenido acaba de encoger ya
- *  lee cero— y restaurar DESPUÉS de mostrar el entrante, porque sin su
- *  altura el navegador recorta lo que se le asigne.
+ *  **Guardar va ANTES de ocultar el saliente**, y eso sí es una regla: al
+ *  cambiar a un panel más corto el contenedor encoge y lo que se lea
+ *  después del cambio ya viene recortado, así que se guardaría un cero y el
+ *  panel que se deja perdería su sitio. Es el caso normal —un MKV sin
+ *  análisis junto a otro con la radiografía entera— y tiene test.
+ *
+ *  Restaurar va al final por orden natural, no por necesidad: comprobado
+ *  que en Chrome escribir el `scrollTop` con el contenedor todavía vacío y
+ *  poblarlo a continuación conserva el valor, incluso forzando un layout en
+ *  medio. No hay test de eso porque pasaría igual en los dos órdenes.
  */
 function guardarScrollDePanel(contenedor, saliente) {
   if (contenedor && saliente) saliente.dataset.scroll = String(contenedor.scrollTop);
