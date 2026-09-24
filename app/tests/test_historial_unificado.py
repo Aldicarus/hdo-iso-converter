@@ -348,17 +348,52 @@ class TestUnaSolaLineaPorTrabajo(HistorialCase):
         self.assertEqual(len(t), 1, t)
         self.assertEqual(t[0]["estado"], historial.ESTADO_HECHO)
 
-    def test_una_ya_cerrada_NO_se_reescribe(self):
-        """Si el usuario rehace una fase de un proyecto terminado, se abre
-        otra línea: es lo mismo que hace Tab 1 con una sesión re-ejecutada."""
-        historial.registrar_estado(
-            id="p1", tab=historial.TAB_CMV40, tipo=historial.TIPO_FASE_CMV40,
-            que="Upgrade CMv4.0 · X", inicio=datetime.now(timezone.utc),
-            estado=historial.ESTADO_HECHO)
-        historial.registrar_estado(
-            id="p1", tab=historial.TAB_CMV40, tipo=historial.TIPO_FASE_CMV40,
-            que="Upgrade CMv4.0 · X", inicio=datetime.now(timezone.utc),
-            estado=historial.ESTADO_HECHO)
+    def test_una_ya_cerrada_TAMBIEN_se_reescribe(self):
+        """Lo contrario de lo que este test fijaba hasta el 2026-09-24.
+
+        La excepción venía de asimilar «rehacer una fase» a «re-ejecutar una
+        sesión de Tab 1», y no son lo mismo. Medido en el NAS: un proyecto
+        cancelado y reanudado dejaba dos líneas con el MISMO `id`, el MISMO
+        `inicio` —que es el de la primera fase y no cambia— y los `segundos`
+        acumulados, así que la segunda englobaba a la primera. La columna las
+        referencia por `(id, inicio)`, o sea que eran la misma entrada: se
+        seleccionaban a la vez y abrían el mismo detalle.
+        """
+        for _ in range(2):
+            historial.registrar_estado(
+                id="p1", tab=historial.TAB_CMV40,
+                tipo=historial.TIPO_FASE_CMV40,
+                que="Upgrade CMv4.0 · X", inicio=datetime.now(timezone.utc),
+                estado=historial.ESTADO_HECHO)
+        self.assertEqual(len(historial.leer()), 1)
+
+    def test_el_caso_real_cancelar_reanudar_y_terminar(self):
+        """Una línea, y la que queda cuenta en qué acabó."""
+        arranque = datetime.now(timezone.utc)
+        def anotar(estado):
+            historial.registrar_estado(
+                id="p1", tab=historial.TAB_CMV40,
+                tipo=historial.TIPO_FASE_CMV40,
+                que="Upgrade CMv4.0 · El padrino (1972)",
+                # El mismo `inicio` en las dos: es `min(arranques)`, el de la
+                # primera fase del proyecto, y reanudar no lo mueve.
+                inicio=arranque, estado=estado,
+                ref_log="cmv40:p1")
+        anotar(historial.ESTADO_ESPERANDO)
+        anotar(historial.ESTADO_CANCELADO)
+        anotar(historial.ESTADO_HECHO)
+        t = historial.leer()
+        self.assertEqual(len(t), 1, t)
+        self.assertEqual(t[0]["estado"], historial.ESTADO_HECHO)
+
+    def test_dos_ejecuciones_de_un_RIP_siguen_siendo_dos(self):
+        """El colapso no puede llevarse por delante lo de Tab 1.
+
+        Ahí cada ejecución es un trabajo con su duración, y lo dice el
+        `ref_log` (`sesion:X#1` y `#2`). Por eso entra en la huella.
+        """
+        for n in (1, 2):
+            self.anotar(id="s1", ref_log=f"sesion:s1#{n}")
         self.assertEqual(len(historial.leer()), 2)
 
     def test_al_volver_a_ejecutarse_la_linea_se_retira(self):
@@ -368,8 +403,11 @@ class TestUnaSolaLineaPorTrabajo(HistorialCase):
         self.assertEqual(historial.leer(), [])
 
     def test_pero_no_se_lleva_las_cerradas(self):
-        self.anotar(id="p1", estado=historial.ESTADO_CANCELADO, que="antes")
+        # La cancelada se escribe DESPUÉS de la pendiente: desde que
+        # `registrar_estado` reemplaza cualquier línea previa del trabajo, al
+        # revés no quedaría ninguna cerrada que comprobar.
         self._pendiente("p1")
+        self.anotar(id="p1", estado=historial.ESTADO_CANCELADO, que="antes")
         historial.quitar_sin_cerrar("p1")
         self.assertEqual([t["estado"] for t in historial.leer()],
                          [historial.ESTADO_CANCELADO])

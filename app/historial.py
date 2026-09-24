@@ -237,6 +237,24 @@ def buscar(limite: int = 200, q: str = "", tab: str = "") -> tuple[list[dict], b
     aguja = _normalizar(q)
     out: list[dict] = []
     hay_mas = False
+    # Un trabajo, una línea. Lo garantiza `registrar_estado` desde el
+    # 2026-09-24, pero el historial **no se migra**, así que las que ya están
+    # escritas se colapsan aquí — el mismo trato que los trabajos renombrados
+    # y los estados fuera de vocabulario, y por el mismo motivo.
+    #
+    # Se descarta la repetida, no la primera: el recorrido va del final del
+    # fichero hacia atrás, así que la que sobrevive es la escrita más tarde,
+    # que es la que describe en qué quedó el trabajo.
+    #
+    # Colapsar no esconde nada que se pudiera distinguir: dos líneas con la
+    # misma huella comparten la referencia de la columna, el detalle que
+    # abren, la clave por la que se borran y el log al que apuntan.
+    #
+    # **El `ref_log` va en la huella**, y es lo que separa los dos casos: dos
+    # ejecuciones de un rip de Tab 1 son dos trabajos de verdad y lo dicen
+    # ahí (`sesion:X#1` y `#2`), mientras que las dos líneas de un proyecto
+    # CMv4.0 apuntan al mismo fichero de log porque son el mismo trabajo.
+    vistas: set[tuple[str, str, str, str]] = set()
     f = ruta()
     # La generación anterior solo se toca si la actual no llena el límite —
     # justo después de rotar, si no, el historial parecería vacío.
@@ -258,6 +276,13 @@ def buscar(limite: int = 200, q: str = "", tab: str = "") -> tuple[list[dict], b
             if not isinstance(registro, dict):
                 continue
             registro = _con_el_nombre_de_hoy(registro)
+            huella = (registro.get("id") or "", registro.get("tipo") or "",
+                      registro.get("inicio") or "", registro.get("ref_log") or "")
+            # Sin `id` no hay trabajo al que atribuirla, así que no se agrupa.
+            if huella[0]:
+                if huella in vistas:
+                    continue
+                vistas.add(huella)
             # El `tab` se compara contra el id, no contra el rótulo: el rótulo
             # cambia con el idioma y en el fichero está el id.
             if tab and (registro.get("tab") or "") != tab:
@@ -389,14 +414,27 @@ def registrar_estado(*, id: str, **campos) -> None:
     igual que uno acabado.
 
     Aquí la línea es del PROYECTO y se reescribe según su estado: `esperando`
-    mientras necesita al usuario, y `done`/`error`/`cancelled` al cerrarse. Una
-    ya cerrada NO se toca: si el usuario rehace una fase, se abre otra, que es
-    lo mismo que hace Tab 1 con una sesión re-ejecutada.
+    mientras necesita al usuario, y `done`/`error`/`cancelled` al cerrarse.
+
+    **También reemplaza una ya cerrada**, y eso cambió el 2026-09-24. Antes
+    se protegía, con el argumento de que rehacer una fase es lo mismo que
+    re-ejecutar una sesión de Tab 1. No lo es, y los datos del NAS lo
+    enseñaban: un proyecto cancelado y reanudado dejaba dos líneas con el
+    MISMO `id` y el MISMO `inicio` —que es `min(arranques)`, el de la primera
+    fase, y no cambia— y con los `segundos` acumulados, así que la segunda
+    englobaba a la primera. No eran dos trabajos: era el mismo contado dos
+    veces. En Tab 1 cada ejecución sí tiene su inicio y su duración.
+
+    Para la interfaz eran además indistinguibles: la columna referencia una
+    línea por `(id, inicio)`, o sea que las dos se seleccionaban a la vez y
+    abrían el mismo detalle.
+
+    Se reemplaza por `id` y no por `(id, tipo)` a propósito: así la línea de
+    la conversión absorbe la del pre-flight que quedó esperando una decisión,
+    que es un renglón del mismo proyecto y no un trabajo aparte.
     """
-    if not _reescribir(lambda r: (None if (r.get("id") == id
-                                           and r.get("estado") not in _CERRADOS)
-                                  else r)):
-        pass          # no había ninguna sin cerrar; se añade igual
+    if not _reescribir(lambda r: None if r.get("id") == id else r):
+        pass          # no había ninguna previa; se añade igual
     anotar(id=id, **campos)
 
 
