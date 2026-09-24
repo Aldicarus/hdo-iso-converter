@@ -73,9 +73,16 @@ class TestUnSoloParserDelExport(unittest.TestCase):
         # nits crecientes con el max_pq
         self.assertLess(r["cll"][0], r["cll"][1])
 
-    def test_l8_se_queda_con_el_max_pq_mas_alto_por_target(self):
+    def test_l8_recoge_los_INDICES_de_target(self):
+        """No un brillo: un bloque L8 no tiene ningún campo de brillo.
+
+        Esto afirmaba `{1: 2500}` —el `target_max_pq` que el parser
+        buscaba— y ese campo es de L2. Sobre un export real el fallback
+        caía a `trim_slope` y convertía el neutro del trim en «92 nits».
+        Lo destapó una duda del usuario el 2026-09-24.
+        """
         r = self.lum.perfil_desde_niveles(self.PLANO)
-        self.assertEqual(r["l8_por_target"], {1: 2500})
+        self.assertEqual(r["l8_indices"], {1})
 
     def test_l6_se_lee_del_primer_registro_y_min_va_en_diezmilesimas(self):
         r = self.lum.perfil_desde_niveles(self.PLANO)
@@ -130,7 +137,7 @@ class TestUnSoloParserDelExport(unittest.TestCase):
         niveles = self.lum.niveles_desde_volcado(self._volcado_anidado())
         desde_anidado = self.lum.perfil_desde_niveles(niveles)
         desde_plano = self.lum.perfil_desde_niveles(self.PLANO)
-        for clave in ("cll", "fall", "min", "l8_por_target", "l2_targets_pq",
+        for clave in ("cll", "fall", "min", "l8_indices", "l2_targets_pq",
                       "l6", "raw_max_pq"):
             self.assertEqual(desde_anidado[clave], desde_plano[clave], clave)
 

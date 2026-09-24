@@ -47,6 +47,17 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── La fila de trim targets se une a la tabla de niveles
+    #    (2026-09-24, dudas del usuario: «¿qué pinta L2 en un CMv4?» y
+    #    «¿a qué se refiere la escala L8?»). Eran la misma pregunta
+    #    partida en dos bloques, y con dos escalas distintas por el bug
+    #    del `trim_slope`.
+    "analiza el perfil de luminancia para extraer los trim targets":
+        "la fila «DV trim targets» de la cadena de mastering se retiró el 2026-09-24: enseñaba los objetivos de L2 con un rótulo genérico, y en un RPU CMv4.0 —que lleva los dos— eso deja fuera los que mandan. Hoy cada nivel lleva sus pantallas de destino en su fila de la tabla",
+    "sin L2 trims declarados en el RPU":
+        "la fila «DV trim targets» de la cadena de mastering se retiró el 2026-09-24: enseñaba los objetivos de L2 con un rótulo genérico, y en un RPU CMv4.0 —que lleva los dos— eso deja fuera los que mandan. Hoy cada nivel lleva sus pantallas de destino en su fila de la tabla",
+    "sin L2 trims · este RPU usa L8 (ver fila inferior)":
+        "la fila «DV trim targets» de la cadena de mastering se retiró el 2026-09-24: enseñaba los objetivos de L2 con un rótulo genérico, y en un RPU CMv4.0 —que lleva los dos— eso deja fuera los que mandan. Hoy cada nivel lleva sus pantallas de destino en su fila de la tabla",
     # ── Los literales de Tab 2 se alinean al registro (2026-09-24).
     #    El usuario los leyó y dijo que habían caído en «modo conversación»:
     #    aposiciones charlatanas, juicios de valor («es lo normal», «el único

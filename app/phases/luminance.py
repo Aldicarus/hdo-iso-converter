@@ -16,6 +16,8 @@ de parsearse aparte — la regla de "un solo parser de ese JSON" del proyecto.
 """
 import logging
 
+from phases.rpu_analyze import L8_NITS_POR_INDICE
+
 logger = logging.getLogger(__name__)
 
 # Puntos de la sparkline. No tiene sentido mandar 243.000 frames al navegador
@@ -149,21 +151,23 @@ def perfil_desde_niveles(niveles: dict[str, list]) -> dict:
         except (TypeError, ValueError):
             continue
 
-    l8_por_target: dict[int, int] = {}
+    # **El target de un L8 sale de su ÍNDICE, no de ningún campo de
+    # brillo: el bloque no tiene ninguno.** Esto buscaba `target_max_pq`
+    # —que es un campo de L2— y caía a `trim_slope`, así que convertía el
+    # neutro del trim (2048) a nits y lo enseñaba como pantalla de
+    # destino: «92 nits» en Backrooms, «97 · 244» en El padrino. Los
+    # targets reales de El padrino son los índices 1 y 48, o sea 100 y
+    # 1000 nits — y ese mismo RPU lo resolvía bien por el otro camino,
+    # que es lo que hace que la pantalla enseñara dos listas distintas de
+    # lo mismo.
+    l8_indices: set[int] = set()
     for fila in niveles.get("level8") or []:
         try:
             tdi = int(fila.get("target_display_index", 0))
-            if not tdi:
-                continue
-            # `target_max_pq` es el campo bueno; los otros dos son el fallback
-            # histórico para exports que no lo traen.
-            pq = (int(fila.get("target_max_pq", 0))
-                  or int(fila.get("target_mid_pq", 0))
-                  or int(fila.get("trim_slope", 0)))
         except (TypeError, ValueError):
             continue
-        if pq > l8_por_target.get(tdi, 0):
-            l8_por_target[tdi] = pq
+        if tdi:
+            l8_indices.add(tdi)
 
     l2_targets: set[int] = set()
     for fila in niveles.get("level2") or []:
@@ -188,7 +192,7 @@ def perfil_desde_niveles(niveles: dict[str, list]) -> dict:
     return {
         "cll": cll, "fall": fall, "min": minimos,
         "l5_zonas": zonas_l5,
-        "l8_por_target": l8_por_target,
+        "l8_indices": l8_indices,
         "l2_targets_pq": l2_targets,
         "l6": l6,
         "raw_max_pq": raw_max,
@@ -224,7 +228,11 @@ def payload_de_luminancia(niveles: dict[str, list]) -> dict:
 
     # ── Referencias del RPU para el overlay del chart ────────────────
     l2_targets_nits = sorted({_a_nits(pq) for pq in perfil["l2_targets_pq"]})
-    l8_trim_nits_full = sorted({_a_nits(pq) for pq in perfil["l8_por_target"].values() if pq})
+    # Un índice que la tabla no conoce se queda fuera: inventarle un
+    # brillo sería el mismo error con otra cara.
+    l8_trim_nits_full = sorted({L8_NITS_POR_INDICE[i]
+                                for i in perfil["l8_indices"]
+                                if i in L8_NITS_POR_INDICE})
 
     # Zonas L5 a lo largo del film: si sale más de una, el film tiene active
     # area dinámica (letterbox cambiante tipo IMAX 1.43 ↔ 2.40). Ordenadas por

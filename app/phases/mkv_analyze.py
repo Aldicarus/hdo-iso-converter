@@ -1485,13 +1485,7 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
 # Índices de target display predefinidos por la spec de Dolby Vision. Sobre
 # RPUs reales del repo DoviTools aparecen el 1 y el 28; el resto es el subset
 # habitual, para no dejar un índice conocido sin nits.
-_L8_NITS_POR_INDICE = {
-    0: 100, 1: 100, 2: 600, 3: 1000, 4: 2000, 5: 4000,
-    28: 600, 29: 1000, 30: 2000, 31: 4000,
-    32: 100, 33: 350, 34: 600, 35: 1000, 36: 2000, 37: 4000,
-    48: 1000, 49: 600, 50: 350,
-    64: 2000, 65: 4000,
-}
+from phases.rpu_analyze import L8_NITS_POR_INDICE as _L8_NITS_POR_INDICE
 
 # `source_primary_index` de L9 (y `target_primaries_index` de L10).
 async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:

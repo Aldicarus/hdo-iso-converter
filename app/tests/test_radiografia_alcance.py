@@ -377,5 +377,50 @@ class TestElTitular(EnNode):
         self.assertIn("_rgrfTitular", linea[0])
 
 
+class TestLosTargetsSeDicenUNAVEZ(EnNode):
+    """«DV trim targets» (L2) y «Escala L8» eran la misma pregunta.
+
+    Las dudas del usuario del 2026-09-24: qué pintaba una fila de L2 en
+    un CMv4.0, y a qué se refería la escala L8. La respuesta a las dos
+    era que estaban partidas en dos bloques, con dos rótulos y —por el
+    bug del `trim_slope`— con dos escalas que no coincidían: la cadena
+    decía «100 · 600 · 1001» y la tabla «97 · 244» del mismo fichero.
+    """
+
+    def _tabla(self, dv):
+        return self.evaluar("_rgrfTablaDeNiveles(DV, {})",
+                            f"const DV = {json.dumps(dv)};")
+
+    CMV40 = {"quality_l8_unique_count": 210, "quality_l8_max_delta": 606,
+             "quality_l2_unique_count": 44, "quality_l2_target_pqs": [1, 2, 3],
+             "niveles_medidos": True, "has_l8": True,
+             "l1_references": {"l8_trim_nits_full": [100, 1000],
+                               "l2_trim_targets_nits": [100, 600, 1000]}}
+
+    def test_cada_nivel_lleva_SUS_pantallas(self):
+        html = self._tabla(self.CMV40)
+        l8 = [f for f in html.split("<tr") if ">L8<" in f][0]
+        l2 = [f for f in html.split("<tr") if ">L2<" in f][0]
+        self.assertIn("100 · 1000", l8)
+        self.assertIn("100 · 600 · 1000", l2)
+
+    def test_y_en_la_MISMA_unidad(self):
+        """El bug del `trim_slope` daba «92» donde el otro camino daba
+        «100»: dos listas de lo mismo que no coincidían."""
+        html = self._tabla(self.CMV40)
+        self.assertNotIn("92", html)
+
+    def test_la_fila_duplicada_de_la_cadena_ya_no_existe(self):
+        cadena = _funcion("_rgrfMasteringChain")
+        self.assertNotIn("dv-mc-row-trims", cadena)
+        self.assertNotIn("trimChips", cadena)
+        self.assertNotIn("target_max_pq", cadena)
+
+    def test_y_el_grafico_dice_QUE_pinta(self):
+        """«Escala L8» no decía nada: son las pantallas de destino."""
+        self.assertIn("tab2.l8_pantallas", JS)
+        self.assertNotIn("tab2.l8_escala\"", JS)
+
+
 if __name__ == "__main__":
     unittest.main()

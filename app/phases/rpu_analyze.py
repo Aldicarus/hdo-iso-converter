@@ -936,6 +936,29 @@ async def analyze_rpu_combos(
             pass
 
 
+
+#: `target_display_index` de un bloque L8 → brillo de esa pantalla, en nits.
+#:
+#: **Es la ÚNICA forma de saber el target de un L8.** Un bloque L8 no
+#: lleva ningún campo de brillo: sus columnas son `target_display_index`
+#: y los coeficientes del trim (`trim_slope`, `trim_offset`…). Verificado
+#: contra dovi_tool 2.3.3 sobre un RPU real — la cabecera del export es
+#: `frame,length,target_display_index,trim_slope,trim_offset,trim_power,
+#: trim_chroma_weight,trim_saturation_gain,ms_weight`.
+#:
+#: Vive aquí y no en `mkv_analyze` porque la usan los dos módulos que
+#: leen niveles, y tenerla dos veces fue justamente el bug: `luminance`
+#: buscaba un `target_max_pq` —que es de L2— y caía a `trim_slope`, o sea
+#: convertía el NEUTRO del trim (2048) en «92 nits» y lo enseñaba como
+#: si fuera una pantalla de destino.
+L8_NITS_POR_INDICE = {
+    0: 100, 1: 100, 2: 600, 3: 1000, 4: 2000, 5: 4000,
+    28: 600, 29: 1000, 30: 2000, 31: 4000,
+    32: 100, 33: 350, 34: 600, 35: 1000, 36: 2000, 37: 4000,
+    48: 1000, 49: 600, 50: 350,
+    64: 2000, 65: 4000,
+}
+
 def numeros_de_l8(analysis: RpuAnalysis) -> dict:
     """Los NÚMEROS de los que dependen el motivo y el tier, sin los combos.
 

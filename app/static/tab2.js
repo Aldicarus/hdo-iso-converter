@@ -1087,25 +1087,12 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
   const is2020Container = /2020/i.test(cont.primaries);
   const showExpansionChip = isP3Master && is2020Container;
 
-  // Trim chips ordenados ASC. Distinguimos 3 estados:
-  //   1. Hay L2 trims → mostrar chips
-  //   2. Light profile YA corrido pero sin L2 trims → RPU CMv4.0 (usa L8)
-  //   3. Light profile NO corrido → invitacion a analizar
-  const lightProfileRun = !!dv?.l1_references;
-  const hasL8Trims = Array.isArray(dv?.l8_trim_nits) && dv.l8_trim_nits.length > 0;
-  let trimChips;
-  if (Array.isArray(l2Trims) && l2Trims.length > 0) {
-    trimChips = l2Trims.map(n => `<span class="dv-mc-trim-chip">${n}n</span>`).join('');
-  } else if (lightProfileRun) {
-    // Light profile corrido pero sin L2 trims — caso normal en RPUs CMv4.0
-    // que solo tienen L8. No es un error, solo informativo.
-    trimChips = hasL8Trims
-      ? '<span class="dv-mc-empty">' + tr('tab2.sin_l2_trims_este_rpu_usa_l8') + '</span>'
-      : '<span class="dv-mc-empty">' + tr('tab2.sin_l2_trims_declarados_en_el_rpu') + '</span>';
-  } else {
-    trimChips = '<span class="dv-mc-empty">' + tr('tab2.analiza_el_perfil_de_luminancia_para') + '</span>';
-  }
-
+  // **La fila de «DV trim targets» se fue de aquí.** Enseñaba los
+  // objetivos de L2 con el rótulo genérico de «trim targets», y en un
+  // RPU CMv4.0 —que lleva L2 y L8— eso deja fuera justo los que mandan.
+  // Peor: los de L8 se pintaban dos bloques más abajo con otra escala,
+  // porque `luminance` los sacaba del `trim_slope`. Los dos viven ahora
+  // en la tabla de niveles, cada uno en su fila y con la misma unidad.
   // HDR10 metadata footer
   const hdr10Cll  = hdr?.max_cll  != null ? `MaxCLL ${hdr.max_cll} nits` : '';
   const hdr10Fall = hdr?.max_fall != null ? `MaxFALL ${hdr.max_fall} nits` : '';
@@ -1203,10 +1190,6 @@ function _rgrfMasteringChain(dv, hdr, mainVideo) {
               : '<span class="dv-mc-empty">' + tr('tab2.l10_no_presente_dv_targeting_generico') + '</span>'}
           </div>
         </div>
-      </div>
-      <div class="dv-mc-row-trims">
-        <div class="dv-mc-row-label">DV trim targets <span class="dv-mc-row-sub">L2 target_max_pq</span></div>
-        <div class="dv-mc-row-content">${trimChips}</div>
       </div>
       ${declarado ? `
         <div class="dv-mc-row-declarado">
@@ -1755,10 +1738,14 @@ function _rgrfTablaDeNiveles(dv, hdr) {
 
   // ── L2 · los trims del disco ───────────────────────────────────────
   const l2c = dv?.quality_l2_unique_count || 0;
+  const l2nits = refs?.l2_trim_targets_nits || [];
   if (l2c) {
     fila('L2', tr('tab2.niv_l2'),
          tr('tab2.niv_combos_objetivos',
-            {combos: n(l2c), objetivos: (dv.quality_l2_target_pqs || []).length}), 'si', F);
+            {combos: n(l2c), objetivos: (dv.quality_l2_target_pqs || []).length})
+         + (l2nits.length
+            ? ' · ' + tr('tab2.niv_l8_targets', {nits: l2nits.join(' · ')}) : ''),
+         'si', F);
   } else {
     fila('L2', tr('tab2.niv_l2'), '', dv?.has_l2 ? 'si' : 'no', M);
   }
@@ -1800,15 +1787,19 @@ function _rgrfTablaDeNiveles(dv, hdr) {
   const l8c = dv?.quality_l8_unique_count || 0;
   const l8nits = (refs?.l8_trim_nits_full?.length ? refs.l8_trim_nits_full
                                                   : (dv?.l8_trim_nits || []));
+  // Los objetivos van CON los combos: «para qué pantallas hay ajuste»
+  // y «cuánto ajuste hay» son la misma pregunta partida en dos, y
+  // estaban en dos bloques distintos con dos escalas distintas.
+  const objetivos = l8nits.length
+    ? ' · ' + tr('tab2.niv_l8_targets', {nits: l8nits.join(' · ')}) : '';
   if (l8c || dv?.quality_classification) {
     fila('L8', tr('tab2.niv_l8'),
          l8c ? tr('tab2.niv_l8_val',
-                  {combos: n(l8c), delta: n(dv.quality_l8_max_delta || 0)})
+                  {combos: n(l8c), delta: n(dv.quality_l8_max_delta || 0)}) + objetivos
              : tr('tab2.niv_l8_sin_trims'),
          l8c ? 'si' : 'no', F);
   } else {
-    fila('L8', tr('tab2.niv_l8'),
-         l8nits.length ? tr('tab2.niv_l8_targets', {nits: l8nits.join(' · ')}) : '',
+    fila('L8', tr('tab2.niv_l8'), objetivos.replace(' · ', ''),
          dv?.has_l8 ? 'si' : 'no', M);
   }
 
@@ -1852,7 +1843,7 @@ function _rgrfTablaDeNiveles(dv, hdr) {
       </table>
       ${l8nits.length ? `
         <div class="dv-viz-inline">
-          <div class="dv-viz-caption"><span data-i18n="tab2.l8_escala"></span> ${
+          <div class="dv-viz-caption"><span data-i18n="tab2.l8_pantallas"></span> ${
             _rgrfAlcance(!(refs?.l8_trim_nits_full?.length))}</div>
           ${_rgrfL8Svg(l8nits)}
         </div>` : ''}
