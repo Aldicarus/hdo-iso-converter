@@ -2311,6 +2311,10 @@ function closeCMv40Project(pid) {
 }
 
 function switchCMv40SubTab(pid) {
+  // Guardar antes de ocultar y restaurar después de mostrar: ver
+  // `guardarScrollDePanel` en core.js.
+  const cont = document.getElementById('cmv40-subtab-content');
+  guardarScrollDePanel(cont, document.getElementById(`cmv40-panel-${activeCMv40SubTabId}`));
   activeCMv40SubTabId = pid;
   document.querySelectorAll('#cmv40-subtab-content > .cmv40-panel').forEach(el => {
     el.style.display = 'none';
@@ -2322,6 +2326,7 @@ function switchCMv40SubTab(pid) {
   document.querySelectorAll('#cmv40-subtab-projects .subtab-proj').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.pid === pid);
   });
+  restaurarScrollDePanel(cont, active);
 }
 
 function _createCMv40SubTab(project) {

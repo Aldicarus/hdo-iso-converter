@@ -649,9 +649,50 @@ function switchTab(n) {
   }
 }
 
+/** Dónde estaba leyendo el usuario en la pestaña de proyecto que deja.
+ *
+ *  Las tres pestañas tienen **un solo contenedor con scroll** y los paneles
+ *  de proyecto dentro: el `overflow` va en el padre a propósito, porque en
+ *  WebKit ponerlo en un panel hijo flex deja sin scroll las zonas vacías.
+ *  Así que la posición es del contenedor y no del proyecto, y al cambiar de
+ *  pestaña se perdía: Tab 1 la ponía a cero explícitamente, y en Tab 2 y
+ *  Tab 3 la recortaba el navegador al ocultar el panel saliente —medido en
+ *  Chrome: 450 → 0, y al volver a mostrarlo se queda en 0—.
+ *
+ *  Un panel de proyecto es largo (la radiografía de Tab 2, las cards por
+ *  fase de Tab 3), así que volver al principio cada vez que se mira otra
+ *  cosa obliga a buscar de nuevo dónde se estaba.
+ *
+ *  **Se guarda EN EL PANEL**, no en un registro aparte. Los tres cierres
+ *  hacen `.remove()` del suyo, así que la posición se va con él y no hay
+ *  nada que limpiar: un registro por id tendría que enterarse de cada
+ *  cierre, y el que se olvidara filtraría en silencio.
+ *
+ *  **El orden no es negociable**, y es lo que fija el test: guardar ANTES
+ *  de ocultar el saliente —un contenedor cuyo contenido acaba de encoger ya
+ *  lee cero— y restaurar DESPUÉS de mostrar el entrante, porque sin su
+ *  altura el navegador recorta lo que se le asigne.
+ */
+function guardarScrollDePanel(contenedor, saliente) {
+  if (contenedor && saliente) saliente.dataset.scroll = String(contenedor.scrollTop);
+}
+
+/** Devuelve al contenedor la posición que el panel entrante traía. */
+function restaurarScrollDePanel(contenedor, entrante) {
+  if (!contenedor) return;
+  contenedor.scrollTop = entrante ? (Number(entrante.dataset.scroll) || 0) : 0;
+}
+
+
 // ═══════════════════════════════════════════════════════════════════
 //  SUB-TABS (proyectos dentro de Tab 1)
 // ═══════════════════════════════════════════════════════════════════
+
+/** El panel de una sub-pestaña de Tab 1 (o el del estado vacío). */
+function _panelDeSubTab(id) {
+  return document.getElementById(
+    id === 'empty' ? 'panel-empty-projects' : `panel-project-${id}`);
+}
 
 /**
  * Cambia el sub-tab activo dentro de Tab 1.
@@ -662,6 +703,8 @@ function switchSubTab(id) {
   // se retiró: su contenido es hoy el modal de detalle de un rip, y el
   // centro de las tres pestañas es solo proyectos.
   if (!id && openProjects.length === 0) id = 'empty';
+  const main = document.getElementById('subtab-main');
+  guardarScrollDePanel(main, _panelDeSubTab(activeSubTabId));
   activeSubTabId = id;
   document.querySelectorAll('.subtab-proj').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.pid === id);
@@ -673,8 +716,7 @@ function switchSubTab(id) {
       : panel.id === `panel-project-${id}`;
     panel.classList.toggle('active-panel', active);
   });
-  const main = document.getElementById('subtab-main');
-  if (main) main.scrollTop = 0;
+  restaurarScrollDePanel(main, _panelDeSubTab(id));
   const project = getActiveProject();
   currentSession = project ? project.session : null;
 }

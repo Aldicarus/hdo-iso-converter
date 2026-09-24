@@ -374,6 +374,10 @@ function _mkvCreatePanel(project) {
 }
 
 function switchMkvSubTab(pid) {
+  // Guardar antes de ocultar y restaurar después de mostrar: ver
+  // `guardarScrollDePanel` en core.js.
+  const cont = document.getElementById('mkv-edit-panel');
+  guardarScrollDePanel(cont, document.getElementById(`mkv-panel-${activeMkvProjectId}`));
   activeMkvProjectId = pid;
   document.querySelectorAll('#mkv-edit-panel > .mkv-panel').forEach(el => {
     el.style.display = 'none';
@@ -383,7 +387,10 @@ function switchMkvSubTab(pid) {
   document.querySelectorAll('#mkv-subtab-projects .subtab-proj').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.pid === pid);
   });
+  // Después de `_mkvUpdateEmptyState`, que es quien hace visible el
+  // contenedor al abrir el primer MKV: sin caja no hay nada que restaurar.
   _mkvUpdateEmptyState();
+  restaurarScrollDePanel(cont, activo);
 }
 
 /** Empty state visible sólo cuando no queda ninguna pestaña abierta. */
