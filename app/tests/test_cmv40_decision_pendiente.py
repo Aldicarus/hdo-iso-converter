@@ -133,6 +133,33 @@ _CUERPO = """
       libre.awaiting_critical_ack = false;
       libre.critical_gate_failures = [];
       out.sinAck = abrir(libre);
+
+      // El OTRO pause-point: el pre-flight pidiendo mantener o inyectar.
+      // Aquí el proyecto está en `created` y la que sobraba era la Fase A.
+      const pf = JSON.parse(JSON.stringify(window.__S));
+      pf.phase = 'created';
+      pf.awaiting_critical_ack = false;
+      pf.critical_gate_failures = [];
+      pf.preflight_decision = 'ask_tone_mapping';
+      pf.recommended_action = 'keep';
+      pf.relato = {situacion: 'esperando_decision'};
+      out.conPreflight = abrir(pf);
+      // SÓLO el relato, sin los campos crudos: es lo que llega del
+      // servidor y lo que el frontend tiene que leer.
+      const soloRelato = JSON.parse(JSON.stringify(pf));
+      delete soloRelato.preflight_decision;
+      delete soloRelato.awaiting_critical_ack;
+      out.soloRelato = abrir(soloRelato);
+      // SÓLO los campos crudos, sin relato: el respaldo, para una sesión
+      // cacheada de antes o el summary del sidebar.
+      const soloCrudo = JSON.parse(JSON.stringify(pf));
+      delete soloCrudo.relato;
+      out.soloCrudo = abrir(soloCrudo);
+      // Y el mismo, ya resuelto.
+      const resuelto = JSON.parse(JSON.stringify(pf));
+      resuelto.preflight_decision = 'ok';
+      resuelto.relato = {situacion: 'preparando'};
+      out.preflightResuelto = abrir(resuelto);
     } catch (e) { out.errores.push('EXCEPCIÓN: ' + e.message); }
     out.errores = out.errores.concat(window.__errores);
     document.getElementById('__out').textContent = JSON.stringify(out);
@@ -226,6 +253,47 @@ class TestLaDecisionVaDondeSeExplica(DecisionCase):
         self.assertGreater(ack, 0)
 
 
+class TestElPausePointDelPreflight(DecisionCase):
+    """El mismo defecto en otro sitio: las opciones de «mantener el MKV o
+    inyectar RPU» convivían con el botón de analizar de la Fase A.
+
+    La condición la resuelve el SERVIDOR —`relato.situacion` ya valía
+    `esperando_decision` para este caso— y el frontend no la miraba: tenía
+    su propio predicado, que sólo conocía el ACK. Reportado el 2026-09-25.
+    """
+
+    def test_ninguna_fase_ofrece_arrancar(self):
+        ofrecen = [b["titulo"] for b in self.bloques("conPreflight")
+                   if b["fase"] and b["acciones"]]
+        self.assertEqual(ofrecen, [], f"con la decisión del pre-flight "
+                                      f"pendiente se ofrece: {ofrecen}")
+
+    def test_ni_la_fase_a(self):
+        # La que el usuario vio: `created` deja la Fase A activa.
+        activas = [b["titulo"] for b in self.bloques("conPreflight")
+                   if b["estado"] == "active"]
+        self.assertEqual(activas, [])
+
+    def test_basta_con_el_relato(self):
+        """Sin los campos crudos: es lo que manda, y es lo que no se leía."""
+        ofrecen = [b["titulo"] for b in self.bloques("soloRelato")
+                   if b["fase"] and b["acciones"]]
+        self.assertEqual(ofrecen, [])
+
+    def test_y_el_respaldo_cubre_cuando_el_relato_no_llega(self):
+        """Sin relato —una sesión cacheada de antes, el summary—, los campos
+        crudos tienen que dar la misma respuesta."""
+        ofrecen = [b["titulo"] for b in self.bloques("soloCrudo")
+                   if b["fase"] and b["acciones"]]
+        self.assertEqual(ofrecen, [])
+
+    def test_y_al_resolverla_vuelve_a_ofrecerse(self):
+        activas = [b for b in self.bloques("preflightResuelto")
+                   if b["estado"] == "active"]
+        self.assertEqual(len(activas), 1)
+        self.assertTrue(activas[0]["acciones"])
+
+
 class TestSinDecisionNoCambiaNada(DecisionCase):
 
     def test_no_hay_banner(self):
@@ -240,6 +308,52 @@ class TestSinDecisionNoCambiaNada(DecisionCase):
                       if b["estado"] == "active")
         self.assertTrue(activa["acciones"],
                         "la fase activa tiene que poder lanzarse")
+
+
+class TestElServidorResuelveLasDosEsperas(unittest.TestCase):
+    """`_situacion` de `cmv40_relato`, que es de donde sale la condición.
+
+    El ACK faltaba: un proyecto parado esperando que el usuario confirmara
+    una degradación se contaba como «preparando», así que ni la columna de
+    trabajo ni la tarjeta decían que le tocaba a él.
+    """
+
+    def _situacion(self, **campos):
+        from models import CMv40Session
+        from phases.cmv40_relato import _situacion
+        base = dict(id="p1", source_mkv_path="/mnt/output/x.mkv",
+                    source_mkv_name="x.mkv", phase="created")
+        return _situacion(CMv40Session(**{**base, **campos}), en_cola=None)
+
+    def test_la_decision_del_preflight(self):
+        self.assertEqual(self._situacion(preflight_decision="ask_tone_mapping"),
+                         "esperando_decision")
+
+    def test_y_la_confirmacion_de_una_degradacion(self):
+        # Con sus gates: el modelo tiene un invariante que levanta el
+        # bloqueo si no hay ninguno —«no habría banner con el que salir»—,
+        # así que un fixture sin ellos no reproduce nada.
+        self.assertEqual(self._situacion(
+            awaiting_critical_ack=True,
+            critical_gate_failures=[{"gate": "l1_div",
+                                     "severity": "ack_required"}]),
+            "esperando_decision")
+
+    def test_un_preflight_resuelto_no_espera_nada(self):
+        self.assertNotEqual(self._situacion(preflight_decision="ok"),
+                            "esperando_decision")
+
+    def test_ni_un_proyecto_recien_creado(self):
+        self.assertNotEqual(self._situacion(), "esperando_decision")
+
+    def test_lo_que_CORRE_manda_sobre_la_espera(self):
+        # El orden de `_situacion` es la decisión: si algo se mueve, eso es
+        # lo que el usuario necesita saber.
+        self.assertEqual(self._situacion(
+            awaiting_critical_ack=True, running_phase="extract",
+            critical_gate_failures=[{"gate": "l1_div",
+                                     "severity": "ack_required"}]),
+            "en_marcha")
 
 
 if __name__ == "__main__":

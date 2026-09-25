@@ -527,6 +527,13 @@ class TestNadieVuelveADerivarloAMano(unittest.TestCase):
             "el bloque ⑤ de la card 🛡️ Validaciones es uno de los volcados de "
             "diagnóstico que CLAUDE.md exime por función: enseña el valor "
             "CRUDO del campo, para leerlo contra el log, no para contar nada",
+        "_cmv40EsperaDecision":
+            "LEE el relato y sólo cae a los campos crudos cuando no llega —el "
+            "summary del sidebar, una sesión cacheada de antes—. Es el mismo "
+            "patrón de respaldo que `_cmv40Trust` con el plan, y por el mismo "
+            "motivo: sin él, un panel sin relato ofrecería las fases de un "
+            "proyecto que está esperando una decisión, que es el bug que esta "
+            "función arregla",
     }
     CAMPOS = ("preflight_user_choice", "preflight_decision")
 

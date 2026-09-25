@@ -100,8 +100,14 @@ def _situacion(session, en_cola) -> str:
         return relato.DETENIDO_POR_ERROR
     if en_cola:
         return relato.ESPERANDO_TURNO
+    # Las DOS esperas de decisión, que son la misma situación para quien
+    # mira: el proyecto está parado y le toca al usuario. La del pre-flight
+    # —mantener el MKV o inyectar— y la confirmación de una degradación que
+    # la Fase D no puede arreglar. El ACK faltaba, así que un proyecto
+    # esperando confirmación se contaba como «preparando».
     decision = session.preflight_decision or ""
-    if decision and decision != "ok":
+    if (decision and decision != "ok") or getattr(
+            session, "awaiting_critical_ack", False):
         return relato.ESPERANDO_DECISION
     if _ultima_cancelada(session):
         return relato.CANCELADO

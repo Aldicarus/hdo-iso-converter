@@ -3760,14 +3760,28 @@ const CMV40_FASES_DEF = [
 
 /** ¿El proyecto está parado esperando que el usuario decida algo?
  *
- *  Mientras lo esté, ninguna fase posterior se puede ofrecer: la decisión
- *  cambia lo que esas fases harían —o si llegan a hacerse—. El panel
- *  enseñaba a la vez el banner de «cambiar target / continuar igualmente» y
- *  la Fase C con su botón de extraer, o sea dos caminos donde sólo hay uno.
- *  Reportado el 2026-09-25 con el proyecto de Drive.
+ *  Mientras lo esté, ninguna fase se puede ofrecer: la decisión cambia lo
+ *  que esas fases harían —o si llegan a hacerse—. El panel enseñaba dos
+ *  caminos donde sólo hay uno, dos veces y en dos sitios distintos: el
+ *  banner de «cambiar target / continuar igualmente» junto a la Fase C con
+ *  su botón de extraer, y después las opciones de «mantener el MKV o
+ *  inyectar RPU» del pre-flight junto a la Fase A con su botón de analizar.
+ *  Reportado el 2026-09-25 con el proyecto de Drive, las dos veces.
+ *
+ *  **Se LEE del relato**, que es la regla del proyecto para cualquier
+ *  decisión sobre en qué estado está un trabajo. Y es lo que evita el
+ *  tercer caso: el servidor ya resolvía las dos esperas en un sitio, y
+ *  derivarlo aquí a mano sólo acertó con una de ellas.
+ *
+ *  El respaldo local es para cuando el relato no llega —una sesión
+ *  cacheada de antes, el summary del sidebar—, y por eso mira los dos
+ *  campos, no uno.
  */
 function _cmv40EsperaDecision(s) {
-  return !!s.awaiting_critical_ack;
+  const sit = s.relato && s.relato.situacion;
+  if (sit) return sit === 'esperando_decision';
+  const d = s.preflight_decision || '';
+  return !!s.awaiting_critical_ack || (!!d && d !== 'ok');
 }
 
 function _cmv40PhaseState(sessionPhase, produces, startsFrom) {
