@@ -1199,7 +1199,7 @@
   "tab3.limpiar_artefactos_del_workdir": "Clean the workdir artifacts",
   "tab3.limpiar_y_archivar": "Clean up and archive",
   "tab3.listo_para_continuar": "ready to continue",
-  "tab3.listo_para_escoger_otro_target_abre": "Ready to pick another target — open the Phase B card",
+  "tab3.listo_para_escoger_otro_target": "Ready to pick another target",
   "tab3.llevas_n_rpu_descargado": "You've downloaded {n} RPU",
   "tab3.llevas_n_rpus_descargados": "You've downloaded {n} RPUs",
   "tab3.lo_que_la_comunidad_ha_documentado": "What the community has documented about this title",

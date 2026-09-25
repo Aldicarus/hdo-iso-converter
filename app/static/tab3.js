@@ -3842,6 +3842,19 @@ async function _cmv40AcknowledgeCriticalGates(pid) {
   showToast(tr('tab3.degradacion_reconocida_pipeline_continua_fase_d'), 'info');
 }
 
+/** Lleva la vista a la card de una fase.
+ *
+ *  El scroll es del contenedor de la pestaña, así que tras repintar el panel
+ *  se queda donde estaba —que después de un reset suele ser el final— y hay
+ *  que ir a buscar la card a mano. Con el toast diciendo dónde mirar, eso es
+ *  pedirle al usuario que haga de índice.
+ */
+function _cmv40IrALaFase(pid, key) {
+  const card = document.querySelector(
+    `#cmv40-panel-${pid} [data-fase-key="${key}"]`);
+  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 /** Handler del botón "Cambiar target" — reset a 'source_analyzed' para
  *  que el usuario seleccione otro bin. Reusa el endpoint reset-to. */
 async function _cmv40ChangeTarget(pid) {
@@ -3852,9 +3865,13 @@ async function _cmv40ChangeTarget(pid) {
     _cmv40AssignSession(project, data);
     project._lastAutoFiredFor = null;
     project._autoChaining = false;
+    // El bin que se acaba de descartar sigue en la lista cargada: al volver
+    // a la Fase B hay que pedirla de nuevo.
+    project._repoCargadoPara = null;
     _updateCMv40Panel(project);
+    _cmv40IrALaFase(pid, 'B');
   }
-  showToast(tr('tab3.listo_para_escoger_otro_target_abre'), 'info');
+  showToast(tr('tab3.listo_para_escoger_otro_target'), 'info');
 }
 
 function _renderCMv40ActivePhase(project) {
@@ -5347,7 +5364,7 @@ function _cmv40FaseBBody(pid, s) {
         <div id="cmv40-repo-list-${pid}" class="cmv40-repo-list" style="max-height:280px;overflow-y:auto"></div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
           <button class="btn btn-primary btn-md" onclick="cmv40DoTargetFromDrive('${pid}')"><span data-icono="flechaAbajo"></span> <span data-i18n="tab3.descargar_y_usar"></span></button>
-          <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadRepoForPanel('${pid}')"><span data-icono="deshacer"></span> <span data-i18n="tab3.refrescar"></span></button>
+          <button class="btn btn-secondary btn-sm" onclick="_cmv40LoadRepoForPanel('${pid}', true)"><span data-icono="deshacer"></span> <span data-i18n="tab3.refrescar"></span></button>
         </div>
       </div>
 
@@ -5935,7 +5952,7 @@ const _cmv40PanelRepoReqIds = {};
  * Carga candidatos de bin del repo DoviTools para un proyecto en Fase B.
  * Usa el filename del MKV origen del proyecto (no estado del modal).
  */
-async function _cmv40LoadRepoForPanel(pid) {
+async function _cmv40LoadRepoForPanel(pid, forzar = false) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (!project) return;
   const list = document.getElementById(`cmv40-repo-list-${pid}`);
@@ -5943,6 +5960,17 @@ async function _cmv40LoadRepoForPanel(pid) {
   if (!list) return;
   const sourcePath = project.session?.source_mkv_path || '';
   const filename = sourcePath.split('/').pop() || '';
+  // El panel se repinta cada pocos segundos y esto se llamaba en cada
+  // vuelta: la lista de bins se borraba, ponía «Buscando en Drive…» y se
+  // volvía a pedir, una y otra vez. Antes no se notaba porque la Fase B
+  // activa duraba lo que tardaba el auto-pipeline en pasar por ella; desde
+  // que el proyecto se queda esperando a que el usuario escoja bin, el
+  // parpadeo es continuo —y la petición también—. Reportado el 2026-09-25.
+  //
+  // Se pide una vez por fichero. El botón «Refrescar» fuerza; volver a la
+  // pestaña no, que sería el mismo parpadeo con otro disparador.
+  if (!forzar && project._repoCargadoPara === filename) return;
+  project._repoCargadoPara = filename;
   if (!filename) {
     list.innerHTML = '<div class="cmv40-repo-empty">' + tr('tab3.sin_mkv_origen_imposible_matchear') + '</div>';
     if (info) info.textContent = '';
@@ -5958,6 +5986,7 @@ async function _cmv40LoadRepoForPanel(pid) {
   if (!data) {
     list.innerHTML = '<div class="cmv40-repo-empty">' + tr('tab3.error_consultando_el_repositorio') + '</div>';
     if (info) info.textContent = '';
+    project._repoCargadoPara = null;   // que el siguiente intento lo pida
     return;
   }
   if (!data.drive_configured) {

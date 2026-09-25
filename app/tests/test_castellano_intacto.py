@@ -47,6 +47,12 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── El toast de «Cambiar target» ya no manda buscar la card
+    #    (2026-09-25): la app lleva la vista a la Fase B, así que decir
+    #    «abre la card de Fase B» describe un trabajo que ya no hay que
+    #    hacer. El usuario había tenido que cazar el toast y buscarla.
+    "Listo para escoger otro target — abre la card de Fase B":
+        "hoy la vista va sola a la Fase B, así que el toast sólo dice en qué estado ha quedado el proyecto",
     # ── El botón «Cerrar» del pie de Tab 2 se retira (2026-09-25, a
     #    petición del usuario: «lo hemos heredado de cuando no había
     #    pestañas»). Hoy se cierra por la ✕ de la sub-pestaña, que es la
