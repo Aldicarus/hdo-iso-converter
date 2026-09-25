@@ -7162,6 +7162,57 @@ async function cmv40DoResetSync(pid) {
  *  casillas nacen a cero, el desfase se anuncia arriba y lo reparte quien
  *  está mirando el gráfico.
  */
+/** El `editor_config` de `dovi_tool` para las cuatro casillas de la matriz.
+ *
+ *  Pura y aparte del handler para poder ejecutarla en un test: lo que aquí
+ *  se calcula mal no da un resultado torcido, da un `dovi_tool editor` que
+ *  se niega a correr.
+ *
+ *  **`dovi_tool` aplica los `remove` ANTES que los `duplicate`**, así que
+ *  los índices del duplicado final se cuentan sobre lo que queda, no sobre
+ *  el target original. Con `T = 144683`, quitar 29 por delante y duplicar
+ *  29 por detrás producía `source: 144682, offset: 144683` sobre un target
+ *  que ya sólo tenía 144654 frames, y la fase moría con «invalid
+ *  duplicate». Caso real: Drive (2011), 2026-09-25 — y es justo la
+ *  combinación que el botón de desplazar genera, o sea la normal.
+ *
+ *  El `remove` del final ya descontaba lo quitado por delante, por el mismo
+ *  motivo; lo que faltaba era hacerlo también aquí.
+ */
+function _cmv40ConfigDeSync(o, T) {
+  const config = {};
+  const quitar = [];
+  if (o.quitarInicio > 0) quitar.push(`0-${o.quitarInicio - 1}`);
+  // Por el final se cuenta hacia atrás desde el último frame. Se resta
+  // primero lo que se quita por delante para que los dos rangos no se
+  // solapen cuando el target es corto.
+  let quitados = o.quitarInicio;
+  if (o.quitarFinal > 0) {
+    const fin = T - 1;
+    const ini = Math.max(o.quitarInicio, T - o.quitarFinal);
+    if (ini <= fin) {
+      quitar.push(`${ini}-${fin}`);
+      // Los de VERDAD, no los pedidos. Hoy da igual —si el `Math.max`
+      // recorta es porque los dos rangos juntos cubren el target entero, y
+      // entonces no queda nada que duplicar—, así que es defensa y no
+      // regla: comprobado por mutación que ningún caso lo distingue.
+      quitados += fin - ini + 1;
+    }
+  }
+  if (quitar.length) config.remove = quitar;
+  const duplicar = [];
+  if (o.duplicarInicio > 0) {
+    duplicar.push({ source: 0, offset: 0, length: o.duplicarInicio });
+  }
+  // Duplicar el ÚLTIMO frame de lo que queda: se copia y se inserta detrás.
+  if (o.duplicarFinal > 0) {
+    const tras = T - quitados + o.duplicarInicio;
+    duplicar.push({ source: tras - 1, offset: tras, length: o.duplicarFinal });
+  }
+  if (duplicar.length) config.duplicate = duplicar;
+  return config;
+}
+
 async function cmv40DoApplySync(pid) {
   const o = _cmv40OpsDeSync(pid);
   const remove = o.quitarInicio + o.quitarFinal;
@@ -7179,27 +7230,7 @@ async function cmv40DoApplySync(pid) {
     showToast(tr('tab3.sync_sin_total_no_hay_final'), 'warning');
     return;
   }
-  const config = {};
-  const quitar = [];
-  if (o.quitarInicio > 0) quitar.push(`0-${o.quitarInicio - 1}`);
-  // Por el final se cuenta hacia atrás desde el último frame. Se resta
-  // primero lo que se quita por delante para que los dos rangos no se
-  // solapen cuando el target es corto.
-  if (o.quitarFinal > 0) {
-    const fin = T - 1;
-    const ini = Math.max(o.quitarInicio, T - o.quitarFinal);
-    if (ini <= fin) quitar.push(`${ini}-${fin}`);
-  }
-  if (quitar.length) config.remove = quitar;
-  const duplicar = [];
-  if (o.duplicarInicio > 0) {
-    duplicar.push({ source: 0, offset: 0, length: o.duplicarInicio });
-  }
-  // Duplicar el ÚLTIMO frame: se copia `T-1` y se inserta detrás de él.
-  if (o.duplicarFinal > 0) {
-    duplicar.push({ source: T - 1, offset: T, length: o.duplicarFinal });
-  }
-  if (duplicar.length) config.duplicate = duplicar;
+  const config = _cmv40ConfigDeSync(o, T);
   const data = await apiFetch(`/api/cmv40/${pid}/apply-sync`, {
     method: 'POST',
     body: JSON.stringify({ editor_config: config }),

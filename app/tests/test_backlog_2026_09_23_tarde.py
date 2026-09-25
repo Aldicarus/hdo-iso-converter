@@ -790,7 +790,9 @@ globalThis.apiFetch = async (url, opts) => {
   return null;                       // corta el flujo tras el POST
 };
 const api = new Function([
-  grab('_cmv40OpsDeSync'), grab('cmv40DoApplySync'),
+  // `_cmv40ConfigDeSync` salió del handler el 2026-09-25 para poder
+  // probarla sola: sin traerla, el handler muere con un ReferenceError.
+  grab('_cmv40OpsDeSync'), grab('_cmv40ConfigDeSync'), grab('cmv40DoApplySync'),
   'return { cmv40DoApplySync };',
 ].join('\n'))();
 (async () => {
