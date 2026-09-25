@@ -47,6 +47,12 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── El toast de «Aplicar corrección» prometía un número que no tiene
+    #    (2026-09-25): desde que la Fase E se lanza en segundo plano, el
+    #    endpoint contesta `{ok, started}` y el Δ nuevo no existe hasta que
+    #    la fase termina. En pantalla salía «Nuevo Δ = undefined».
+    "Corrección aplicada. Nuevo Δ = ⟦⟧ ⟦⟧":
+        "hoy dice que la corrección se está aplicando; el Δ lo enseña el panel cuando la fase acaba",
     # ── El toast de «Cambiar target» ya no manda buscar la card
     #    (2026-09-25): la app lleva la vista a la Fase B, así que decir
     #    «abre la card de Fase B» describe un trabajo que ya no hay que

@@ -7264,7 +7264,12 @@ async function cmv40DoApplySync(pid) {
     body: JSON.stringify({ editor_config: config }),
   });
   if (data) {
-    showToast(tr('tab3.correccion_aplicada_nuevo', {p1: data.sync_delta > 0 ? '+' : '', sync_delta: data.sync_delta}), 'success');
+    // El Δ nuevo NO se sabe aquí: el endpoint lanza la Fase E y contesta
+    // `{ok, started}` —sólo en DEV_MODE devuelve la sesión—, así que el
+    // toast anunciaba «Nuevo Δ = undefined». Es la regla de siempre:
+    // describir el estado, no predecir el resultado. El número lo enseña
+    // el panel cuando la fase termina y el poller trae la sesión.
+    showToast(tr('tab3.aplicando_la_correccion'), 'info');
     if (project) {
       project.syncData = null;  // forzar recarga
       _cmv40AssignSession(project, data);
