@@ -801,10 +801,12 @@ function renderProjectSubTabButton(project) {
     existing.querySelector('.subtab-proj-name').textContent = project.name.slice(0, 24) + (project.name.length > 24 ? '…' : '');
     return;
   }
-  const icon = projectStatusIcon(project.session?.status);
   const btn  = document.createElement('button');
   btn.className  = 'subtab-proj';
   btn.dataset.pid = project.id;
+  btn.dataset.sobre = project.sessionId || '';
+  btn.dataset.glifo = glifoDeEstadoDeSesion(project.session?.status);
+  const icon = icono(btn.dataset.glifo);
   btn.innerHTML  = `
     <span class="unsaved-dot" id="unsaved-dot-${project.id}" style="display:none" data-i18n-tip="tab2.cambios_sin_guardar_2"></span>
     <span class="subtab-proj-icon" id="subtab-icon-${project.id}">${icon}</span>
@@ -812,6 +814,7 @@ function renderProjectSubTabButton(project) {
     <button class="subtab-proj-close" onclick="closeProject('${project.id}',event)" data-i18n-tip="core.cerrar_proyecto">×</button>`;
   btn.onclick = (e) => { if (!e.target.closest('.subtab-proj-close')) switchSubTab(project.id); };
   container.appendChild(btn);
+  refrescarIconosDeSubPestana();   // sin esperar a la vuelta de la columna
   _updateSubtabScrollState();
 }
 
@@ -892,12 +895,69 @@ function clearProjectDirty(pid) {
  * Devuelve el emoji de estado para el icono del sub-tab según el estado de la sesión.
  * @param {string} [status] — estado de la sesión
  */
+// Los mismos glifos que la tarjeta de proyecto: un estado se dibuja igual
+// en toda la aplicación. `running` no está: mientras algo corre, el icono lo
+// pone `refrescarIconosDeSubPestana` — ver ahí por qué.
+const _GLIFO_DE_ESTADO = { pending: 'disco', queued: 'pausa',
+                           done: 'check', error: 'cruz' };
+
+/** El nombre del glifo que le toca a una sesión por su estado. */
+function glifoDeEstadoDeSesion(status) {
+  return _GLIFO_DE_ESTADO[status] || 'disco';
+}
+
 function projectStatusIcon(status) {
   if (status === 'running') return '<span class="spinner-inline"></span>';
-  // Los mismos glifos que la tarjeta de proyecto: un estado se dibuja
-  // igual en toda la aplicación.
-  const map = { pending: 'disco', queued: 'pausa', done: 'check', error: 'cruz' };
-  return icono(map[status] || 'disco');
+  return icono(glifoDeEstadoDeSesion(status));
+}
+
+/** ¿Hay un trabajo en curso sobre esto?
+ *
+ *  `sobre` es la referencia con la que `/api/trabajos` dice de QUÉ va un
+ *  trabajo: la ruta del MKV en Tab 2 y el id de la sesión en Tab 1 y Tab 3.
+ *  Sale de lo que la columna ya pollea cada 2 s — preguntarlo aparte sería
+ *  una segunda idea de qué está pasando, y de esa familia era el desacuerdo
+ *  entre los puntos verdes y el aviso de fin de trabajo.
+ */
+function hayTrabajoSobre(ref) {
+  if (!ref) return false;
+  const e = (typeof workbarEstado === 'object' && workbarEstado) || {};
+  const es = t => !!t && (t.sobre === ref || t.id === ref);
+  return es(e.activo) || (e.interactivo || []).some(es);
+}
+
+/** Pinta el icono de cada sub-pestaña: gira mientras su proyecto trabaja.
+ *
+ *  Lo hace UNA función, por el estado real y en cada vuelta de la columna,
+ *  en vez de cada pestaña al enterarse. Los tres defectos que cierra son el
+ *  mismo (2026-09-25):
+ *
+ *  · en Tab 1 el spinner **se quedaba girando** después de terminar el rip.
+ *    `updateProjectTabIcon` buscaba el botón por un id que nadie pone, así
+ *    que salía por su `return` y no hacía nada nunca: el icono se pintaba al
+ *    crear la sub-pestaña y ahí se quedaba;
+ *  · Tab 2 y Tab 3 no tenían spinner, aunque su trabajo dura más que un rip.
+ *
+ *  Derivarlo del estado en vez de repintarlo al cambiar es lo que lo arregla
+ *  «por construcción»: si no hay trabajo no hay spinner, se mire cuando se
+ *  mire. Cada pestaña sólo declara `data-sobre` (a qué trabajo mirar) y
+ *  `data-glifo` (qué dibujar en reposo).
+ */
+function refrescarIconosDeSubPestana() {
+  document.querySelectorAll('.subtab-proj[data-sobre]').forEach(btn => {
+    const el = btn.querySelector('.subtab-proj-icon');
+    if (!el) return;
+    const glifo = btn.dataset.glifo || 'disco';
+    const gira = hayTrabajoSobre(btn.dataset.sobre);
+    // Se compara el ESTADO, no el HTML: el navegador devuelve el marcado
+    // normalizado y no coincide nunca con lo que se escribió, así que esto
+    // repintaría en cada vuelta y el `data-icono` volvería a resolverse.
+    const estado = gira ? 'gira' : glifo;
+    if (el.dataset.pintado === estado) return;
+    el.dataset.pintado = estado;
+    el.innerHTML = gira ? '<span class="spinner-inline"></span>'
+                        : `<span data-icono="${glifo}"></span>`;
+  });
 }
 
 /** Actualiza el icono del sub-tab de un proyecto. */
@@ -908,20 +968,15 @@ function projectStatusIcon(status) {
 function updateProjectTabIcon(project) {
   project = project || getActiveProject();
   if (!project) return;
-  const btn = document.getElementById(`subtab-btn-${project.id}`);
+  // Por `data-pid`, que es lo que el botón lleva de verdad. Buscaba
+  // `subtab-btn-{id}`, un id que no pone nadie: salía por el `return` y no
+  // actualizaba nunca — de ahí el spinner que seguía girando con el rip ya
+  // terminado.
+  const btn = document.querySelector(`.subtab-proj[data-pid="${project.id}"]`);
   if (!btn) return;
-  const iconEl = btn.querySelector('.subtab-proj-icon');
-  if (!iconEl) return;
-  const status = project.session?.status;
-  if (status === 'running') {
-    iconEl.textContent = '';
-    if (!iconEl.querySelector('.spinner-inline')) {
-      iconEl.innerHTML = '<span class="spinner-inline"></span>';
-    }
-  } else {
-    // `innerHTML` y no `textContent`: ahora es un SVG.
-    iconEl.innerHTML = projectStatusIcon(status);
-  }
+  // Sólo se declara el icono de reposo; quién gira lo decide el estado real.
+  btn.dataset.glifo = glifoDeEstadoDeSesion(project.session?.status);
+  refrescarIconosDeSubPestana();
 }
 
 /** Crea el panel DOM del proyecto (vacío, se rellena con renderProjectPanel). */

@@ -1822,7 +1822,7 @@
   "workbar.en_segundo_plano": "En segon pla",
   "workbar.ese_trabajo_ya_no_esta_en": "Aquest treball ja no és a la llista",
   "workbar.ese_trabajo_ya_no_esta_en_2": "Aquest treball ja no s'està executant",
-  "workbar.esperando_turno": "A l'espera del torn",
+  "workbar.esperando_turno": "A la cua",
   "workbar.esperando_turno_o_de_la_cola": "A l'espera del torn · posició {posicion} de la cua",
   "workbar.este_trabajo_no_conserva_ningun_detalle": "Aquest treball no conserva cap detall",
   "workbar.este_trabajo_no_tiene_una_vista": "Aquest treball no té una vista de detall",

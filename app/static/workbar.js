@@ -407,6 +407,9 @@ function _workbarConsultasHTML(c) {
 }
 
 function _workbarRender(st) {
+  // El spinner de las sub-pestañas sale del MISMO estado que la columna, y
+  // se pinta aquí para no tener un poller más: es la vuelta que ya hay.
+  if (typeof refrescarIconosDeSubPestana === 'function') refrescarIconosDeSubPestana();
   const body = document.getElementById('workbar-body');
   const cuenta = document.getElementById('workbar-count');
   if (!body) return;

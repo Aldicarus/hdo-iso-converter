@@ -625,7 +625,7 @@ class TestUnSoloScrollYCuatroSeccionesSeguidas(unittest.TestCase):
         """
         titulos = [t["texto"] for t in self.m["titulos"]]
         self.assertEqual(titulos, ["En curso", "En segundo plano",
-                                   "Esperando turno", "Recientes"])
+                                   "En cola", "Recientes"])
 
     def test_cada_cabecera_se_pega_y_tapa_lo_que_pasa_por_debajo(self):
         """Eran 10 px de gris claro sin fondo ni línea, y entre dos bloques de

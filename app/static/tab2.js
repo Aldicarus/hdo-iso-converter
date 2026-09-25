@@ -347,11 +347,18 @@ function _mkvCreateSubTab(project) {
   btn.className = 'subtab-proj';
   btn.id = `mkv-stab-${project.id}`;
   btn.dataset.pid = project.id;
+  // A qué trabajo mirar para el spinner: los dos de Tab 2 —el análisis
+  // extendido y la copia desde biblioteca— se encolan con la RUTA del MKV
+  // en `sobre`, así que la correspondencia es exacta y no por basename
+  // (tras copiar desde biblioteca hay dos rutas con el mismo nombre).
+  btn.dataset.sobre = project.filePath || '';
+  btn.dataset.glifo = 'lapiz';
   btn.innerHTML = _mkvSubTabInnerHtml(project);
   btn.onclick = (e) => {
     if (!e.target.closest('.subtab-proj-close')) switchMkvSubTab(project.id);
   };
   container.appendChild(btn);
+  if (typeof refrescarIconosDeSubPestana === 'function') refrescarIconosDeSubPestana();
   _installSubtabScrollBindings();
   _updateSubtabScrollState();
 }
@@ -359,7 +366,13 @@ function _mkvCreateSubTab(project) {
 /** Repinta el botón de sub-pestaña (cambió el nombre del fichero). */
 function _mkvRefreshSubTab(project) {
   const btn = document.getElementById(`mkv-stab-${project.id}`);
-  if (btn) btn.innerHTML = _mkvSubTabInnerHtml(project);
+  if (!btn) return;
+  btn.dataset.sobre = project.filePath || '';
+  btn.innerHTML = _mkvSubTabInnerHtml(project);
+  // Rehacer el marcado recrea el icono SIN su marca de pintado, así que el
+  // repintado vuelve a decidir por su cuenta. Sin esta llamada el spinner
+  // desaparecería hasta la próxima vuelta de la columna.
+  if (typeof refrescarIconosDeSubPestana === 'function') refrescarIconosDeSubPestana();
 }
 
 /** Crea el panel vacío del proyecto dentro del contenedor con scroll. */

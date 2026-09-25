@@ -1055,7 +1055,7 @@ por episodio terminado) y va marcado.
 
 #### Las cabeceras de sección
 
-Las cuatro —**En curso · En segundo plano · Esperando turno · Recientes**— son
+Las cuatro —**En curso · En segundo plano · En cola · Recientes**— son
 `sticky` con fondo opaco, línea de cierre y `--text-2`. Eran 10 px de
 `--text-3` sin fondo ni línea, y entre dos bloques de tarjetas blancas con
 borde no se veía dónde empezaba cada sección. El patrón ya existía al lado

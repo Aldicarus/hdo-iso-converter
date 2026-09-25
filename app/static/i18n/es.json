@@ -1822,7 +1822,7 @@
   "workbar.en_segundo_plano": "En segundo plano",
   "workbar.ese_trabajo_ya_no_esta_en": "Ese trabajo ya no está en la lista",
   "workbar.ese_trabajo_ya_no_esta_en_2": "Ese trabajo ya no está en ejecución",
-  "workbar.esperando_turno": "Esperando turno",
+  "workbar.esperando_turno": "En cola",
   "workbar.esperando_turno_o_de_la_cola": "Esperando turno · {posicion}º de la cola",
   "workbar.este_trabajo_no_conserva_ningun_detalle": "Este trabajo no conserva ningún detalle",
   "workbar.este_trabajo_no_tiene_una_vista": "Este trabajo no tiene una vista de detalle",

@@ -185,7 +185,7 @@ class TestElCatalanNoUsaElGerundioPelado(unittest.TestCase):
     # El ancla admite lo que va DELANTE del gerundio —una raya de la cortinilla
     # («— Cargando… —»), un marcador del log («📋 Extrayendo…»)— porque con `^`
     # a secas se escapaban **14**, seis de ellos en el log del servidor. Y no se
-    # exige `…`: «Esperando turno» es un rótulo de estado sin puntos y el
+    # exige `…`: «En cola» es un rótulo de estado sin puntos y el
     # castellanismo es el mismo.
     # `-re` hace falta en `INF_CA` para los infinitivos de esa conjugación
     # («treure», «prendre»), pero deja pasar tres imperativos que acaban

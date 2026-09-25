@@ -1822,7 +1822,7 @@
   "workbar.en_segundo_plano": "In the background",
   "workbar.ese_trabajo_ya_no_esta_en": "That job is no longer in the list",
   "workbar.ese_trabajo_ya_no_esta_en_2": "That job isn't running anymore",
-  "workbar.esperando_turno": "Waiting its turn",
+  "workbar.esperando_turno": "Queued",
   "workbar.esperando_turno_o_de_la_cola": "Waiting its turn · #{posicion} in the queue",
   "workbar.este_trabajo_no_conserva_ningun_detalle": "This job keeps no detail",
   "workbar.este_trabajo_no_tiene_una_vista": "This job has no detail view",

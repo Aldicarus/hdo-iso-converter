@@ -2335,6 +2335,9 @@ function _createCMv40SubTab(project) {
   btn.className = 'subtab-proj active';
   btn.id = `cmv40-stab-${project.id}`;
   btn.dataset.pid = project.id;
+  // El trabajo de un proyecto CMv4.0 se encola con su id de sesión.
+  btn.dataset.sobre = project.session?.id || '';
+  btn.dataset.glifo = 'curva';
   const name = project.session.source_mkv_name.replace(/\.mkv$/i, '');
   btn.innerHTML = `
     <span class="subtab-proj-icon"><span data-icono="curva"></span></span>
@@ -2342,6 +2345,7 @@ function _createCMv40SubTab(project) {
     <button class="subtab-proj-close" onclick="closeCMv40Project('${project.id}');event.stopPropagation()" data-i18n-tip="core.cerrar_proyecto">×</button>`;
   btn.onclick = (e) => { if (!e.target.closest('.subtab-proj-close')) switchCMv40SubTab(project.id); };
   container.appendChild(btn);
+  if (typeof refrescarIconosDeSubPestana === 'function') refrescarIconosDeSubPestana();
   _updateSubtabScrollState();
 }
 
