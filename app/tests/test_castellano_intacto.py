@@ -47,6 +47,13 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── El botón «Cerrar» del pie de Tab 2 se retira (2026-09-25, a
+    #    petición del usuario: «lo hemos heredado de cuando no había
+    #    pestañas»). Hoy se cierra por la ✕ de la sub-pestaña, que es la
+    #    misma vía que en las otras dos: un segundo botón para lo mismo,
+    #    y en rojo al lado del primario, invitaba a pulsarlo por error.
+    "Cerrar el editor":
+        "era el tooltip de ese botón. Con el botón fuera, `closeMkvEditor` se quedaba sin llamador y se fue con él",
     # ── La radiografía pasa de siete bloques a cinco (2026-09-24,
     #    «en general me parece todo muy liado»). Cada dato en un sitio.
     "Simetría vertical":

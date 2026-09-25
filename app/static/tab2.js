@@ -63,20 +63,37 @@ function _mkvRutaDe(p) {
   return p.filePath || p.analysis?.file_path || p.fileName;
 }
 
-/** Marca un proyecto como modificado y enciende el punto de su pestaña. */
+/** Pinta si un MKV tiene cambios pendientes: el punto de su pestaña y los
+ *  dos botones que sólo tienen sentido con algo que guardar o que revertir.
+ *
+ *  «Aplicar cambios» y «Deshacer cambios» salían activos nada más abrir un
+ *  MKV, sin haber tocado nada: aplicar no habría hecho más que reescribir
+ *  las mismas cabeceras y deshacer no tenía qué deshacer. Van con el mismo
+ *  estado que el punto y en la misma función, porque si se pintaran por
+ *  separado podrían decir cosas distintas del mismo proyecto.
+ */
+function _mkvPintarEstadoDeEdicion(project) {
+  if (!project) return;
+  const dot = document.getElementById(`mkv-unsaved-dot-${project.id}`);
+  if (dot) dot.style.display = project.dirty ? 'inline' : 'none';
+  for (const id of [`mkv-undo-btn-${project.id}`, `mkv-apply-btn-${project.id}`]) {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = !project.dirty;
+  }
+}
+
+/** Marca un proyecto como modificado. */
 function _mkvMarkDirty(project = mkvProject) {
   if (!project) return;
   project.dirty = true;
-  const dot = document.getElementById(`mkv-unsaved-dot-${project.id}`);
-  if (dot) dot.style.display = 'inline';
+  _mkvPintarEstadoDeEdicion(project);
 }
 
-/** Apaga el punto de cambios sin guardar de un proyecto. */
+/** Lo deja sin cambios pendientes: al abrirlo, al deshacer y al aplicar. */
 function _mkvClearDirty(project) {
   if (!project) return;
   project.dirty = false;
-  const dot = document.getElementById(`mkv-unsaved-dot-${project.id}`);
-  if (dot) dot.style.display = 'none';
+  _mkvPintarEstadoDeEdicion(project);
 }
 
 let _mkvPickerSelected = null;
@@ -451,11 +468,6 @@ function _doCloseMkvProject(pid) {
   // Tab 3 ya lo hacían (`_doFilterSidebarSessions` y `_renderCMv40Sidebar`);
   // esta era la única de las tres que no.
   if (document.getElementById('mkv-recientes-list')) _renderMkvRecientes();
-}
-
-/** Cierra el MKV activo — el botón "✕ Cerrar" del pie del panel. */
-function closeMkvEditor() {
-  if (activeMkvProjectId) closeMkvProject(activeMkvProjectId);
 }
 
 /**
@@ -2405,11 +2417,15 @@ function _renderMkvEditPanel(project = mkvProject) {
       <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px; padding-bottom:12px">
         <button class="btn btn-ghost btn-md" onclick="showRawMkvData()"
           style="color:var(--text-2); margin-right:auto" data-i18n-tip="tab2.ver_datos_crudos_del_analisis_mkvmerge"><span data-icono="lupaOnda"></span> <span data-i18n="tab2.datos_mkv"></span></button>
-        <button class="btn btn-ghost btn-md" onclick="undoMkvEdits()"
+        <!-- Nacen apagados y el pintado del final los pone al día. El
+             disabled de aquí es red, no regla: quitarlo no cambia nada
+             observable (comprobado por mutación), pero deja el marcado
+             correcto si algún día ese pintado no llega a correr. -->
+        <button class="btn btn-ghost btn-md" id="mkv-undo-btn-${pid}" disabled
+          onclick="undoMkvEdits()"
           style="color:var(--text-2)" data-i18n-tip="tab2.revertir_todos_los_cambios_al_estado"><span data-icono="deshacer"></span> <span data-i18n="tab2.deshacer_cambios"></span></button>
-        <button class="btn btn-ghost btn-md" onclick="closeMkvEditor()"
-          style="color:var(--red)" data-i18n-tip="tab2.cerrar_el_editor"><span data-icono="cruz"></span> <span data-i18n="ui.cerrar"></span></button>
-        <button class="btn btn-primary btn-md" onclick="applyMkvEdits()" data-i18n-tip="tab2.aplica_todos_los_cambios_al_mkv"><span data-icono="check"></span> <span data-i18n="tab2.aplicar_cambios"></span></button>
+        <button class="btn btn-primary btn-md" id="mkv-apply-btn-${pid}" disabled
+          onclick="applyMkvEdits()" data-i18n-tip="tab2.aplica_todos_los_cambios_al_mkv"><span data-icono="check"></span> <span data-i18n="tab2.aplicar_cambios"></span></button>
       </div>
     </div>`;
 
@@ -2418,6 +2434,9 @@ function _renderMkvEditPanel(project = mkvProject) {
 
   _renderMkvTracks(project);
   _renderMkvChapters(project);
+  // El panel se acaba de recrear, así que los dos botones nacen apagados:
+  // esto los pone al día si el MKV ya traía cambios sin aplicar.
+  _mkvPintarEstadoDeEdicion(project);
   _attachSparklineHover();
 }
 

@@ -587,7 +587,6 @@
   "tab2.cancelar_copia": "Cancel the copy",
   "tab2.capitulos": "{p1} chapters",
   "tab2.capitulos_generados_pulsa_aplicar_cambios_para": "{p1} chapters generated — hit \"Apply changes\" to write them into the MKV",
-  "tab2.cerrar_el_editor": "Close the editor",
   "tab2.cerrar_este_mkv": "Close this MKV",
   "tab2.clasificacion_inferida_por_volumen": "Classification inferred from volume (the MKV's forced flag is not set)",
   "tab2.clic_en_la_barra_para_anadir": "Click the bar to add · drag the marks to adjust",

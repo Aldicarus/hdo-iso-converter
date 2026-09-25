@@ -410,7 +410,7 @@ class TestCerrarPestanas(Tab2EnNode):
             " barra: document.getElementById('mkv-subtab-projects-area').style.display})",
             """
             openMkvProject(analisisFalso('Dune.mkv', '/mnt/output/Dune.mkv'));
-            closeMkvEditor();
+            closeMkvProject(activeMkvProjectId);
             """))
         self.assertIsNone(r["activo"])
         self.assertIsNone(r["obj"])
