@@ -6759,6 +6759,15 @@ function _renderCMv40SyncControls(project) {
   // `_cmv40SyncGateLocal` la comparte con quien la necesite.
   const gate = d.sync_gate || _cmv40SyncGateLocal(delta, confOk, confPct);
   const canConfirm = !!gate.ok;
+  // El recuento cuadra pero las curvas no se superponen, y la correlación
+  // sabe por cuánto. Es el caso que dejaba al usuario sin salida visible:
+  // «después de aplicar: 0 frames» en todas partes, el botón de confirmar
+  // apagado, y un «offset detectado: +29» que había que traducir a mano a
+  // dos casillas de la matriz. Reportado el 2026-09-25 con Drive.
+  const desplazamiento = (delta === 0 && !canConfirm
+                          && Math.abs(suggested.offset || 0) > 0
+                          && (suggested.confidence || 0) >= 0.5)
+    ? suggested.offset : 0;
   const confirmReason = gate.reason || '';
   // Framerate real del vídeo origen (fallback 23.976)
   const FPS = s.source_fps || 23.976;
@@ -6835,6 +6844,19 @@ function _renderCMv40SyncControls(project) {
         ? tr('tab3.sync_sobran_frames', {n: delta})
         : tr('tab3.sync_faltan_frames', {n: Math.abs(delta)}))}</span>
     </div>`}
+    ${desplazamiento ? `<div class="cmv40-sync-aviso">
+      <span data-icono="aviso"></span>
+      <span>${escHtml(tr('tab3.sync_cuadra_pero_no_alinea', {
+        n: Math.abs(desplazamiento),
+        lado: tr(desplazamiento > 0 ? 'tab3.sync_por_delante'
+                                    : 'tab3.sync_por_detras')}))}</span>
+      <button class="btn btn-secondary btn-xs"
+        onclick="_cmv40RellenarDesplazamiento('${pid}', ${desplazamiento})"
+        data-tooltip="${escHtml(tr('tab3.aplicar_desplazamiento_tip',
+          {pct: Math.round((suggested.confidence || 0) * 100)}))}"
+        >${escHtml(tr('tab3.aplicar_desplazamiento',
+                      {n: Math.abs(desplazamiento)}))}</button>
+    </div>` : ''}
     <table class="cmv40-sync-matriz">
       <thead><tr><th></th>
         <th data-i18n="tab3.sync_al_inicio"></th>
@@ -6882,6 +6904,36 @@ function _renderCMv40SyncControls(project) {
   // El Δ esperado se recalcula SIEMPRE, repinte o no: si no, tras restaurar
   // lo tecleado el resumen se quedaría con el número de la vuelta anterior.
   _cmv40UpdateExpectedDelta(pid, delta);
+}
+
+/** Rellena la matriz con un desplazamiento PURO de `offset` frames.
+ *
+ *  Esto NO es el auto-relleno que se retiró el 2026-09-23. Aquel escribía
+ *  el Δ en una casilla y adivinaba: con dos extremos hay infinitas
+ *  combinaciones que dan el mismo Δ y la app no puede saber cuál es la
+ *  correcta. Aquí el Δ ya es CERO y lo que falta es un desplazamiento, que
+ *  tiene una sola forma —se quita por un extremo lo que se repone por el
+ *  otro— y una dirección que la correlación ya ha medido. No se adivina
+ *  nada, y aun así lo pulsa el usuario: la matriz queda escrita y él la ve
+ *  antes de aplicar.
+ *
+ *  El signo sale de `detect_sync_offset`, que compara `src[i]` con
+ *  `tgt[i + offset]`: positivo significa que el target va ADELANTADO, así
+ *  que hay que quitarle por delante y reponerle por detrás.
+ */
+function _cmv40RellenarDesplazamiento(pid, offset) {
+  const n = Math.abs(offset);
+  const poner = (clave, valor) => {
+    const el = document.getElementById(`cmv40-${clave}-${pid}`);
+    if (!el) return;
+    el.value = valor;
+    marcarTocado(el);   // que el repintado del poll no lo borre
+  };
+  poner('remove',        offset > 0 ? n : 0);
+  poner('duplicate-fin', offset > 0 ? n : 0);
+  poner('duplicate',     offset < 0 ? n : 0);
+  poner('remove-fin',    offset < 0 ? n : 0);
+  _cmv40UpdateExpectedDelta(pid, 0);
 }
 
 /** Lo que el usuario ha escrito en las cuatro casillas de la matriz. */
