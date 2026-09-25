@@ -5180,6 +5180,21 @@ async def run_phase_h_validate(
 #  Auto-detección de offset de sincronización (para Fase D)
 # ══════════════════════════════════════════════════════════════════════
 
+#: Desviación típica relativa por debajo de la cual una serie de MaxCLL no
+#: sirve para correlacionar. Ver `compute_sync_confidence`.
+SIGMA_RELATIVA_MINIMA = 0.01
+
+
+def _serie_plana(den: float, media: float, n: int) -> bool:
+    """¿Esta serie tiene variación suficiente para correlacionarla?
+
+    `den` es la raíz de la suma de cuadrados, o sea `sigma * sqrt(n)`.
+    """
+    if media <= 0 or n <= 0:
+        return True
+    return (den / (n ** 0.5)) <= SIGMA_RELATIVA_MINIMA * media
+
+
 def compute_sync_confidence(per_frame_data: dict) -> dict:
     """
     Calcula la confianza de sincronización entre source y target usando
@@ -5224,12 +5239,30 @@ def compute_sync_confidence(per_frame_data: dict) -> dict:
     den_s = (sum((s - mean_s) ** 2 for s in src)) ** 0.5
     den_t = (sum((t - mean_t) ** 2 for t in tgt)) ** 0.5
 
-    if den_s == 0 or den_t == 0:
+    # Una serie prácticamente constante no se puede correlacionar: Pearson
+    # divide por las desviaciones típicas y con una de ellas junto a cero el
+    # resultado es ruido numérico. El caso `den == 0` ya estaba, pero es
+    # DEMASIADO estricto: el RPU de Drive (2011) tiene 2 valores distintos en
+    # 144.683 frames —L1 de relleno, MaxFALL 2,43 nits— y salía un «3 %» que
+    # se lee como desalineación cuando lo cierto es que no hay con qué medir.
+    #
+    # El corte son 0,01 de desviación típica relativa. Medido sobre las
+    # series del NAS: la plana da 0,0016 y las normales 0,072 y 0,109, o sea
+    # un factor 44 entre los dos grupos y margen de 6× por cada lado.
+    plana_s = _serie_plana(den_s, mean_s, n)
+    plana_t = _serie_plana(den_t, mean_t, n)
+    if plana_s or plana_t:
+        distintos = len(set(src if plana_s else tgt))
         return {
             "pearson": 0.0,
             "confidence_pct": 0,
             "rating": "no_variance",
-            "reason": tr('cmv40_pipeline.sync_sin_variacion'),
+            # Cuál de las dos, que es lo que dice dónde mirar.
+            "lado_plano": "source" if plana_s else "target",
+            "reason": tr('cmv40_pipeline.sync_serie_plana',
+                         lado=tr('cmv40_pipeline.sync_lado_source' if plana_s
+                                 else 'cmv40_pipeline.sync_lado_target'),
+                         distintos=distintos),
             "threshold_ok": False,
         }
 
@@ -5289,9 +5322,18 @@ def evaluate_sync_gate(per_frame_data: dict, sync_delta: int | None = None,
                       - (per_frame_data.get("source_frames") or 0))
     delta_ok = sync_delta == 0
     conf_ok = bool(conf.get("threshold_ok"))
+    no_medible = delta_ok and conf.get("rating") == "no_variance"
     if not delta_ok:
         reason = tr('cmv40_pipeline.sync_gate_delta',
                     delta=format(sync_delta, '+d'))
+    elif no_medible:
+        # No es lo mismo «están desalineados» que «no se puede medir», y el
+        # texto del umbral decía lo primero. Aquí el usuario tiene que
+        # decidir con el gráfico y el encuadre, no con un porcentaje.
+        reason = tr('cmv40_pipeline.sync_gate_no_medible',
+                    lado=tr('cmv40_pipeline.sync_lado_source'
+                            if conf.get("lado_plano") == "source"
+                            else 'cmv40_pipeline.sync_lado_target'))
     elif not conf_ok:
         reason = tr('cmv40_pipeline.sync_gate_confianza',
                     pct=conf.get('confidence_pct', 0),
@@ -5300,6 +5342,10 @@ def evaluate_sync_gate(per_frame_data: dict, sync_delta: int | None = None,
         reason = ""
     return {
         "ok": delta_ok and conf_ok,
+        # El recuento cuadra y la correlación no es aplicable: no se puede
+        # aprobar solo —nadie ha comprobado nada— pero sí ofrecer la salida
+        # explícita, que hoy no existía y dejaba el proyecto sin camino.
+        "no_medible": no_medible,
         "delta": sync_delta,
         "delta_ok": delta_ok,
         "confidence_pct": conf.get("confidence_pct", 0),

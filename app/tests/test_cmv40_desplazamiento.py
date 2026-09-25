@@ -122,21 +122,28 @@ class TestCuandoSeOfrece(unittest.TestCase):
     criterio, que es lo que decide si el usuario ve la salida."""
 
     CASOS = [
-        # (delta, canConfirm, offset, confianza, se_ofrece)
-        (0, False, 29, 0.93, True),    # el caso de Drive
-        (0, True, 29, 0.93, False),    # ya se puede confirmar: no estorbar
-        (-426, False, 29, 0.93, False),  # primero cuadrar el recuento
-        (0, False, 0, 0.93, False),    # no hay desplazamiento que aplicar
-        (0, False, 29, 0.2, False),    # la correlación no está segura
+        # (delta, canConfirm, offset, confianza, no_medible, se_ofrece)
+        (0, False, 29, 0.93, False, True),    # el caso de Drive
+        (0, True, 29, 0.93, False, False),    # ya se puede confirmar
+        (-426, False, 29, 0.93, False, False),  # cuadrar primero el recuento
+        (0, False, 0, 0.93, False, False),    # no hay nada que desplazar
+        (0, False, 29, 0.2, False, False),    # la correlación no está segura
+        # Serie plana: el offset sugerido es ruido igual que la confianza
+        # —su certeza sale del RMS contra la varianza, y no hay varianza—,
+        # así que ofrecerlo mandaría a desplazar por un dato que no mide
+        # nada. Le pasó al propio diagnóstico antes de verlo.
+        (0, False, 29, 0.93, True, False),
     ]
 
-    def _aplica(self, delta, can, offset, conf):
-        return bool(delta == 0 and not can and abs(offset) > 0 and conf >= 0.5)
+    def _aplica(self, delta, can, offset, conf, no_medible):
+        return bool(delta == 0 and not can and not no_medible
+                    and abs(offset) > 0 and conf >= 0.5)
 
     def test_el_criterio(self):
-        for delta, can, offset, conf, esperado in self.CASOS:
-            with self.subTest(delta=delta, can=can, offset=offset, conf=conf):
-                self.assertEqual(self._aplica(delta, can, offset, conf),
+        for delta, can, offset, conf, nm, esperado in self.CASOS:
+            with self.subTest(delta=delta, can=can, offset=offset, conf=conf,
+                              no_medible=nm):
+                self.assertEqual(self._aplica(delta, can, offset, conf, nm),
                                  esperado)
 
     @unittest.skipUnless(NODE, "node no disponible")
@@ -148,8 +155,9 @@ class TestCuandoSeOfrece(unittest.TestCase):
         guion = "\n".join([
             "'use strict';",
             "const casos = " + json.dumps(self.CASOS) + ";",
-            "const out = casos.map(([delta, canConfirm, off, conf]) => {",
+            "const out = casos.map(([delta, canConfirm, off, conf, nm]) => {",
             "  const suggested = {offset: off, confidence: conf};",
+            "  const gate = {no_medible: nm};",
             "  " + expr,
             "  return desplazamiento;",
             "});",
@@ -158,9 +166,9 @@ class TestCuandoSeOfrece(unittest.TestCase):
         r = subprocess.run(argv_node(guion), capture_output=True, text=True,
                            timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr[-800:])
-        for (delta, can, off, conf, esperado), val in zip(self.CASOS,
-                                                          json.loads(r.stdout)):
-            with self.subTest(delta=delta, off=off, conf=conf):
+        for (delta, can, off, conf, nm, esperado), val in zip(
+                self.CASOS, json.loads(r.stdout)):
+            with self.subTest(delta=delta, off=off, conf=conf, no_medible=nm):
                 self.assertEqual(bool(val), esperado)
                 if esperado:
                     self.assertEqual(val, off)

@@ -6764,7 +6764,11 @@ function _renderCMv40SyncControls(project) {
   // «después de aplicar: 0 frames» en todas partes, el botón de confirmar
   // apagado, y un «offset detectado: +29» que había que traducir a mano a
   // dos casillas de la matriz. Reportado el 2026-09-25 con Drive.
-  const desplazamiento = (delta === 0 && !canConfirm
+  // Con una serie plana el offset sugerido es ruido igual que la
+  // confianza —su certeza sale del error RMS contra la varianza, y no hay
+  // varianza—, así que ofrecerlo mandaría a desplazar la película por un
+  // dato que no mide nada.
+  const desplazamiento = (delta === 0 && !canConfirm && !gate.no_medible
                           && Math.abs(suggested.offset || 0) > 0
                           && (suggested.confidence || 0) >= 0.5)
     ? suggested.offset : 0;
@@ -6884,8 +6888,13 @@ function _renderCMv40SyncControls(project) {
       <button class="btn btn-ghost btn-md" onclick="cmv40DoApplySync('${pid}')"><span data-icono="lapiz"></span> <span data-i18n="tab3.aplicar_correccion"></span></button>
       ${hasSyncConfig ? `<button class="btn btn-danger btn-md" onclick="cmv40DoResetSync('${pid}')"
           data-i18n-tip="tab3.descartar_correccion_y_volver_al_target"><span data-icono="deshacer"></span> <span data-i18n="tab3.resetear_al_original"></span></button>` : ''}
+      ${(!canConfirm && gate.no_medible) ? `
+      <button class="btn btn-primary btn-md" onclick="cmv40ConfirmarSinMedir('${pid}')"
+        data-tooltip="${escHtml(tr('tab3.confirmar_sin_medir_tip'))}"><span data-icono="check"></span> <span data-i18n="tab3.confirmar_sin_medir"></span></button>
+      ` : `
       <button class="btn btn-primary btn-md" onclick="cmv40DoSkipSync('${pid}')"
-        ${canConfirm ? '' : 'disabled data-tooltip="' + confirmReason + '"'}><span data-icono="check"></span> <span data-i18n="tab3.confirmar_sync_y_continuar"></span></button>
+        ${canConfirm ? '' : 'disabled data-tooltip="' + escHtml(confirmReason) + '"'}><span data-icono="check"></span> <span data-i18n="tab3.confirmar_sync_y_continuar"></span></button>
+      `}
     </div>
     <div style="margin-top:8px; font-size:11px; color:var(--text-3)">
       <span data-i18n="tab3.actual"></span> <b style="color:${delta===0?'var(--green)':'var(--orange)'}">${tr('tab3.p1_delta_frames', {p1: delta > 0 ? '+' : '', delta: delta})}</b>
@@ -6904,6 +6913,25 @@ function _renderCMv40SyncControls(project) {
   // El Δ esperado se recalcula SIEMPRE, repinte o no: si no, tras restaurar
   // lo tecleado el resumen se quedaría con el número de la vuelta anterior.
   _cmv40UpdateExpectedDelta(pid, delta);
+}
+
+/** La salida cuando la confianza NO se puede medir.
+ *
+ *  Con una serie de L1 plana —el RPU de Drive (2011) tiene 2 valores
+ *  distintos en 144.683 frames— la correlación de Pearson no es aplicable:
+ *  no hay varianza con la que medir. El recuento sí cuadra, pero el botón
+ *  de confirmar se quedaba apagado con un «confianza 3 %» que suena a
+ *  desalineación, y el proyecto se quedaba sin ningún camino.
+ *
+ *  Se pregunta antes: seguir es una decisión del usuario y la única
+ *  verificación que queda es la suya sobre el gráfico.
+ */
+function cmv40ConfirmarSinMedir(pid) {
+  showConfirm(
+    tr('tab3.confirmar_sin_medir'),
+    tr('tab3.confirmar_sin_medir_dialogo'),
+    () => cmv40DoSkipSync(pid, true),
+    tr('tab3.confirmar_sin_medir_si'));
 }
 
 /** Rellena la matriz con un desplazamiento PURO de `offset` frames.
@@ -7250,8 +7278,9 @@ async function cmv40DoApplySync(pid) {
   }
 }
 
-async function cmv40DoSkipSync(pid) {
-  const data = await _cmv40PostFase(`/api/cmv40/${pid}/mark-synced`);
+async function cmv40DoSkipSync(pid, forzar = false) {
+  const data = await _cmv40PostFase(
+    `/api/cmv40/${pid}/mark-synced${forzar ? '?force=true' : ''}`);
   if (data) {
     showToast(tr('tab3.toast_sync_confirmado'), 'success');
     const project = openCMv40Projects.find(p => p.id === pid);
