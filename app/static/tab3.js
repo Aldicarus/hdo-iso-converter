@@ -3758,6 +3758,18 @@ const CMV40_FASES_DEF = [
   { key: 'H', title: tr('tab3.fase_h_validacion_final'),          produces: 'validated',       startsFrom: 'remuxed',         reset_to: 'remuxed' },
 ];
 
+/** ¿El proyecto está parado esperando que el usuario decida algo?
+ *
+ *  Mientras lo esté, ninguna fase posterior se puede ofrecer: la decisión
+ *  cambia lo que esas fases harían —o si llegan a hacerse—. El panel
+ *  enseñaba a la vez el banner de «cambiar target / continuar igualmente» y
+ *  la Fase C con su botón de extraer, o sea dos caminos donde sólo hay uno.
+ *  Reportado el 2026-09-25 con el proyecto de Drive.
+ */
+function _cmv40EsperaDecision(s) {
+  return !!s.awaiting_critical_ack;
+}
+
 function _cmv40PhaseState(sessionPhase, produces, startsFrom) {
   const currentIdx  = CMV40_PHASES_ORDER.indexOf(sessionPhase);
   const producesIdx = CMV40_PHASES_ORDER.indexOf(produces);
@@ -3864,8 +3876,13 @@ function _renderCMv40ActivePhase(project) {
   // Sin esto, el botón "Reintentar" puede quedar oculto bajo el chevrón ▸ y
   // el usuario solo ve el banner rojo + la card "done" de la fase anterior.
   const forceExpandActiveOnError = !!s.error_message;
+  // Con una decisión pendiente, la fase que tocaría queda BLOQUEADA en vez
+  // de activa: depende de lo que el usuario responda. Lo que ya está hecho
+  // sigue marcado como hecho — eso no lo cambia ninguna decisión.
+  const esperando = _cmv40EsperaDecision(s);
   CMV40_FASES_DEF.forEach(fase => {
-    const state = _cmv40PhaseState(s.phase, fase.produces, fase.startsFrom);
+    let state = _cmv40PhaseState(s.phase, fase.produces, fase.startsFrom);
+    if (esperando && state === 'active') state = 'pending';
     let isExpanded = project.expandedPhases[fase.key] !== undefined
       ? project.expandedPhases[fase.key]
       : (state === 'active');
@@ -3877,6 +3894,13 @@ function _renderCMv40ActivePhase(project) {
         ? project.expandedPhases['GATE_BC']
         : true;  // por defecto expandida — la info es la que el usuario necesita revisar
       cards.push(_cmv40RenderGateCardBC(pid, s, gateBCExpanded));
+      // Y la decisión JUSTO DEBAJO de lo que la explica. Estaba arriba del
+      // todo, con el argumento de que un pause-point tiene que verse; pero
+      // los números que la justifican viven en la card de validaciones, así
+      // que había que decidir arriba leyendo abajo. Sigue fuera de una card
+      // colapsable —va entre cards, no dentro—, que era la otra mitad del
+      // argumento y esa sí se mantiene.
+      cards.push(_cmv40RenderCriticalAckBanner(pid, s));
     }
     // Inyectar gate card tras Fase G — validación final pre-finalizar
     if (fase.key === 'G') {
@@ -3996,11 +4020,10 @@ function _renderCMv40ActivePhase(project) {
       </div>`;
   }
 
-  // Banner ACK (gates críticos pendientes) por encima de todo lo demás —
-  // pause-point bloqueante: hasta que el usuario decida, el auto-pipeline
-  // no avanza. Ver _cmv40MaybeAutoAdvance.
-  const ackBannerHtml = _cmv40RenderCriticalAckBanner(pid, s);
-  const html = ackBannerHtml + colaHtml + errorHtml + archivedHtml + doneHtml
+  // El banner de ACK ya no va aquí: se inserta entre la card de
+  // validaciones y la Fase C, que es donde están los números que lo
+  // justifican. Ver el `forEach` de arriba.
+  const html = colaHtml + errorHtml + archivedHtml + doneHtml
              + cards.join('') + actionsFooterHtml;
   // No se repinta si no ha cambiado —con un job en marcha esto corría cada
   // pocos segundos para dejarlo igual—, y cuando cambia se conserva lo que
@@ -4298,10 +4321,10 @@ function _cmv40GateBloque1(pid, s) {
 
   let ackHtml = '';
   if (s.awaiting_critical_ack) {
-    // Los BOTONES viven en el banner ámbar del panel (arriba del todo, fuera
-    // de una card colapsable, que es donde tiene que estar un pause-point).
-    // Aquí van los NÚMEROS, que es lo que el banner no tiene: sin ellos el
-    // usuario acepta una degradación sin saber de cuánta película habla.
+    // Los BOTONES viven en el banner ámbar, que va JUSTO DEBAJO de esta
+    // card. Aquí van los NÚMEROS, que es lo que el banner no tiene: sin
+    // ellos el usuario acepta una degradación sin saber de cuánta película
+    // se habla — y por eso los dos tienen que estar juntos.
     const l5 = (s.target_trust_gates || {}).l5_div || {};
     const mt = l5.mayor_tramo || null;
     const detalles = [];
