@@ -70,6 +70,21 @@ _NEEDS_MERGE_TARGETS = ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic
 #  Entradas
 # ══════════════════════════════════════════════════════════════════════
 
+def hay_sync_por_revisar(gates) -> bool:
+    """¿Queda algún gate que la Fase D pueda arreglar?
+
+    La severidad `sync_review` significa exactamente eso —«Fase D usa
+    cross-correlation y permite corregir manualmente»—, así que mientras
+    haya uno sin pasar, saltarse esa fase es renunciar a lo único que lo
+    resolvería.
+    """
+    if not isinstance(gates, dict):
+        return False
+    return any(isinstance(g, dict) and not g.get("ok", False)
+               and g.get("severity") == "sync_review"
+               for g in gates.values())
+
+
 @dataclass(frozen=True)
 class WorkflowInputs:
     """Lo único de la sesión que la matriz mira."""
@@ -78,6 +93,8 @@ class WorkflowInputs:
     target_trust_ok: bool = False
     trust_override: str = "auto"
     user_acknowledged: bool = False
+    #: Queda algún gate cuya severidad dice que la Fase D puede arreglarlo.
+    sync_pendiente: bool = False
 
     @classmethod
     def from_session(cls, session) -> "WorkflowInputs":
@@ -87,6 +104,7 @@ class WorkflowInputs:
             target_trust_ok=bool(session.target_trust_ok),
             trust_override=session.trust_override or "auto",
             user_acknowledged=bool(session.user_acknowledged_degradation),
+            sync_pendiente=hay_sync_por_revisar(session.target_trust_gates),
         )
 
     @property
@@ -116,8 +134,18 @@ class WorkflowInputs:
         Manda la lectura del frontend, que es la coherente: pedir revisar el
         sync a mano y aceptar que el grading diverge son decisiones
         distintas, y aceptar la segunda no anula la primera.
+
+        **Y tampoco anula un desfase de frames.** El mismo razonamiento, con
+        otro par de decisiones: los gates `ack_required` piden aceptar algo
+        que la Fase D no puede arreglar —el grading diverge—, mientras que un
+        gate `sync_review` dice literalmente lo contrario, que la Fase D SÍ
+        puede. Aceptar lo primero se llevaba por delante lo segundo: un bin
+        con Δ −426 frames se inyectaba sin que nadie hubiera mirado el sync.
+        Caso real: Drive (2011), 2026-09-25.
         """
         if self.trust_override == "force_interactive":
+            return False
+        if self.sync_pendiente:
             return False
         return self.target_trust_ok or self.user_acknowledged
 

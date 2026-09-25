@@ -2883,24 +2883,51 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
         }
 
         # L6 MaxCLL diff — ≤50 ok · 50-200 warn · >200 ack_required
-        l6_diff = abs((source_info.l6_max_cll or 0) - (target_info.l6_max_cll or 0))
-        if l6_diff <= 50:
-            l6_sev, l6_why = "ok", ""
-        elif l6_diff <= 200:
-            l6_sev = "warn"
-            l6_why = tr('cmv40_pipeline.gate_maxcll_usable', delta=l6_diff)
+        #
+        # **Un L6 ausente no es «pico 0 nits».** El `or 0` de antes lo trataba
+        # así y comparaba la ausencia contra el valor del otro lado, o sea que
+        # producía una divergencia igual a ese valor y pedía aceptar una
+        # degradación inventada. Medido sobre el NAS: 9 de 40 proyectos tienen
+        # el source sin L6, y en los 2 en que el target sí lo trae el gate
+        # disparaba. La prueba limpia es El Conde de Montecristo — L1 idéntico
+        # en los dos (1000,6), mismo grading, y el L6 marcando 1000 nits.
+        #
+        # Que falte en UNO no es inocuo ni es un problema: es que no se puede
+        # contrastar. Se dice, y no se bloquea.
+        src_l6 = source_info.l6_max_cll or 0
+        tgt_l6 = target_info.l6_max_cll or 0
+        if bool(src_l6) != bool(tgt_l6):
+            gates["l6_div"] = {
+                "ok": True,
+                "incomparable": True,
+                "src_nits": src_l6,
+                "tgt_nits": tgt_l6,
+                "critical": False,
+                "severity": "warn",
+                "why": tr('cmv40_pipeline.gate_maxcll_incomparable',
+                          lado=tr('cmv40_pipeline.gate_maxcll_falta_source'
+                                  if not src_l6
+                                  else 'cmv40_pipeline.gate_maxcll_falta_target')),
+            }
         else:
-            l6_sev = "ack_required"
-            l6_why = tr('cmv40_pipeline.gate_maxcll_ack', delta=l6_diff)
-        gates["l6_div"] = {
-            "ok": l6_diff <= 50,
-            "nits_diff": l6_diff,
-            "threshold": 50,
-            "warn_threshold": 200,
-            "critical": False,
-            "severity": l6_sev,
-            "why": l6_why,
-        }
+            l6_diff = abs(src_l6 - tgt_l6)
+            if l6_diff <= 50:
+                l6_sev, l6_why = "ok", ""
+            elif l6_diff <= 200:
+                l6_sev = "warn"
+                l6_why = tr('cmv40_pipeline.gate_maxcll_usable', delta=l6_diff)
+            else:
+                l6_sev = "ack_required"
+                l6_why = tr('cmv40_pipeline.gate_maxcll_ack', delta=l6_diff)
+            gates["l6_div"] = {
+                "ok": l6_diff <= 50,
+                "nits_diff": l6_diff,
+                "threshold": 50,
+                "warn_threshold": 200,
+                "critical": False,
+                "severity": l6_sev,
+                "why": l6_why,
+            }
 
         # L1 MaxCLL diff % — ≤5 ok · 5-20 warn · >20 ack_required
         src_l1 = source_info.l1_max_cll or 0
@@ -3155,21 +3182,42 @@ def _analizar_l5(src: dict[int, tuple[int, int, int, int]],
     los 190.021 frames de The Mandalorian and Grogu son ~90 ms, y el coste
     escala con la duración de la película. La regla del proyecto es que nada
     que escale con el dato corra dentro del event loop.
+
+    **Con distinto número de frames se prueban los DOS anclajes** y gana el
+    que más cuerpo hace coincidir. La comparación es posición contra posición,
+    así que un desfase la invalida: con Δ −426 el frame `f` de cada lado es un
+    fotograma distinto de la película a partir del corte. Los dos candidatos
+    son los dos casos que este pipeline ya documenta —lo que falta está al
+    PRINCIPIO (un logo de estudio; alinea el desfase) o al FINAL (créditos;
+    alinea el cero)—, y quedarse con el mejor es darle al bin el beneficio de
+    la duda, que es para lo que existe este refinamiento: no rechazar un bin
+    correcto por un artefacto de la medición. Si ninguno alinea, la cobertura
+    sigue baja y el gate pide confirmación, que es lo que toca.
     """
+    desfase = (target_frames or 0) - (source_frames or 0)
+    candidatos = [0] if not desfase else [0, desfase]
+    mejor = max((_comparar_l5(src, tgt, total, fps, d) for d in candidatos),
+                key=lambda c: c["body_coverage"])
     return (_perfil_l5(src, source_frames or total),
             _perfil_l5(tgt, target_frames or total),
-            _comparar_l5(src, tgt, total, fps))
+            mejor)
 
 
 def _comparar_l5(src: dict[int, tuple[int, int, int, int]],
                  tgt: dict[int, tuple[int, int, int, int]],
-                 total: int, fps: float) -> dict:
+                 total: int, fps: float, desplazamiento: int = 0) -> dict:
     """Compara los dos perfiles frame a frame y resume. Función pura.
 
     Los frames ausentes en cualquiera de los dos lados valen `L5_NEUTRO`, que
     es lo que asume el decodificador. Sin esa regla, el caso medido pasa de un
     0,29% de divergencia a un 40% y un disco correcto acabaría pidiendo
     confirmación al usuario.
+
+    `desplazamiento` alinea el target con el source: el frame `f` de uno se
+    compara con el `f + desplazamiento` del otro. Sin él, dos RPU con distinto
+    número de frames se comparaban posición contra posición, y a partir del
+    punto donde falta el trozo cada par son fotogramas DISTINTOS de la
+    película — la comparación deja de medir lo que dice medir.
     """
     umbral_px = 30
     zonas = {"intro": 0, "body": 0, "outro": 0}
@@ -3179,7 +3227,7 @@ def _comparar_l5(src: dict[int, tuple[int, int, int, int]],
         z = _l5_zone_for_frame(f, total)
         zonas[z] += 1
         a = src.get(f, L5_NEUTRO)
-        b = tgt.get(f, L5_NEUTRO)
+        b = tgt.get(f + desplazamiento, L5_NEUTRO)
         if _l5_tuple_max_diff(a, b) > umbral_px:
             divergen[z] += 1
             divergentes.append(f)
@@ -3225,6 +3273,7 @@ def _comparar_l5(src: dict[int, tuple[int, int, int, int]],
         "segundos_cuerpo_max": round(frames_cuerpo_max / fps_ok, 1),
         "umbral_tramo_segundos": TRAMO_L5_MAX_SEGUNDOS,
         "fps": round(fps_ok, 3),
+        "desplazamiento": desplazamiento,
     }
 
 
