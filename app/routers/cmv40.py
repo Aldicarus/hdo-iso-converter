@@ -3657,6 +3657,19 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
         session.recommended_action_label = ""
         session.recommended_action_reason = ""
         session.output_workflow = ""
+        # Y el target ELEGIDO, no sólo el provisto. Conservarlo dejaba el
+        # reset sin efecto: el orquestador ve `source_analyzed` con un
+        # `pending_target_*` puesto y vuelve a proveer EL MISMO bin —su
+        # propio comentario dice que sin pending target hay que pausar y
+        # esperar a que el usuario escoja—. Eso convertía «Cambiar target»
+        # en un bucle: rehacía la Fase B con el bin rechazado, los gates
+        # volvían a fallar y el proyecto regresaba a la misma decisión sin
+        # haber dejado elegir nada. Caso real: Drive (2011), 2026-09-25.
+        session.pending_target_kind = ""
+        session.pending_target_rpu_path = ""
+        session.pending_target_file_id = ""
+        session.pending_target_file_name = ""
+        session.pending_target_source_mkv_path = ""
     if _clear_from("sync_corrected"):
         session.sync_config = None
         # Restaurar target_frame_count / sync_delta al valor del RPU original,
