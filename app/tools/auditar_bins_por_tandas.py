@@ -167,13 +167,23 @@ def informe(estado: dict) -> None:
     print("  veredictos:", dict(Counter(v["clasificacion"] for v in m.values())))
     print()
     # Lo que de verdad importa: un MKV procesado cuyo bin no aportaba.
+    #
+    # El corte es `fase == done` y NO `output_workflow`: ese campo lo
+    # escriben los proyectos posteriores al modelo Keep/Inyectar y está
+    # VACÍO en los viejos — que son justo los que este script audita. Con
+    # el filtro por workflow la sección no se habría enseñado nunca, y un
+    # informe que no marca nada se lee como «no hay nada que marcar».
     malos = [v for v in m.values()
-             if v["clasificacion"] == "default"
-             and v["workflow"] in ("restore_dropin", "restore_merge")]
+             if v["clasificacion"] != "real"
+             and (v["fase"] == "done"
+                  or v["workflow"] in ("restore_dropin", "restore_merge"))]
     if malos:
-        print(f"  ⚠ PROCESADOS con un bin que NO aportaba ({len(malos)}):")
+        print(f"  ⚠ PROCESADOS con un bin que NO aportaba trims ({len(malos)}):")
         for v in malos:
-            print(f"     {v['peli'][:58]:58} maxΔ={v['max_delta']:4} combos={v['combos']}")
+            print(f"     {v['peli'][:52]:52} {v['clasificacion']:13}"
+                  f" maxΔ={v['max_delta']:4} combos={v['combos']}")
+        print("     (un `tone_mapping` no es un error: aporta L3/L9/L11 y el")
+        print("      veredicto delega la decisión en el usuario a propósito)")
         print()
     buenos = [v for v in m.values()
               if v["clasificacion"] == "real" and v["workflow"] == "keep_cmv29"]
