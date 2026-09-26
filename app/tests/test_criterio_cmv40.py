@@ -276,3 +276,24 @@ class TestElRearmadoNoPierdeNingunNumero(unittest.TestCase):
         s.target_l8_max_delta = 0          # como una sesión vieja
         self.assertEqual(delta_l8_de(analisis_desde_sesion(s)), 41)
         self.assertEqual(classify_l8(analisis_desde_sesion(s))[0], "tone_mapping")
+
+    def test_el_motivo_no_contradice_a_su_propio_veredicto(self):
+        """El texto tiene que llevar la MISMA magnitud que decidió.
+
+        Comprobar el veredicto no basta: `classify_l8` devuelve dos cosas y
+        el bug vivía en la segunda. `numeros_de_l8` leía el campo mientras
+        el criterio pasaba por `delta_l8_de`, así que en una sesión anterior
+        al campo salía «real» explicado con «una desviación máxima de 0» —
+        justo el número que lo habría hecho sintético.
+
+        Medido sobre el NAS el 2026-09-26: 42 de las 45 sesiones con datos
+        L8 no tienen el campo, así que era el caso normal y no el raro.
+        """
+        a = bin_real({"slope": 2048 + 205})     # el caso Lilo y Stitch
+        a.l8_max_delta = 0                      # el campo, sin persistir
+        veredicto, motivo = classify_l8(a)
+        self.assertEqual(veredicto, "real")
+        self.assertIn("205", motivo,
+                      "el motivo no dice la magnitud que decidió el veredicto")
+        self.assertNotIn(" 0 ", motivo,
+                         "el motivo sigue interpolando el campo vacío")

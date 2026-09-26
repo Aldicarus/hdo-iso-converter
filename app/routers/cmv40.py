@@ -1578,7 +1578,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     Bloque 1 del modelo Keep/Drop-in/Merge.
     """
     from phases.rpu_analyze import (
-        analyze_rpu_combos, classify_l8, classify_l8_quality,
+        analyze_rpu_combos, classify_l8, classify_l8_quality, delta_l8_de,
         L8_REAL_MINIMAL_SIGNIFICANT_DELTA,
     )
 
@@ -1597,7 +1597,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
     session.target_l2_combos = analysis.l2_combos
     session.target_l2_unique_count = analysis.l2_unique_count
     session.target_l2_target_pqs = analysis.l2_target_pqs
-    session.target_l8_max_delta = analysis.l8_max_delta
+    session.target_l8_max_delta = delta_l8_de(analysis)
     session.target_l3_unique_count = analysis.l3_unique_count
     session.target_l3_frames = analysis.l3_frames
     session.target_l8_combos = analysis.l8_combos
@@ -1633,7 +1633,7 @@ async def _cmv40_preflight_analyze_target(session: CMv40Session, log_cb) -> bool
         # umbral, que es lo que hace el veredicto trazable.
         await log_cb(
             '[Pre-flight] ' + tr('cmv40.veredicto_tone_mapping',
-                                 delta=analysis.l8_max_delta,
+                                 delta=delta_l8_de(analysis),
                                  umbral=L8_REAL_MINIMAL_SIGNIFICANT_DELTA,
                                  reason=reason)
         )

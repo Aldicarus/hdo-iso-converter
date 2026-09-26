@@ -1000,7 +1000,13 @@ def numeros_de_l8(analysis: RpuAnalysis) -> dict:
         "l2_target_pqs": len(analysis.l2_target_pqs),
         "l3_unique_count": analysis.l3_unique_count,
         "l3_frames": analysis.l3_frames,
-        "l8_max_delta": analysis.l8_max_delta,
+        # Por `delta_l8_de` y NO por el campo: es el número que decide el
+        # veredicto, así que leerlo de otra forma que el criterio deja al
+        # texto contradiciendo a su propia conclusión. En las sesiones
+        # anteriores al campo —42 de las 45 medidas en el NAS— el motivo
+        # decía «una desviación máxima de 0 sobre el neutro» debajo de un
+        # veredicto «real» (caso Lilo y Stitch, maxΔ real 205).
+        "l8_max_delta": delta_l8_de(analysis),
         "l8_frames_sig_pct": analysis.l8_frames_significativos_pct,
     }
 

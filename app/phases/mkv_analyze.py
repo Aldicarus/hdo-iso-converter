@@ -815,14 +815,21 @@ def _build_quality_audit_from_rpu_analysis(
     análisis básico (DoviInfo enriquecido por _enrich_dovi_from_json_export).
     Si se pasa, se calculan provenance_hints — si no, lista vacía.
     """
-    from phases.rpu_analyze import classify_l8, classify_l8_quality, numeros_de_l8
+    from phases.rpu_analyze import (
+        classify_l8, classify_l8_quality, delta_l8_de, numeros_de_l8)
 
     base = {
         "quality_total_frames_rpu": rpu_analysis.total_frames,
         "quality_frames_with_cmv40": rpu_analysis.frames_with_cmv40,
         "quality_scene_cuts": rpu_analysis.scene_cuts,
         "quality_l2_unique_count": rpu_analysis.l2_unique_count,
-        "quality_l8_max_delta": rpu_analysis.l8_max_delta,
+        # Derivado, no el campo crudo: es lo MISMO que interpolan los textos
+        # de aquí abajo (vía `numeros_de_l8`), y la caché tiene que devolver
+        # al releerla exactamente lo que enseñó el análisis fresco. Con el
+        # campo a secas, un `RpuAnalysis` que no lo fije —de las cuatro vías
+        # que lo construyen, tres no lo hacen— persistía 0 bajo un texto que
+        # decía otra cosa.
+        "quality_l8_max_delta": delta_l8_de(rpu_analysis),
         "quality_l8_frames_sig_pct": rpu_analysis.l8_frames_significativos_pct,
         "quality_l3_unique_count": rpu_analysis.l3_unique_count,
         "quality_l3_frames": rpu_analysis.l3_frames,
