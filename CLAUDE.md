@@ -2420,6 +2420,24 @@ la marca sin dejar rastro y desde el fichero los dos casos son
 indistinguibles, así que el chip solo aparece en positivo y el tooltip lo
 explica.
 
+**Firmar un MKV ya analizado le invalida la caché de Tab 2**, y eso incluye el
+bloque `quality` —los ~10 min de `extract-rpu` del análisis extendido—: el
+fingerprint es el SHA del primer 1 MB, donde vive la cabecera que la firma
+cambia. Es el mismo efecto que ya tenía un `apply` de Tab 2, no algo nuevo,
+pero importa al firmar en lote. Se recupera sin re-analizar: el fichero de
+caché se reapunta al fingerprint nuevo y **el `basic` se invalida a
+propósito** —ahí vive `hecho_con_esta_app`, calculado antes de firmar, que
+diría `False` sobre un fichero que sí lleva la marca—, así que cuesta los
+~50 s del básico y conserva el extendido. Hecho el 2026-09-28 con los 90 MKV
+del NAS: sólo uno tenía caché y se recuperó entero (2.251 combos L8, tier
+`full`, perfil de luminancia).
+
+Ojo con el orden al verificarlo: **la re-inyección del extendido sólo ocurre
+en un cache hit del básico**, así que la primera apertura tras invalidarlo
+devuelve el extendido vacío y la segunda ya lo trae. Es el orden real de uso
+—abrir y luego auditar— y está documentado más arriba, pero desde fuera
+parece que el dato se ha perdido.
+
 ### Lo que el arnés tuvo que aprender
 
 Tres cosas, y las tres son la regla de los fakes fieles:
