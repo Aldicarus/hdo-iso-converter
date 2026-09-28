@@ -233,10 +233,22 @@ class TestFirmarUnFichero(FirmaConArnesTestCase):
         return destino
 
     async def test_un_mkv_recien_muxeado_no_lleva_marca(self):
-        """La premisa de todo lo demás: el fake emite un uid que parece
-        aleatorio, como hace mkvmerge, no uno vacío."""
         mkv = await self._mkv()
         self.assertFalse(await self._es_nuestro(mkv))
+
+    async def test_y_ese_mkv_SI_tiene_un_uid(self):
+        """La premisa del test de arriba, y hay que fijarla aparte.
+
+        mkvmerge emite un `SegmentUID` SIEMPRE, aleatorio. Si el binario
+        falso devolviera `""` el test anterior pasaría igual, pero por el
+        motivo equivocado —por no haber uid en vez de por ser otro— y
+        dejaría de cubrir el falso positivo, que es lo que importa.
+        """
+        mkv = await self._mkv()
+        datos = await firma._identificar(str(mkv))
+        uid = datos["container"]["properties"].get("segment_uid")
+        self.assertTrue(uid, "el mkvmerge falso no emite SegmentUID")
+        self.assertNotEqual(uid, firma.firma_de(datos))
 
     async def test_firmar_lo_marca(self):
         mkv = await self._mkv()

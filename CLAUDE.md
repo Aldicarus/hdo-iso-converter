@@ -79,6 +79,7 @@ ISO2MKVFEL/
     ├── paths.py             ← Los directorios de la app, en un solo sitio
     ├── workload.py          ← Control de admisión: un trabajo pesado a la vez
     ├── analysis_progress.py ← El paso del análisis, compartido por Tab 1 y Tab 2
+    ├── firma.py            ← La marca de procedencia en el SegmentUID del MKV
     ├── routers/
     │   ├── tab1.py          ← Tab 1: endpoints + orquestador del pipeline + WS
     │   ├── tab2.py          ← Tab 2: /api/mkv/* + browser + calidad + apply
@@ -115,7 +116,7 @@ ISO2MKVFEL/
     │   ├── tab3.js          ← Tab 3: proyectos CMv4.0, fases, sync, overlay
     │   ├── browser.js       ← El file browser modal (lo usan Tab 2 y Tab 3)
     │   └── style.css
-    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
+    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_firma, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
     │   ├── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
     │   └── api_harness.py    ← TestClient con /config aislado + espía de lanzamiento de fases (no es un test)
     ├── static/licenses/     ← Textos completos (GPL-2/3, LGPL-3, Apache-2) + los dos inventarios que GENERA el build
@@ -2345,6 +2346,95 @@ de cómo se ancla un guard sobre prosa:
 La lista de herramientas **se deriva del código**, de las constantes
 `X_BIN = "..."`, así que un binario nuevo exige su aviso sin que nadie
 tenga que acordarse.
+
+---
+
+## La marca de procedencia: `firma.py`
+
+Un MKV hecho con esta app lo dice en su **`SegmentUID`**. La pregunta que
+responde es «¿este fichero salió de aquí?», y solo esa: no demuestra nada
+ante terceros ni rastrea qué copia acabó dónde.
+
+Los sitios candidatos se midieron contra mkvmerge 97, ffprobe y MediaInfo
+26.05 antes de elegir, porque la visibilidad real no se deduce del formato:
+
+| dónde | `mkvmerge -J` | `ffprobe` | **MediaInfo** | ¿sobrevive a un remux? |
+|---|---|---|---|---|
+| tag global | solo el recuento | sí | **sí, línea propia** | **SÍ**, y también a `ffmpeg -c copy` |
+| **`SegmentUID`** | sí, pero *todos* son aleatorios | no | como `Unique ID`, igual que siempre | no |
+| `segment-filename` | no | no | no, ni con `-f` | no |
+| `writing-application` | sí | sí | **sí, línea destacada** | no |
+
+**Lo único que sobrevive a un remux es justo lo único que se ve.** Se eligió
+el `SegmentUID` porque es un campo que ya llevan todos los MKV del mundo y
+que siempre vale 128 bits aleatorios: ocupar ese hueco es esconderse a plena
+vista. El precio —que un remux ajeno la borre— sale a cuenta para estos
+ficheros: un P7 FEL dual-layer con CMv4.0 es justo el que nadie remuxea a la
+ligera, porque mkvmerge puede romperle la señalización DV.
+
+Cinco decisiones que no son obvias:
+
+- **Los rasgos que se firman son los que `mkvpropedit` NO toca** —duración
+  en ns, codecs en orden y número de pistas—, porque lo que más le pasa a un
+  MKV de esta app es que su dueño lo abra en Tab 2 y le cambie el título o
+  el nombre de una pista. Con el título dentro la marca se rompía ahí, que
+  es el caso más frecuente de todos.
+- **No se anuncia en el log.** Una marca discreta que se anuncia deja de
+  serlo, y el usuario no tiene ninguna decisión que tomar sobre ella. Lo que
+  falle va a `logger`. Hay un test que lo guarda — y ojo con la palabra
+  «marca» como aguja: sale en «marcados con ⚠️» del propio pipeline.
+- **Se escribe en DOS sitios, no en cinco.** El orquestador de Tab 1
+  (`_run_pipeline`) y la Fase H de CMv4.0, en sus dos ramas. En Tab 1 va en
+  el orquestador y **no** dentro de Fase E porque las dos rutas de salida
+  —directa y propedit— pasan por ese punto: puesta en la fase habría que
+  ponerla dos veces, y la tercera ruta que alguien añada saldría sin ella.
+  Es el mismo sitio que en Tab 3, el tramo que valida y entrega.
+  - Y **antes de validar**, para que la verificación mire el fichero exacto
+    que se le queda al usuario. `mkvpropedit` solo toca la cabecera del
+    segmento, así que no altera nada de lo que se comprueba.
+  - En Fase H, **después del rename** `.mkv.tmp` → `.mkv`: el `SegmentUID`
+    viaja DENTRO del fichero, así que firmar antes lo dejaría atado a un
+    nombre que deja de existir. La rama `already_renamed` firma también, y
+    es como un proyecto anterior a esto gana la marca sin migrar nada.
+- **No puede tumbar un trabajo.** `firmar` se traga cualquier error y
+  devuelve un booleano: se llama al final de algo que ha podido durar
+  cuarenta minutos y que ya produjo su fichero. Mismo criterio que
+  `historial.anotar`.
+- **La clave NO es un secreto**, y el docstring lo dice: la imagen de GHCR
+  es pública. No abre ninguna puerta ni afirma nada ante terceros, así que
+  nadie tiene incentivo para imitar una marca invisible que no concede nada.
+  Lo único que impide es que un MKV ajeno coincida por casualidad.
+  `HDO_FIRMA_CLAVE` permite poner otra sin tocar el código.
+
+**Se lee en Tab 2**, que es donde el usuario va a abrir el fichero de todos
+modos para mirarle la radiografía: `analyze_mkv` rellena
+`hecho_con_esta_app` y la card del fichero pinta un chip verde. El veredicto
+se persiste con el análisis y **no puede quedarse viejo**, porque la caché va
+por fingerprint del primer 1 MB —donde vive la cabecera— y cualquier cosa que
+toque el `SegmentUID` la invalida. Lo que sí lo invalidaría es cambiar la
+clave, y para eso está `CACHE_VERSION_BASIC` (v3 por esto; no se lleva el
+bloque `quality` por delante, las dos versiones son independientes).
+
+**Un False significa «no consta», no «lo hizo otro».** Un remux ajeno borra
+la marca sin dejar rastro y desde el fichero los dos casos son
+indistinguibles, así que el chip solo aparece en positivo y el tooltip lo
+explica.
+
+### Lo que el arnés tuvo que aprender
+
+`mkvpropedit` entiende `--set segment-uid=` y lo escribe **en la cabecera del
+CONTENIDO**, no en el sidecar: la Fase H renombra el fichero y un sidecar
+indexado por ruta se queda apuntando al nombre viejo. Y `mkvmerge -J` emite
+el `segment_uid` **siempre** —sin firma, uno derivado del nombre—, porque con
+`""` el test de «un MKV ajeno no da falso positivo» pasaría por no haber UID
+en vez de por ser otro. Es la regla de los fakes fieles otra vez.
+
+**Al tocar esto, ojo con los dos tests de rutas de `test_orquestador_tab1`**:
+«que se invoque mkvpropedit» dejó de distinguir la ruta directa de la de
+intermedio, porque la firma lo usa en las dos. El criterio es ahora «un
+mkvpropedit que aplica metadatos de la sesión» y hubo que afinar **los dos**
+— con solo el negativo, el positivo habría seguido en verde sin aplicar ni
+un metadato.
 
 ---
 
