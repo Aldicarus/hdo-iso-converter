@@ -27,6 +27,7 @@ import uuid
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+import firma
 from models import Chapter, ContainerInfo, DoviInfo, HdrMetadata, MkvAnalysisResult, MkvEditRequest, MkvTrackInfo
 
 _logger = logging.getLogger(__name__)
@@ -74,7 +75,13 @@ TMP_DIR    = os.environ.get("TMP_DIR", "/mnt/tmp")
 #                    modo de tasa, tamaño y % del fichero, delay). Un
 #                    bloque v1 no los trae, y sin invalidar se leerían
 #                    como «no presentes» en vez de «no medidos».
-CACHE_VERSION_BASIC = 2
+#   v3 (sep 2026)  — `hecho_con_esta_app`, la marca de procedencia. Mismo
+#                    motivo: un bloque v2 no la trae y saldría como «no
+#                    consta» en MKV que sí la llevan. Bumpear también si
+#                    cambia la clave de `firma`, que es lo único capaz de
+#                    dejar ese veredicto obsoleto sin que cambie el
+#                    fingerprint.
+CACHE_VERSION_BASIC = 3
 
 # Versión del análisis profundo del RPU (L8/L2 combos + classify_l8 +
 # classify_l8_quality). Bumpear cuando cambien los umbrales del clasificador
@@ -530,6 +537,9 @@ async def analyze_mkv(
         hdr=hdr_meta,
         dovi=dovi_info,
         container=container_info,
+        # `data` es el `mkvmerge -J` de este MKV, que es donde viven los tres
+        # rasgos que se firman y el `SegmentUID` con el que se contrastan.
+        hecho_con_esta_app=firma.lleva_nuestra_firma(data),
         mediainfo_raw=mediainfo_raw,
     )
 

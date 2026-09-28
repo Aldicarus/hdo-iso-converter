@@ -668,6 +668,11 @@ def opt(name):
 DEFAULT_PROPS = {
     "profile": 7, "el_type": "FEL", "cm_version": "v2.9",
     "frames": 1000, "scenes": 120, "has_l8": False, "has_l11": True,
+    # El `SegmentUID` de Matroska, donde va la marca de procedencia. Viaja
+    # con el resto de props —o sea en la cabecera del CONTENIDO— porque el
+    # pipeline mueve el fichero (`.mkv.tmp` -> `.mkv` de la Fase H) y un
+    # sidecar indexado por ruta se queda apuntando al nombre viejo.
+    "segment_uid": "",
 }
 
 
@@ -1206,7 +1211,27 @@ def mkvextract(sc):
 
 
 def mkvpropedit(sc):
-    """`mkvpropedit` edita cabeceras in-place: no produce fichero nuevo."""
+    """`mkvpropedit` edita cabeceras in-place: no produce fichero nuevo.
+
+    Entiende `--set segment-uid=0x...` porque es donde va la marca de
+    procedencia: sin eso el ciclo firmar -> verificar no se puede ejecutar
+    en un test y lo único comprobable sería el argv, que pasa en verde
+    aunque la firma que se escriba sea otra.
+    """
+    positional = [a for a in ARGV if not a.startswith("-")]
+    destino = Path(positional[0]) if positional else None
+    for arg in ARGV:
+        if arg.startswith("segment-uid=") and destino and destino.exists():
+            props = read_props(destino, sc)
+            props["segment_uid"] = arg.split("=", 1)[1].removeprefix("0x").lower()
+            # Solo la primera línea: reescribir el fichero entero cambiaría
+            # su tamaño, y hay tests que lo miran. El mkvpropedit real
+            # tampoco mueve los datos.
+            resto = destino.read_bytes()
+            corte = resto.find(b"\n")
+            cuerpo = resto[corte + 1:] if resto.startswith(b"#HARNESS-PROPS ") and corte >= 0 else resto
+            destino.write_bytes(b"#HARNESS-PROPS " + json.dumps(props).encode("utf-8") + b"\n" + cuerpo)
+            write_props(destino, props)
     sys.stdout.write("The changes are written to the file.\n")
     return 0
 
@@ -1342,10 +1367,21 @@ def mkvmerge(sc):
                 props["multiplexed_tracks"] = t["multiplexed_tracks"]
             out.append({"id": t.get("id", i), "type": t["type"],
                         "codec": t.get("codec", ""), "properties": props})
+        # El `SegmentUID`. mkvmerge lo emite SIEMPRE, así que sin firma no
+        # se devuelve vacío sino un valor que parece aleatorio —derivado del
+        # nombre para que sea estable entre llamadas—. Con `""` el test de
+        # «un MKV ajeno no da falso positivo» pasaría por el motivo
+        # equivocado: por no haber UID, no por ser otro.
+        uid = spec.get("segment_uid")
+        if uid is None and positional:
+            uid = read_props(positional[-1], sc).get("segment_uid")
+        if not uid:
+            uid = hashlib.md5(name.encode("utf-8")).hexdigest()
         sys.stdout.write(json.dumps({
             "container": {"supported": True, "properties": {
                 "title": spec["title"],
                 "duration": int(spec["duration_s"] * 1e9),
+                "segment_uid": uid,
             }},
             "tracks": out,
             "chapters": [],

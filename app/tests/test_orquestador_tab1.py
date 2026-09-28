@@ -158,6 +158,25 @@ class OrquestadorCase(unittest.IsolatedAsyncioTestCase):
         return [c for c in self.tb.find("mkvmerge")
                 if c.opt("-o") and "--identify" not in c.argv]
 
+    @property
+    def ediciones_de_metadatos(self):
+        """Invocaciones de mkvpropedit que aplican metadatos de la SESIÓN.
+
+        Es lo que distingue la ruta con intermedio (mux + edición de
+        cabeceras) de la directa (todo en el mux). «Que se invoque
+        mkvpropedit» dejó de servir cuando el orquestador empezó a escribir
+        la marca de procedencia con él, que ocurre en las DOS rutas: con ese
+        criterio el test de la ruta con intermedio habría seguido pasando en
+        verde sin que se aplicara ni un metadato.
+
+        Se filtra por `segment-uid` y no por `track:` porque las ediciones de
+        pista dependen de que el matcher encuentre correspondencias, y en el
+        escenario de estos tests no las hay: lo que la ruta aplica son el
+        título y los capítulos.
+        """
+        return [c for c in self.tb.find("mkvpropedit")
+                if not any("segment-uid" in a for a in c.argv)]
+
 
 class TestLaValidacionQueNoCuadra(OrquestadorCase):
     """Una verificación final con discrepancias tiene que dejar rastro.
@@ -215,7 +234,7 @@ class TestLasDosRutas(OrquestadorCase):
     async def test_sin_reordenacion_va_por_el_intermedio(self):
         s = await self._correr(self._sesion())
         self.assertEqual(s.status, "done", s.error_message)
-        self.assertTrue(self.tb.ran("mkvpropedit"),
+        self.assertTrue(self.ediciones_de_metadatos,
                         "la ruta con intermedio edita cabeceras in-place")
         self.assertTrue(self.main.Path(s.output_mkv_path).exists(), s.output_mkv_path)
         self.assertIn("Ruta con intermedio", "\n".join(s.output_log))
@@ -227,8 +246,9 @@ class TestLasDosRutas(OrquestadorCase):
                    "Castellano TrueHD Atmos 7.1", ch=8)])
         s = await self._correr(s)
         self.assertEqual(s.status, "done", s.error_message)
-        self.assertFalse(self.tb.ran("mkvpropedit"),
-                         "la ruta directa no usa mkvpropedit")
+        self.assertFalse(self.ediciones_de_metadatos,
+                         "la ruta directa aplica los metadatos en el propio "
+                         "mux: no hay un segundo paso de edición")
         self.assertEqual(len(self.muxes), 1, self.tb.calls)
         self.assertIn("Ruta directa", "\n".join(s.output_log))
 

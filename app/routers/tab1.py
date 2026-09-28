@@ -67,6 +67,7 @@ from phases.phase_d import (
     run_phase_d,
 )
 from phases import tab1_relato
+import firma
 from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
 from queue_manager import queue_manager
 from storage import (
@@ -2973,6 +2974,19 @@ async def _run_pipeline(session_id: str) -> None:
                 # vuelve a iterar el bucle con el M2TS principal
 
         session.output_mkv_path = final_mkv
+
+        # ── La marca de procedencia ──────────────────────────────
+        # Va aquí y no dentro de Fase E porque las DOS rutas de salida
+        # (directa y propedit) pasan por este punto, que es donde el MKV
+        # se entrega. Es el equivalente de Tab 1 a la Fase H de CMv4.0,
+        # que firma en su tramo de validación por el mismo motivo.
+        #
+        # Y antes de validar, no después: así la validación mira el fichero
+        # exacto que se le queda al usuario. `mkvpropedit` solo toca la
+        # cabecera del segmento, así que no altera nada de lo que se
+        # comprueba. No se anuncia en el log —ver el docstring de `firma`—
+        # ni puede tumbar el rip: el MKV ya está hecho.
+        await firma.firmar(final_mkv)
 
         # ── Validación final del MKV ─────────────────────────────
         validation_ok = await _validate_final_mkv(session, final_mkv, log)

@@ -2326,6 +2326,7 @@ function _renderMkvEditPanel(project = mkvProject) {
       <div class="section-card">
         <div class="section-header">
           <div><div class="section-title"><span data-icono="caja"></span> <span data-i18n="tab2.fichero_mkv"></span></div></div>
+          ${a.hecho_con_esta_app ? `<span class="video-badge video-badge-app" data-i18n-tip="tab2.hecho_con_esta_app_tip"><span data-icono="check"></span> <span data-i18n="tab2.hecho_con_esta_app"></span></span>` : ''}
           <button class="btn btn-ghost btn-xs" onclick="reanalyzeMkv()"
                   style="margin-left:auto; color:var(--text-2)" data-i18n-tip="tab2.invalida_el_cache_y_re_ejecuta"><span data-icono="refrescar"></span> <span data-i18n="tab2.re_analizar"></span></button>
         </div>

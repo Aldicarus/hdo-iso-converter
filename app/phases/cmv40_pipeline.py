@@ -27,6 +27,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import firma
 from models import CMv40Phase, CMv40PhaseRecord, CMv40Session, DoviInfo
 from phases.cmv40_strategy import WORKFLOWS, resolve_plan
 from phases.phase_a import _parse_dovi_summary
@@ -5054,6 +5055,8 @@ async def run_phase_h_validate(
     if already_renamed:
         # Nada que mover: acabamos de validar el propio fichero final.
         session.output_mkv_path = str(final_path)
+        # Ídem, y de paso un proyecto anterior a la marca la gana al revalidar.
+        await firma.firmar(str(final_path))
         await _emit_progress(log_callback, 100, tr('cmv40_pipeline.validacion_completada'))
         if log_callback:
             await log_callback(
@@ -5130,6 +5133,12 @@ async def run_phase_h_validate(
                 pass
 
     session.output_mkv_path = str(final_path)
+
+    # La marca de procedencia, sobre el fichero ya en su nombre definitivo:
+    # el `SegmentUID` viaja DENTRO del MKV, así que tiene que escribirse
+    # después del rename y no antes. No se anuncia en el log a propósito
+    # —ver el docstring de `firma`— y no puede tumbar la fase.
+    await firma.firmar(str(final_path))
     await _emit_progress(log_callback, 100, tr('cmv40_pipeline.validacion_completada'))
 
     # Cleanup DIFERIDO del pre-mux HEVC: tras validación exitosa ya no los

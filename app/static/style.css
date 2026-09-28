@@ -7382,6 +7382,14 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   color: var(--blue-text);
   border-color: rgba(0, 122, 255, 0.25);
 }
+/* La marca de procedencia de Tab 2. Va con los tokens de la paleta en vez
+   de con literales rgba() como sus dos vecinas, para que herede el verde
+   correcto en los dos temas. */
+.video-badge-app {
+  background: var(--green-dim);
+  color: var(--green-text);
+  border-color: var(--green-border);
+}
 .video-hint { font-size: var(--fs-sm); color: var(--text-3); margin-left: 2px; }
 .video-summary-line {
   font-size: var(--fs-lg);

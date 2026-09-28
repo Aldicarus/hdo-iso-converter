@@ -1223,6 +1223,19 @@ class MkvAnalysisResult(BaseModel):
 
     container: ContainerInfo | None = None
 
+    hecho_con_esta_app: bool = False
+    """El `SegmentUID` es la firma que esta app le pondría a este contenido.
+
+    Se calcula durante el análisis y se persiste con él, y NO puede quedarse
+    viejo: la caché va por fingerprint del primer 1 MB, donde vive la
+    cabecera, así que cualquier cosa que toque el `SegmentUID` la invalida.
+    Lo que sí lo invalidaría es cambiar la clave de `firma`, y para eso está
+    `CACHE_VERSION_BASIC`.
+
+    Un False NO significa «lo hizo otro»: significa que no consta. Un remux
+    ajeno borra la marca sin dejar rastro, y desde el fichero los dos casos
+    son indistinguibles."""
+
     mediainfo_raw: dict | None = None
     """JSON completo de MediaInfo para diagnóstico."""
 
