@@ -421,6 +421,9 @@ CLASE_POR_RUTA: dict[str, str] = {
     # nueve segundos de trabajo.
     "POST /api/cmv40/{session_id}/preflight-target":      CLASE_INTERACTIVO,
     "POST /api/cmv40/{session_id}/preflight-source":      CLASE_INTERACTIVO,
+    # Fire-and-forget como sus dos hermanas: contesta {started:true} y el
+    # pre-flight sigue en una task, que se registra ella misma.
+    "POST /api/cmv40/{session_id}/retry-preflight":        CLASE_INTERACTIVO,
     "POST /api/sessions/{session_id}/reset-chapters": CLASE_INTERACTIVO,  # re-monta el ISO
     # Borrados: `rmtree` de decenas o cientos de GB sobre ZFS.
     "DELETE /api/cmv40/{session_id}":       CLASE_INTERACTIVO,

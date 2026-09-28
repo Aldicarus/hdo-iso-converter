@@ -94,6 +94,10 @@ class TestLaTablaCubreLaAppReal(ApiTestCase):
 SE_REGISTRAN_EN_SU_TASK = {
     "POST /api/cmv40/{session_id}/preflight-target",
     "POST /api/cmv40/{session_id}/preflight-source",
+    # Reintenta el pre-flight con el bin que ya está en la sesión. Delega en
+    # el mismo `_cmv40_dispatch_preflight` que el orquestador, así que la task
+    # que se registra es la de siempre.
+    "POST /api/cmv40/{session_id}/retry-preflight",
 }
 
 

@@ -1169,7 +1169,7 @@ async def _cmv40_dispatch_next_phase(session_id: str) -> None:
         # forzar Restore).
         if (fresh.preflight_decision and fresh.preflight_decision != "ok"):
             return
-        if not fresh.target_preflight_ok and fresh.pending_target_kind:
+        if falta_el_preflight_del_target(fresh):
             await _cmv40_dispatch_preflight(fresh)
         elif fresh.target_preflight_ok or not fresh.pending_target_kind:
             # Sin pending target O ya con preflight: arrancar Fase A.
@@ -1880,6 +1880,29 @@ async def _cmv40_dispatch_preflight(session: CMv40Session) -> None:
         rpu_path=session.pending_target_rpu_path or "",
         mkv_path=session.pending_target_source_mkv_path or "",
     ))
+
+
+def falta_el_preflight_del_target(session: CMv40Session) -> bool:
+    """¿Queda un bin target elegido que todavía no ha pasado el pre-flight?
+
+    Es el estado en el que el proyecto arrastra un `pending_target_*` cuya
+    validación falló o no se ha hecho. Importa porque **el pre-flight no es
+    una fase del pipeline**: no está en `CMV40_FASES_DEF`, así que la interfaz
+    que busca «la fase activa» para ofrecer un reintento encuentra la Fase A y
+    ofrece relanzar doce minutos de extracción en vez de reintentar la descarga
+    que falló. Caso real: Dune Parte dos, 2026-09-28, con la cuota de Google
+    Drive agotada.
+
+    Vive aquí y no en `cmv40_strategy` porque no es una decisión de la matriz
+    (workflow × target_type × trust): es estado del ciclo de vida del target.
+    Lo leen el orquestador, el endpoint de reintento y —servido en
+    `GET /api/cmv40/{id}`— la interfaz, que así no replica la condición.
+
+    Lo que **no** implica es que la Fase A esté prohibida: analiza el MKV
+    origen y no necesita el bin, así que avanzar mientras la cuota de Drive se
+    recupera es legítimo. Por eso esto no genera un 409 en `analyze-source`.
+    """
+    return bool(session.pending_target_kind) and not session.target_preflight_ok
 
 
 async def _cmv40_dispatch_target_provision(session: CMv40Session) -> None:
@@ -3014,6 +3037,12 @@ async def cmv40_get(session_id: str, include_log: bool = True,
     # réplica se desincroniza en silencio de la tabla que manda.
     plan = resolve_plan(session)
     data["plan"] = plan.to_dict()
+    # Si queda un pre-flight del target por pasar. Se sirve —como `plan` y
+    # `relato`, computado y NO persistido— para que la interfaz no replique
+    # la condición: el banner de error buscaba «la fase activa» para ofrecer
+    # un reintento y el pre-flight NO es una fase, así que ofrecía relanzar
+    # la Fase A. Ver `falta_el_preflight_del_target`.
+    data["falta_preflight_del_target"] = falta_el_preflight_del_target(session)
     # El relato: qué pasa, dónde estoy, por qué y qué se decidió, resuelto UNA
     # vez para las cinco superficies que le hablan al usuario. Antes cada una
     # lo derivaba por su cuenta y por eso discrepaban — la ficha decía
@@ -3980,6 +4009,44 @@ async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest
 
     _cmv40_launch_phase(session, "target_rpu_drive", _coro, CMv40Phase.TARGET_PROVIDED)
     return {"ok": True, "started": True}
+
+
+@router.post(
+    "/api/cmv40/{session_id}/retry-preflight",
+    summary="Reintenta el pre-flight del target con el bin ya elegido",
+)
+async def cmv40_retry_preflight(session_id: str):
+    """Vuelve a intentar el pre-flight del target que la sesión ya tiene.
+
+    Existe porque **el pre-flight no es una fase del pipeline**: no está en
+    `CMV40_FASES_DEF`, así que el botón «Reintentar» del banner de error
+    buscaba la fase activa, encontraba la Fase A y relanzaba doce minutos de
+    extracción del HEVC cuando lo que había fallado era la descarga del bin.
+    Caso real: Dune Parte dos, 2026-09-28, con la cuota de Google Drive
+    agotada.
+
+    No lleva body **a propósito**: el bin elegido ya está en la sesión
+    (`pending_target_*`) y `_cmv40_dispatch_preflight` lo lee de ahí. Pedirlo
+    otra vez obligaría a la interfaz a traducir `repo` → `drive`, que es la
+    clase de réplica que se desincroniza.
+    """
+    session = load_cmv40_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
+    _cmv40_guard_not_running(session, tr('cmv40.reintentar_la_validacion_del_bin'))
+    if not falta_el_preflight_del_target(session):
+        raise HTTPException(
+            status_code=409,
+            detail=tr('cmv40.no_hay_preflight_pendiente'))
+    # El error se limpia ANTES de despachar, no solo dentro del pre-flight
+    # (que también lo hace, pero ya en su task): el frontend responde al 200
+    # con un `GET`, y sin esto pillaría el banner del fallo anterior todavía
+    # puesto. Un banner que reaparece tras pulsar «Reintentar» se lee como
+    # que el reintento no ha hecho nada.
+    session.error_message = None
+    save_cmv40_session(session)
+    await _cmv40_dispatch_preflight(session)
+    return {"started": True}
 
 
 @router.post("/api/cmv40/{session_id}/target-rpu-from-mkv", summary="Fase B2: RPU target desde otro MKV")

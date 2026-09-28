@@ -1388,6 +1388,8 @@
   "tab3.rehacer_esta_fase_2": "Refer aquesta fase",
   "tab3.rehacer_y_borrar_artefactos": "Refer i esborrar artefactes",
   "tab3.reintentar_ahora": "Reintentar ara",
+  "tab3.reintentar_el_bin": "Reintentar la baixada",
+  "tab3.reintentar_la_validacion_del_bin": "Torna a validar el bin target que ja has triat, sense extreure res del Blu-ray. Si ha fallat per la quota de Google Drive, sol recuperar-se en menys d'una hora.",
   "tab3.remux_mkv_final": "Remux del MKV final",
   "tab3.repo_bloqueado_configura_la_url": "Repo bloquejat — configura la URL.",
   "tab3.repositorio_dovitools_no_configurado": "Repositori DoviTools no configurat — obre Configuració per afegir la Google API key i la URL del repo.",

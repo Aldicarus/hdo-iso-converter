@@ -684,6 +684,16 @@
         ]
       ]
     },
+    "POST /api/cmv40/{session_id}/retry-preflight": {
+      "body": [],
+      "params": [
+        [
+          "session_id",
+          "path",
+          true
+        ]
+      ]
+    },
     "POST /api/cmv40/{session_id}/target-rpu-from-drive": {
       "body": [
         "application/json"

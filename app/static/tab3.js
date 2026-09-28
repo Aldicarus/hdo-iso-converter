@@ -3974,13 +3974,13 @@ function _renderCMv40ActivePhase(project) {
     // Detectar la fase active actual para ofrecer "Reintentar" directo desde
     // el banner. Sin esto, el usuario tenía que ir a buscar la card de la
     // fase (que podría estar colapsada) para encontrar el botón equivalente.
-    const activeFase = CMV40_FASES_DEF.find(f =>
-      _cmv40PhaseState(s.phase, f.produces, f.startsFrom) === 'active'
-    );
-    const retryBtn = activeFase
-      ? `<button class="btn btn-warning btn-sm" onclick="_cmv40RetryActivePhase('${pid}','${activeFase.key}')"
-            data-tooltip="${escHtml(tr('tab3.vuelve_a_ejecutar_p1', {p1: activeFase.title}))}"><span data-icono="refrescar"></span> <span data-i18n="tab2.reintentar"></span></button>`
-      : '';
+    const queReintentar = _cmv40QueReintentar(s);
+    const retryBtn = !queReintentar ? ''
+      : queReintentar.tipo === 'preflight'
+      ? `<button class="btn btn-warning btn-sm" onclick="_cmv40RetryPreflight('${pid}')"
+            data-i18n-tip="tab3.reintentar_la_validacion_del_bin"><span data-icono="refrescar"></span> <span data-i18n="tab3.reintentar_el_bin"></span></button>`
+      : `<button class="btn btn-warning btn-sm" onclick="_cmv40RetryActivePhase('${pid}','${queReintentar.key}')"
+            data-tooltip="${escHtml(tr('tab3.vuelve_a_ejecutar_p1', {p1: queReintentar.titulo}))}"><span data-icono="refrescar"></span> <span data-i18n="tab2.reintentar"></span></button>`;
     errorHtml = `
       <div class="section-card cmv40-card-error" style="margin-top:12px">
         <div class="section-body" style="display:flex; align-items:center; gap:12px">
@@ -5232,6 +5232,45 @@ async function _cmv40ClearError(pid) {
       _cmv40AssignSession(project, data);
       _updateCMv40Panel(project);
     }
+  }
+}
+
+/** Qué reintenta el botón del banner de error: el pre-flight o una fase.
+ *
+ *  El pre-flight **no es una fase del pipeline** —no está en
+ *  `CMV40_FASES_DEF`—, así que buscar «la fase activa» encontraba la A y el
+ *  botón ofrecía relanzar doce minutos de extracción del HEVC cuando lo que
+ *  había fallado era la descarga del bin. Caso real: Dune Parte dos,
+ *  2026-09-28, con la cuota de Google Drive agotada.
+ *
+ *  La condición la sirve el backend en `falta_preflight_del_target` para no
+ *  replicarla aquí, y va en su propia función para poder probarla: la que la
+ *  usaba arrastra medio módulo.
+ *
+ *  Devuelve `null` si no hay nada concreto que reintentar.
+ */
+function _cmv40QueReintentar(s) {
+  if (s.falta_preflight_del_target) return { tipo: 'preflight' };
+  const fase = CMV40_FASES_DEF.find(f =>
+    _cmv40PhaseState(s.phase, f.produces, f.startsFrom) === 'active'
+  );
+  return fase ? { tipo: 'fase', key: fase.key, titulo: fase.title } : null;
+}
+
+/** Botón del banner cuando lo que falló es el PRE-FLIGHT del bin target.
+ *
+ *  No manda body: el bin elegido ya está en la sesión y el backend lo lee de
+ *  ahí. Pedirlo otra vez obligaría a traducir `repo` → `drive` aquí, que es
+ *  la clase de réplica que se desincroniza en silencio.
+ */
+async function _cmv40RetryPreflight(pid) {
+  const data = await apiFetch(`/api/cmv40/${pid}/retry-preflight`, { method: 'POST' });
+  if (!data) return;
+  const fresh = await apiFetch(`/api/cmv40/${pid}`, { silent: true });
+  const project = openCMv40Projects.find(p => p.id === pid);
+  if (fresh && project) {
+    _cmv40AssignSession(project, fresh);
+    _updateCMv40Panel(project);
   }
 }
 

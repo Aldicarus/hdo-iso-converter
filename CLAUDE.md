@@ -116,7 +116,7 @@ ISO2MKVFEL/
     │   ├── tab3.js          ← Tab 3: proyectos CMv4.0, fases, sync, overlay
     │   ├── browser.js       ← El file browser modal (lo usan Tab 2 y Tab 3)
     │   └── style.css
-    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_firma, test_precache_tab2, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
+    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_firma, test_precache_tab2, test_reintentar_preflight, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
     │   ├── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
     │   └── api_harness.py    ← TestClient con /config aislado + espía de lanzamiento de fases (no es un test)
     ├── static/licenses/     ← Textos completos (GPL-2/3, LGPL-3, Apache-2) + los dos inventarios que GENERA el build
@@ -565,6 +565,59 @@ La siguiente fase la lanzan el orquestador del backend (`_cmv40_dispatch_next_ph
 Dos guards en el servidor, que es el único con el estado real:
 - fase ya en `done` → se omite (ya existía).
 - `_cmv40_guard_no_pending_error` → **409** en los nueve endpoints que arrancan fase si la sesión arrastra un `error_message` sin resolver. Para reintentar, `POST /clear-error` (lo llama el frontend al descartar el banner). Sin esto, Fase H se ejecutó dos veces con 1,2s de diferencia; en la rama merge son 5-8 min de `extract-rpu` repetidos.
+
+### Reintentar tras un pre-flight fallido reintenta EL PRE-FLIGHT
+
+**El pre-flight no es una fase del pipeline**: no está en `CMV40_FASES_DEF`.
+Eso hacía que el banner de error buscara «la fase activa» según
+`session.phase`, con `created` encontrara la **Fase A** y ofreciera relanzar
+doce minutos de extracción del HEVC cuando lo que había fallado era la
+descarga del bin. El log de Dune Parte dos (2026-09-28, con la cuota de
+Google Drive agotada) lo deja ver en dieciocho segundos:
+
+```
+20:47:32  ✗ Fase preflight FALLÓ: Google Drive ha bloqueado…
+20:47:50  ━━━ Fase A — Analizando el MKV origen ━━━
+```
+
+Lo resuelven tres piezas, y el reparto importa:
+
+- **`falta_el_preflight_del_target(session)`** — la única definición de «queda
+  un bin elegido sin validar». Vive en `routers/cmv40.py` y **no** en
+  `cmv40_strategy`, porque no es una decisión de la matriz (workflow ×
+  target_type × trust): es estado del ciclo de vida del target. La usan el
+  orquestador —que ya tenía la condición escrita a mano— y el endpoint, y se
+  **sirve** en `GET /api/cmv40/{id}` como `falta_preflight_del_target`
+  (computado, no persistido, como `plan` y `relato`) para que la interfaz no
+  la replique.
+- **`POST /api/cmv40/{id}/retry-preflight`** — sin body **a propósito**: el
+  bin ya está en `pending_target_*` y `_cmv40_dispatch_preflight` lo lee de
+  ahí. Pedirlo otra vez obligaría a la UI a traducir `repo` → `drive`, que es
+  la clase de réplica que se desincroniza.
+- **`_cmv40QueReintentar(s)`** en el frontend — la decisión en su propia
+  función, porque la que la usaba (`_renderCMv40ActivePhase`) arrastra medio
+  módulo y no se podía ejecutar en un test.
+
+Y dos decisiones de lo que **NO** se hizo:
+
+- **NO hay 409 en `analyze-source`.** La Fase A analiza el MKV origen y no
+  necesita el bin, así que avanzar mientras la cuota de Drive se recupera es
+  legítimo. El defecto era que el botón hiciera algo distinto de lo que dice,
+  no que la fase estuviera prohibida.
+- **El error se limpia ANTES de despachar**, no solo dentro del pre-flight
+  (que también lo hace, ya en su task): el frontend responde al 200 con un
+  `GET`, y sin eso pillaría el banner del fallo anterior todavía puesto. Un
+  banner que reaparece tras pulsar «Reintentar» se lee como que el reintento
+  no ha hecho nada. El test lo mide **en el instante del despacho**, porque
+  con el `TestClient` la task corre igual y comprobarlo después pasa de las
+  dos formas.
+
+`test_reintentar_preflight.py` (16 tests, 8 mutaciones). Dos trampas que la
+mutación destapó y conviene no repetir: **`fases_lanzadas` del arnés son
+dicts**, así que `assertNotIn("analyze_source", self.fases_lanzadas)` pasa
+siempre; y el espía de fases registra **cuando la task corre**, que con el
+`TestClient` depende de cuándo ceda el loop — lo determinista es afirmar a
+qué dispatcher se llama.
 
 ### Abortar antes de gastar, no después
 
@@ -1654,6 +1707,7 @@ GET    /api/cmv40/{id}                      (incluye campo artifacts con sizes;
                                              entrega el log en vivo)
 DELETE /api/cmv40/{id}                      (?clean_artifacts=true para borrar workdir)
 POST   /api/cmv40/{id}/rename-output        (edita output_mkv_name)
+POST   /api/cmv40/{id}/retry-preflight      (reintenta el pre-flight del bin ya elegido)
 POST   /api/cmv40/{id}/analyze-source       (Fase A)
 GET    /api/cmv40/rpu-files                 (lista /mnt/cmv40_rpus/*.bin)
 POST   /api/cmv40/{id}/target-rpu-path      (Fase B opción 1)

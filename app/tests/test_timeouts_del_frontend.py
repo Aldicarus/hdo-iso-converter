@@ -55,6 +55,8 @@ RESPONDEN_AL_INSTANTE = {
         "responde {queued}; la barra sale de /api/series-create-progress",
     "POST /api/cmv40/{session_id}/preflight-target":
         "responde {started}; el log va por el WS de la sesión",
+    "POST /api/cmv40/{session_id}/retry-preflight":
+        "responde {started}; ídem, y sin body — el bin ya está en la sesión",
     # `preflight-source` NO está: es pesado, pero el frontend no lo llama —
     # el pipeline usa la función directamente. Lo destapó el test de abajo.
     "POST /api/cmv40/{session_id}/analyze-source": "fase fire-and-forget (A)",

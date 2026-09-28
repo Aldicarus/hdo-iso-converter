@@ -1388,6 +1388,8 @@
   "tab3.rehacer_esta_fase_2": "Redo this phase",
   "tab3.rehacer_y_borrar_artefactos": "Redo and delete the artifacts",
   "tab3.reintentar_ahora": "Retry now",
+  "tab3.reintentar_el_bin": "Retry the download",
+  "tab3.reintentar_la_validacion_del_bin": "Validates the target bin you already chose again, without extracting anything from the Blu-ray. If it failed on the Google Drive quota, that usually recovers in under an hour.",
   "tab3.remux_mkv_final": "Remux the final MKV",
   "tab3.repo_bloqueado_configura_la_url": "Repo locked — set the URL.",
   "tab3.repositorio_dovitools_no_configurado": "DoviTools repository not configured — open Settings to add the Google API key and the repo URL.",
