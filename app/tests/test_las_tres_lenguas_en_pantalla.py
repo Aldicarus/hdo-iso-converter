@@ -308,6 +308,9 @@ ANALISIS_MKV = {
   "file_size_bytes": 78_000_000_000, "duration_seconds": 5904.0,
   "title": "Blade Runner 2049",
   "has_fel": True,
+  # Con esto el chip de procedencia se PINTA. En False el marcado existe y no
+  # se renderiza nunca, que es el agujero que este módulo persigue.
+  "hecho_con_esta_app": True,
   "hdr": {"max_cll": 1000, "max_fall": 400, "color_primaries": "BT.2020",
           "transfer_characteristics": "PQ", "bit_depth": 10,
           "mastering_display_luminance": "min: 0.0050 cd/m2, max: 1000 cd/m2",
@@ -1087,6 +1090,25 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
                 self.assertEqual(self.vistas[idioma]["fallos"], {})
                 self.assertEqual(self.vistas[idioma]["errores"], [])
                 self.assertGreaterEqual(len(self.vistas[idioma]["pantallas"]), 15)
+
+    def test_el_chip_de_procedencia_se_lee_en_su_idioma(self):
+        """El fixture de Tab 2 lleva `hecho_con_esta_app`, así que el chip
+        tiene que salir — y con el texto de su catálogo, no con la clave.
+
+        Va aquí y no en `test_firma` porque lo que se comprueba es la
+        PANTALLA: que la condición de la plantilla se cumpla y que el rótulo
+        se resuelva en las tres lenguas. Un guard sobre el fuente pasaría en
+        verde con el chip colgando de una condición que nunca es cierta.
+        """
+        base = APP_DIR / "static" / "i18n"
+        for idioma in ("es", "en", "ca"):
+            rotulo = json.loads(
+                (base / f"{idioma}.json").read_text(encoding="utf-8")
+            )["tab2.hecho_con_esta_app"]
+            textos = "\n".join(t for _, t in self._todo(idioma))
+            with self.subTest(idioma=idioma):
+                self.assertIn(rotulo, textos,
+                              f"el chip de procedencia no se lee en {idioma}")
 
     def test_no_se_ve_ninguna_clave_del_catalogo(self):
         """`tab3.fase_h` en pantalla es lo primero que el usuario reportó."""
