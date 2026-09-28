@@ -2422,12 +2422,20 @@ explica.
 
 ### Lo que el arnés tuvo que aprender
 
-`mkvpropedit` entiende `--set segment-uid=` y lo escribe **en la cabecera del
-CONTENIDO**, no en el sidecar: la Fase H renombra el fichero y un sidecar
-indexado por ruta se queda apuntando al nombre viejo. Y `mkvmerge -J` emite
-el `segment_uid` **siempre** —sin firma, uno derivado del nombre—, porque con
-`""` el test de «un MKV ajeno no da falso positivo» pasaría por no haber UID
-en vez de por ser otro. Es la regla de los fakes fieles otra vez.
+Tres cosas, y las tres son la regla de los fakes fieles:
+
+- `mkvpropedit` entiende `--set segment-uid=` y lo escribe **en la cabecera
+  del CONTENIDO**, no en el sidecar: la Fase H renombra el fichero y un
+  sidecar indexado por ruta se queda apuntando al nombre viejo.
+- `mkvmerge -J` emite el `segment_uid` **siempre** —sin firma, uno derivado
+  del nombre—, porque con `""` el test de «un MKV ajeno no da falso
+  positivo» pasaría por no haber UID en vez de por ser otro.
+- **`mkvpropedit --set title=` ahora se ve en el `mkvmerge -J` siguiente**, y
+  esto lo destapó la mutación: el título salía del escenario, así que el fake
+  describía un mundo donde editar metadatos no cambia nada y
+  `test_sobrevive_a_una_edicion_de_tab2` —el test más valioso de la firma—
+  **pasaba en verde con el título metido en los rasgos**. El título es hoy
+  una prop del fichero, con `None` como «manda el escenario».
 
 **Al tocar esto, ojo con los dos tests de rutas de `test_orquestador_tab1`**:
 «que se invoque mkvpropedit» dejó de distinguir la ruta directa de la de

@@ -296,6 +296,22 @@ class TestFirmarUnFichero(FirmaConArnesTestCase):
         self.tb.fail_when_arg("mkvpropedit", "segment-uid", rc=2)
         self.assertFalse(await firma.firmar(str(mkv)))
 
+    async def test_una_respuesta_que_no_es_json_no_lanza(self):
+        """El `except` de `firmar` existe para esto, y hay que ejercitarlo:
+        los fallos por código de retorno los atrapa el guard del `rc`, así
+        que sin este caso el `except` podría desaparecer sin que nada falle.
+
+        Se sustituye el binario por `echo`, que sale con 0 y escribe algo
+        que no es JSON — exactamente la forma del fallo que se teme.
+        """
+        mkv = await self._mkv()
+        original = firma.MKVMERGE_BIN
+        firma.MKVMERGE_BIN = "echo"
+        try:
+            self.assertFalse(await firma.firmar(str(mkv)))
+        finally:
+            firma.MKVMERGE_BIN = original
+
     async def test_el_codigo_1_de_mkvpropedit_son_avisos(self):
         """Y los cambios SÍ se escriben, así que no es un fallo. Mismo
         criterio que la ruta propedit de Fase E, que también usa `>= 2`."""

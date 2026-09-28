@@ -673,6 +673,11 @@ DEFAULT_PROPS = {
     # pipeline mueve el fichero (`.mkv.tmp` -> `.mkv` de la Fase H) y un
     # sidecar indexado por ruta se queda apuntando al nombre viejo.
     "segment_uid": "",
+    # El título del contenedor, `None` mientras nadie lo haya tocado: es la
+    # señal de «manda el escenario». Está aquí porque `mkvpropedit --set
+    # title=` tiene que verse después en `mkvmerge -J`, y sin eso ningún test
+    # puede comprobar qué sobrevive a una edición de metadatos.
+    "title": None,
 }
 
 
@@ -1220,18 +1225,23 @@ def mkvpropedit(sc):
     """
     positional = [a for a in ARGV if not a.startswith("-")]
     destino = Path(positional[0]) if positional else None
+    cambios = {}
     for arg in ARGV:
-        if arg.startswith("segment-uid=") and destino and destino.exists():
-            props = read_props(destino, sc)
-            props["segment_uid"] = arg.split("=", 1)[1].removeprefix("0x").lower()
-            # Solo la primera línea: reescribir el fichero entero cambiaría
-            # su tamaño, y hay tests que lo miran. El mkvpropedit real
-            # tampoco mueve los datos.
-            resto = destino.read_bytes()
-            corte = resto.find(b"\n")
-            cuerpo = resto[corte + 1:] if resto.startswith(b"#HARNESS-PROPS ") and corte >= 0 else resto
-            destino.write_bytes(b"#HARNESS-PROPS " + json.dumps(props).encode("utf-8") + b"\n" + cuerpo)
-            write_props(destino, props)
+        if arg.startswith("segment-uid="):
+            cambios["segment_uid"] = arg.split("=", 1)[1].removeprefix("0x").lower()
+        elif arg.startswith("title="):
+            cambios["title"] = arg.split("=", 1)[1]
+    if cambios and destino and destino.exists():
+        props = read_props(destino, sc)
+        props.update(cambios)
+        # Solo la primera línea: reescribir el fichero entero cambiaría su
+        # tamaño, y hay tests que lo miran. El mkvpropedit real tampoco
+        # mueve los datos.
+        resto = destino.read_bytes()
+        corte = resto.find(b"\n")
+        cuerpo = resto[corte + 1:] if resto.startswith(b"#HARNESS-PROPS ") and corte >= 0 else resto
+        destino.write_bytes(b"#HARNESS-PROPS " + json.dumps(props).encode("utf-8") + b"\n" + cuerpo)
+        write_props(destino, props)
     sys.stdout.write("The changes are written to the file.\n")
     return 0
 
@@ -1372,14 +1382,21 @@ def mkvmerge(sc):
         # nombre para que sea estable entre llamadas—. Con `""` el test de
         # «un MKV ajeno no da falso positivo» pasaría por el motivo
         # equivocado: por no haber UID, no por ser otro.
+        del_fichero = read_props(positional[-1], sc) if positional else {}
         uid = spec.get("segment_uid")
-        if uid is None and positional:
-            uid = read_props(positional[-1], sc).get("segment_uid")
+        if uid is None:
+            uid = del_fichero.get("segment_uid")
         if not uid:
             uid = hashlib.md5(name.encode("utf-8")).hexdigest()
+        # El título que alguien haya escrito con `mkvpropedit --set title=`
+        # gana al del escenario: es lo que hace que un test pueda comprobar
+        # qué sobrevive a una edición de metadatos.
+        titulo = del_fichero.get("title")
+        if titulo is None:
+            titulo = spec["title"]
         sys.stdout.write(json.dumps({
             "container": {"supported": True, "properties": {
-                "title": spec["title"],
+                "title": titulo,
                 "duration": int(spec["duration_s"] * 1e9),
                 "segment_uid": uid,
             }},
