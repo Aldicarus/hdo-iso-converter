@@ -329,6 +329,8 @@
   "cmv40_pipeline.postmerge_no_es_valido": "La verificació post-merge ha fallat. L'RPU resultant no és un {perfil} CMv4.0 vàlid:",
   "cmv40_pipeline.postmerge_se_aborta": "S'avorta la injecció per no generar un MKV incorrecte.",
   "cmv40_pipeline.pre_flight_extrayendo_rpu_del_mkv": "Pre-flight: s'està extraient l'RPU del MKV target",
+  "cmv40_pipeline.precache_tab2_empieza": "S'està preparant l'anàlisi de «Consultar / Editar MKV» amb l'RPU que ja està extret…",
+  "cmv40_pipeline.precache_tab2_listo": "Anàlisi complet disponible a «Consultar / Editar MKV»: radiografia DV+HDR i perfil de luminància, sense esperes.",
   "cmv40_pipeline.proceso": "Procés",
   "cmv40_pipeline.profile_profile_esperado_expected_profile_el_transfer": "profile={profile} (esperat {expected_profile} — el transfer ha alterat el profile del source, i hauria hagut de ser idempotent)",
   "cmv40_pipeline.proyecto_archivado_artefactos_borrados": "Projecte arxivat — els artefactes es van esborrar a propòsit.",

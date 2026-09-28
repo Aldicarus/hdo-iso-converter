@@ -4157,6 +4157,13 @@ async def run_phase_f_inject(
         rpu_to_inject = await _ensure_profile8_rpu(
             rpu_to_inject, wd, log_callback)
 
+    # Qué RPU acaba DENTRO del MKV, con el valor final: después del merge y
+    # después de la conversión a Profile 8. Lo lee la Fase H para dejar el
+    # análisis de Tab 2 hecho sin volver a extraer nada, y se anota aquí en
+    # vez de deducirlo allí porque deducirlo sería replicar la matriz de
+    # workflows, que es justo lo que `cmv40_strategy` centraliza.
+    session.rpu_inyectado = rpu_to_inject.name
+
     # Validación de frame count antes de inyectar
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_to_inject)], timeout=30)
     rpu_frames = _parse_dovi_summary(summary).frame_count
@@ -4404,6 +4411,73 @@ async def _merge_cmv40_into_p7(
         await log_callback(
             _et() + tr('cmv40_pipeline.merge_verificado_profile_cm_frames_l8', profile=result_info.profile, el_label=el_label, cm_version=result_info.cm_version, frame_count=result_info.frame_count)
         )
+
+
+async def _precachear_analisis_de_tab2(
+    session: CMv40Session,
+    mkv_final: Path,
+    log_callback=None,
+) -> None:
+    """Entrega el MKV con su análisis de Tab 2 ya hecho, incluido el extendido.
+
+    El pipeline ya tiene el RPU del stream que acaba de muxear —lo extrae
+    para inyectarlo y otra vez, en la rama merge, para validar— y eso es el
+    **~97 %** de lo que cuesta el análisis extendido de Tab 2: extraer el RPU
+    de un MKV son ~650 s medidos frente a ~7 s del export por niveles. Con el
+    RPU delante el resto son segundos, así que no tiene sentido hacer esperar
+    diez minutos a quien abra el fichero para ver su radiografía DV+HDR.
+
+    Corre AQUÍ, al final de la Fase H, y el orden no es negociable: el
+    fingerprint de la caché es el SHA del primer 1 MB, así que el MKV tiene
+    que estar ya en su nombre definitivo **y ya firmado** — la marca cambia
+    esa cabecera. Antes, la caché nacería huérfana.
+
+    **No lanza.** El MKV ya está entregado y validado; perder un análisis que
+    el usuario puede relanzar con un botón no justifica manchar un job que
+    salió bien. Mismo criterio que `firma.firmar` y `historial.anotar`.
+    """
+    from phases.mkv_analyze import (
+        analyze_mkv, flags_dv_de, persist_mkv_basic_to_cache,
+        persist_mkv_quality_to_cache, quality_desde_rpu,
+    )
+    try:
+        wd = get_workdir(session)
+        # El RPU EXTRAÍDO del stream muxeado va primero: los dos describen el
+        # mismo RPU, pero ese es evidencia de lo que hay dentro del fichero y
+        # el inyectado es lo que se pretendía meter. En drop-in no existe
+        # —el fast path no lo necesita— y ahí manda el inyectado, que es el
+        # bin íntegro.
+        candidatos = [wd / "_validate_full_rpu.bin"]
+        if session.rpu_inyectado:
+            candidatos.append(wd / session.rpu_inyectado)
+        rpu = next((c for c in candidatos
+                    if c.exists() and c.stat().st_size > 0), None)
+        if rpu is None:
+            _logger.info("precache Tab 2: sin RPU en %s, se omite", wd)
+            return
+
+        await _log(log_callback, _et() + tr('cmv40_pipeline.precache_tab2_empieza'))
+        # El básico PRIMERO: `persist_mkv_quality_to_cache` conserva el bloque
+        # `basic` que encuentre, pero al revés no se cumple — y sin `basic`
+        # cacheado la re-inyección del extendido no ocurre hasta la SEGUNDA
+        # apertura, así que el usuario abriría el MKV y no vería nada.
+        analisis = await analyze_mkv(str(mkv_final), use_cache=False)
+        # `analyze_mkv` NO persiste: eso lo hace su router, así que aquí hay
+        # que pedirlo. Mejor explícito que depender de un efecto secundario
+        # que vive en otra capa.
+        persist_mkv_basic_to_cache(str(mkv_final), analisis)
+        payload = await quality_desde_rpu(
+            rpu, wd, dv_flags=flags_dv_de(analisis.dovi),
+        )
+        if not payload:
+            _logger.info("precache Tab 2: el export no dio payload utilizable")
+            return
+        persist_mkv_quality_to_cache(str(mkv_final), payload)
+        await _log(log_callback, _et() + tr('cmv40_pipeline.precache_tab2_listo'))
+    except CMv40Cancelled:
+        raise
+    except Exception as e:
+        _logger.info("precache Tab 2 falló sobre %s: %s", mkv_final.name, e)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -5057,6 +5131,7 @@ async def run_phase_h_validate(
         session.output_mkv_path = str(final_path)
         # Ídem, y de paso un proyecto anterior a la marca la gana al revalidar.
         await firma.firmar(str(final_path))
+        await _precachear_analisis_de_tab2(session, final_path, log_callback)
         await _emit_progress(log_callback, 100, tr('cmv40_pipeline.validacion_completada'))
         if log_callback:
             await log_callback(
@@ -5139,6 +5214,11 @@ async def run_phase_h_validate(
     # después del rename y no antes. No se anuncia en el log a propósito
     # —ver el docstring de `firma`— y no puede tumbar la fase.
     await firma.firmar(str(final_path))
+
+    # Y con el MKV ya en su sitio y firmado, su análisis de Tab 2: el RPU
+    # está extraído, así que cuesta segundos en vez de los ~10 min que le
+    # costaría a quien abra el fichero.
+    await _precachear_analisis_de_tab2(session, final_path, log_callback)
     await _emit_progress(log_callback, 100, tr('cmv40_pipeline.validacion_completada'))
 
     # Cleanup DIFERIDO del pre-mux HEVC: tras validación exitosa ya no los

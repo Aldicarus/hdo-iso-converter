@@ -1541,6 +1541,18 @@ class CMv40Session(BaseModel):
     output_mkv_path: str = ""
     """Ruta final del MKV en /mnt/output/ (solo tras validación)."""
 
+    rpu_inyectado: str = ""
+    """Nombre del RPU que la Fase F metió en el stream, dentro del workdir.
+
+    Lo escribe la Fase F con el valor FINAL —tras el merge y tras la
+    conversión a Profile 8 si la hubo—, así que no hay que deducirlo de la
+    matriz de workflows: es el fichero que de verdad acabó dentro del MKV.
+    Lo consume la Fase H para dejar el análisis de Tab 2 ya hecho sin volver
+    a extraer nada.
+
+    Vacío en las sesiones anteriores a esto; ahí la Fase H se limita a lo que
+    encuentre en el workdir."""
+
     # ── Sincronización ────────────────────────────────────────────
     sync_delta: int = 0
     """Diferencia de frames detectada: target_frame_count - source_frame_count.

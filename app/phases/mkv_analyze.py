@@ -1299,6 +1299,52 @@ async def analyze_rpu_quality_for_mkv(
         except Exception: pass
 
 
+async def quality_desde_rpu(
+    rpu_path: Path,
+    tmpdir: Path,
+    dv_flags: dict | None = None,
+    log_callback=None,
+    export_timeout: int = 1800,
+) -> dict | None:
+    """El bloque `quality` (combos + perfil de luminancia) de un RPU YA extraído.
+
+    Es el tramo final de `analyze_rpu_quality_for_mkv` sin sus pasos 1 y 2,
+    que son el **~97 % del coste**: extraer el RPU de un MKV son ~650 s
+    medidos y el export por niveles ~7 s. Quien ya tiene el RPU delante —el
+    pipeline de Tab 3, que lo extrae para inyectarlo y otra vez para
+    validar— se ahorra todo eso.
+
+    Devuelve `None` si el export no da nada utilizable, y **no lanza**: el
+    único llamador es un pipeline que ya entregó su MKV, y ahí perder un
+    análisis que se puede relanzar con un botón no justifica manchar un job
+    que salió bien. Es el criterio de `firma.firmar` y de `historial.anotar`.
+    """
+    try:
+        # La entrada se comprueba aquí y no se delega en que dovi_tool falle:
+        # es una función best-effort y un RPU ausente es su caso trivial.
+        if not rpu_path.exists() or rpu_path.stat().st_size == 0:
+            _logger.info("quality_desde_rpu: no hay RPU en %s", rpu_path)
+            return None
+        rpu_analysis, luz = await _exportar_una_vez(
+            rpu_path, tmpdir, True, export_timeout, log_callback=log_callback)
+        if rpu_analysis.total_frames == 0:
+            _logger.info("quality_desde_rpu: el export dio 0 frames sobre %s",
+                         rpu_path.name)
+            return None
+        is_cmv29_only = (rpu_analysis.frames_with_cmv40 == 0
+                         and rpu_analysis.l8_unique_count == 0)
+        payload = _build_quality_audit_from_rpu_analysis(
+            rpu_analysis, is_cmv29_only, dv_flags=dv_flags)
+        if luz is not None:
+            # Igual que en el análisis de Tab 2: el perfil viaja aparte de los
+            # campos `quality_*` porque son dos lecturas del mismo RPU.
+            payload["light_profile"] = luz
+        return payload
+    except Exception as e:
+        _logger.info("quality_desde_rpu falló sobre %s: %s", rpu_path.name, e)
+        return None
+
+
 def _quality_payload_is_valid(payload: dict) -> bool:
     """Heurística: ¿el resultado del audit tiene datos reales o es basura?
 

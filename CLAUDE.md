@@ -116,7 +116,7 @@ ISO2MKVFEL/
     │   ├── tab3.js          ← Tab 3: proyectos CMv4.0, fases, sync, overlay
     │   ├── browser.js       ← El file browser modal (lo usan Tab 2 y Tab 3)
     │   └── style.css
-    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_firma, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
+    ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_firma, test_precache_tab2, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
     │   ├── cmv40_harness.py  ← binarios falsos para ejecutar las fases CMv4.0 en un test (no es un test)
     │   └── api_harness.py    ← TestClient con /config aislado + espía de lanzamiento de fases (no es un test)
     ├── static/licenses/     ← Textos completos (GPL-2/3, LGPL-3, Apache-2) + los dos inventarios que GENERA el build
@@ -2437,6 +2437,64 @@ en un cache hit del básico**, así que la primera apertura tras invalidarlo
 devuelve el extendido vacío y la segunda ya lo trae. Es el orden real de uso
 —abrir y luego auditar— y está documentado más arriba, pero desde fuera
 parece que el dato se ha perdido.
+
+---
+
+## El MKV de Tab 3 sale con su análisis de Tab 2 ya hecho
+
+El pipeline CMv4.0 extrae el RPU del stream que muxea —para inyectarlo y, en
+la rama merge, otra vez para validar— y eso es el **~97 %** de lo que cuesta
+el análisis extendido de Tab 2: **~650 s** medidos frente a **~7 s** del
+export por niveles. Con el RPU delante, dejar la radiografía DV+HDR y el
+perfil de luminancia listos cuesta **segundos**, así que no tiene sentido
+hacer esperar diez minutos a quien abra el fichero.
+
+Lo hace `_precachear_analisis_de_tab2` al final de la Fase H, y no necesitó
+lógica nueva: las cuatro piezas ya estaban. La única que se escribió es
+**`mkv_analyze.quality_desde_rpu`**, que es el tramo final de
+`analyze_rpu_quality_for_mkv` sin sus pasos 1 y 2 — los caros.
+
+Seis decisiones que no son obvias:
+
+- **Se anota qué RPU se inyectó; no se deduce.** Hay cuatro en el workdir
+  (`RPU_source`, `RPU_target`, `RPU_synced`, `RPU_merged`) más el convertido
+  a Profile 8, y solo uno describe lo que acabó dentro del MKV. La **Fase F**
+  escribe `session.rpu_inyectado` con el valor final —después del merge y
+  después de `_ensure_profile8_rpu`— porque deducirlo en la Fase H sería
+  replicar la matriz de `cmv40_strategy`, que es justo lo que ese módulo
+  existe para evitar.
+- **Se prefiere el RPU EXTRAÍDO del stream** (`_validate_full_rpu.bin`, el
+  prewarm de la Fase G) al inyectado. Los dos describen el mismo RPU, pero el
+  primero es evidencia de lo que hay dentro del fichero y el segundo es lo que
+  se pretendía meter. En drop-in no existe —el fast path no lo necesita— y
+  ahí manda el inyectado, que es el bin íntegro. El prewarm **sobrevive** a la
+  Fase H: solo lo borra un rehacer de la Fase F, y con razón (dejaría de
+  corresponder al stream).
+- **El orden no es negociable y su fallo es MUDO**: el fingerprint de la caché
+  es el SHA del primer 1 MB, así que esto corre con el MKV en su nombre
+  definitivo **y ya firmado** —la marca cambia esa cabecera—. Un paso antes y
+  la caché nace huérfana sin que nada falle.
+- **El básico va PRIMERO, y se persiste a mano.**
+  `persist_mkv_quality_to_cache` conserva el `basic` que encuentre, pero al
+  revés no se cumple; y sin `basic` cacheado la re-inyección del extendido no
+  ocurre hasta la SEGUNDA apertura, así que el usuario abriría el MKV y no
+  vería nada. Ojo: **`analyze_mkv` NO persiste** —eso lo hace su router—, así
+  que hay que llamar a `persist_mkv_basic_to_cache` explícitamente.
+- **No lanza.** El MKV ya está entregado y validado: perder un análisis que se
+  relanza con un botón no justifica manchar un job que salió bien. Es el
+  criterio de `firma.firmar` y de `historial.anotar`. Si el extendido falla, el
+  básico se queda —se persistió antes— y el MKV sale con media ficha en vez
+  de con ninguna.
+- **El sniff DV del básico sí hace un `extract-rpu`**, y es correcto: va con
+  `--limit`, sobre 720 frames. El discriminante entre «reutiliza» y «vuelve a
+  extraer» es ese flag y **no** la extensión del fichero —el sniff opera sobre
+  el propio MKV—, así que un test que filtre por `.mkv` señala al comando
+  bueno. Lo destapó una mutación.
+
+Cubierto por `test_precache_tab2.py` (16 tests), con las 8 mutaciones
+verificadas: quitar la anotación, anotarla antes del Profile 8, no precachear,
+no persistir el básico, precachear antes de firmar, no pedir el perfil de
+luminancia, invertir la preferencia de RPU y propagar el fallo.
 
 ### Lo que el arnés tuvo que aprender
 

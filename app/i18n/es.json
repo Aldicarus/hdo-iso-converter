@@ -329,6 +329,8 @@
   "cmv40_pipeline.postmerge_no_es_valido": "Verificación post-merge falló. El RPU resultante no es un {perfil} CMv4.0 válido:",
   "cmv40_pipeline.postmerge_se_aborta": "Se aborta la inyección para no generar un MKV incorrecto.",
   "cmv40_pipeline.pre_flight_extrayendo_rpu_del_mkv": "Pre-flight: extrayendo RPU del MKV target",
+  "cmv40_pipeline.precache_tab2_empieza": "Dejando listo el análisis de «Consultar / Editar MKV» con el RPU que ya está extraído…",
+  "cmv40_pipeline.precache_tab2_listo": "Análisis completo disponible en «Consultar / Editar MKV»: radiografía DV+HDR y perfil de luminancia, sin esperas.",
   "cmv40_pipeline.proceso": "Proceso",
   "cmv40_pipeline.profile_profile_esperado_expected_profile_el_transfer": "profile={profile} (esperado {expected_profile} — el transfer alteró la profile del source, deberia haber sido idempotente)",
   "cmv40_pipeline.proyecto_archivado_artefactos_borrados": "Proyecto archivado — artefactos borrados intencionadamente.",

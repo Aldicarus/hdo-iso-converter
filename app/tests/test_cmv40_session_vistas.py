@@ -53,7 +53,7 @@ class TestElJsonNoCambia(unittest.TestCase):
         self.assertEqual(d["target_l8_unique_count"], 412)
 
     def test_el_numero_de_campos_no_cambia(self):
-        # 83 campos. Si esto sube, alguien añadió un campo al modelo: revisar
+        # 84 campos. Si esto sube, alguien añadió un campo al modelo: revisar
         # que el summary del sidebar no lo vacíe y que la UI lo espere.
         #
         # Los dos últimos son `target_l3_unique_count` y `target_l3_frames`
@@ -69,7 +69,13 @@ class TestElJsonNoCambia(unittest.TestCase):
         # criterio la lee; la lista de combos de la que sale ya estaba.
         #
         # Antes de esos, `preflight_user_choice{,_at}` (2026-09-10).
-        self.assertEqual(len(sesion().model_dump()), 83)
+        #
+        # Y el último, `rpu_inyectado` (2026-09-28): el nombre del RPU que la
+        # Fase F metió en el stream, con el valor de DESPUÉS del merge y de la
+        # conversión a Profile 8. Lo lee la Fase H para dejar el análisis de
+        # Tab 2 hecho sin volver a extraerlo. No lo vacía el summary (es una
+        # cadena corta) y la UI no lo lee: es un dato interno del pipeline.
+        self.assertEqual(len(sesion().model_dump()), 84)
 
     def test_un_json_plano_se_carga_intacto(self):
         # El caso que hace inviable anidar: aquí NO se pierde nada.
