@@ -268,5 +268,58 @@ class TestQueSeReintenta(unittest.TestCase):
 
 
 
+class TestLaCardDeLaFaseA(unittest.TestCase):
+    """El caso en el que el usuario se quedó encallado.
+
+    El primer arreglo puso el botón sólo en el banner de error, y el banner se
+    descarta con su X — que es justo lo que el usuario había hecho al pulsar
+    «Reintentar» la primera vez. Resultado: `error_message` vacío, ningún
+    banner, y el proyecto sin ninguna forma de volver a intentar la descarga:
+    sólo «Analizar origen», que es lo que no había pedido. Reportado el
+    2026-09-28 con Dune Parte dos.
+
+    Así que el estado tiene que ser accionable donde se VE, no colgando de un
+    mensaje que se puede cerrar.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from frontend_sources import js_completo
+        cls.JS = js_completo()
+
+    def _card(self, sesion: dict) -> str:
+        guion = "\n".join([
+            "function _cmv40DosCapas(h, t) { return h + (t || ''); }",
+            _funcion_js(self.JS, "_cmv40FaseABody"),
+            f"const S = {json.dumps(sesion)};",
+            "process.stdout.write(_cmv40FaseABody('p1', S));",
+        ])
+        r = subprocess.run(argv_node(guion), capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr[-800:])
+        return r.stdout
+
+    def test_con_el_bin_sin_validar_ofrece_VALIDARLO(self):
+        """Aunque el error se haya descartado: la condición es el estado."""
+        html = self._card({"falta_preflight_del_target": True, "error_message": ""})
+        self.assertIn("_cmv40RetryPreflight", html)
+
+    def test_y_sigue_ofreciendo_analizar_el_origen(self):
+        """No necesita el bin, así que adelantarlo mientras la cuota de Drive
+        se recupera es una decisión legítima — y es del usuario."""
+        html = self._card({"falta_preflight_del_target": True, "error_message": ""})
+        self.assertIn("cmv40DoAnalyzeSource", html)
+
+    def test_y_lo_dice_en_vez_de_dejarlo_adivinar(self):
+        html = self._card({"falta_preflight_del_target": True, "error_message": ""})
+        self.assertIn("tab3.el_bin_sigue_sin_validar", html)
+
+    def test_sin_bin_pendiente_la_card_no_cambia(self):
+        """El camino normal se queda como estaba: un solo botón."""
+        html = self._card({"falta_preflight_del_target": False})
+        self.assertIn("cmv40DoAnalyzeSource", html)
+        self.assertNotIn("_cmv40RetryPreflight", html)
+        self.assertNotIn("tab3.el_bin_sigue_sin_validar", html)
+
+
 if __name__ == "__main__":
     unittest.main()

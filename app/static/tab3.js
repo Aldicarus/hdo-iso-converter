@@ -5391,11 +5391,33 @@ function _cmv40DosCapas(humano, tecnico) {
 }
 
 function _cmv40FaseABody(pid, s) {
+  // El estado «queda un bin por validar» tiene que ser accionable AQUÍ, y no
+  // sólo desde el banner de error: el banner se descarta con su X y se lleva
+  // por delante el botón de reintentar, y entonces el proyecto se queda sin
+  // ninguna forma de volver a intentar la descarga. Le pasó al usuario con
+  // Dune Parte dos el 2026-09-28 — descartó el error y sólo le quedó
+  // «Analizar origen», que es justo lo que no había pedido.
+  //
+  // Los DOS botones, y en este orden: validar el bin es lo que toca (es lo
+  // que haría el orquestador), pero analizar el origen sigue siendo legítimo
+  // porque no necesita el bin. Con la cuota de Drive agotada, adelantar la
+  // Fase A mientras se recupera es una decisión razonable — y es del usuario.
+  const faltaBin = !!s.falta_preflight_del_target;
   return `
     <div class="section-body">
       ${_cmv40DosCapas('<span data-i18n="tab3.que_pasa_fase_a"></span>',
                         '<span data-i18n="tab3.extrae_el_stream_hevc_y_el"></span>')}
+      ${faltaBin ? `
+      <div class="cmv40-aviso-bin" style="margin:10px 0; padding:10px 12px; background:var(--amber-dim); border:1px solid var(--amber-border); border-radius:var(--r-sm); font-size:12px; color:var(--amber-text)">
+        <span data-icono="aviso"></span> <span data-i18n="tab3.el_bin_sigue_sin_validar"></span>
+      </div>
+      <button class="btn btn-primary btn-md" onclick="_cmv40RetryPreflight('${pid}')"
+              data-i18n-tip="tab3.reintentar_la_validacion_del_bin"><span data-icono="refrescar"></span> <span data-i18n="tab3.validar_el_bin"></span></button>
+      <button class="btn btn-ghost btn-md" onclick="cmv40DoAnalyzeSource('${pid}')"
+              data-i18n-tip="tab3.analizar_el_origen_no_necesita_el_bin"><span data-icono="lupa"></span> <span data-i18n="tab3.analizar_origen"></span></button>
+      ` : `
       <button class="btn btn-primary btn-md" onclick="cmv40DoAnalyzeSource('${pid}')"><span data-icono="lupa"></span> <span data-i18n="tab3.analizar_origen"></span></button>
+      `}
     </div>`;
 }
 

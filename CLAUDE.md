@@ -612,7 +612,19 @@ Y dos decisiones de lo que **NO** se hizo:
   con el `TestClient` la task corre igual y comprobarlo después pasa de las
   dos formas.
 
-`test_reintentar_preflight.py` (16 tests, 8 mutaciones). Dos trampas que la
+**Y el botón va en la CARD de la Fase A, no sólo en el banner de error.** El
+primer arreglo lo puso sólo ahí y el banner se descarta con su X — que es
+justo lo que el usuario había hecho al pulsar «Reintentar» la primera vez.
+Resultado: `error_message` vacío, ningún banner, y el proyecto sin ninguna
+forma de volver a intentar la descarga; sólo «Analizar origen», que era lo
+que no había pedido. **El estado tiene que ser accionable donde se VE, no
+colgando de un mensaje que se puede cerrar.** La card ofrece los dos, y en
+ese orden: validar el bin es lo que toca, pero analizar el origen sigue
+siendo legítimo porque no necesita el bin — con la cuota de Drive agotada,
+adelantar la Fase A mientras se recupera es una decisión razonable, y es del
+usuario.
+
+`test_reintentar_preflight.py` (20 tests, 12 mutaciones). Dos trampas que la
 mutación destapó y conviene no repetir: **`fases_lanzadas` del arnés son
 dicts**, así que `assertNotIn("analyze_source", self.fases_lanzadas)` pasa
 siempre; y el espía de fases registra **cuando la task corre**, que con el
