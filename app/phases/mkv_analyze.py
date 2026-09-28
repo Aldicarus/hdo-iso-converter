@@ -272,7 +272,8 @@ async def analyze_mkv(
     instantáneamente. ``use_cache=False`` fuerza pipeline fresh y reescribe
     el cache (usado por el botón "↻ Re-analizar" del frontend).
     """
-    from storage import compute_mkv_fingerprint, read_mkv_cache
+    from storage import (compute_mkv_fingerprint, read_mkv_cache,
+                         repoint_mkv_cache)
 
     async def _emit(step: str):
         if progress_callback:
@@ -330,6 +331,16 @@ async def analyze_mkv(
                         )
                 else:
                     _logger.info("MKV cache HIT (basic) para %s", Path(mkv_path).name)
+                # El MKV puede haberse movido desde que se analizó —el flujo
+                # normal es sacarlo de /mnt/output a la biblioteca— y la caché
+                # identifica por CONTENIDO, así que sigue sirviendo entera. Lo
+                # que hay que poner al día es la ruta: de ella sale la
+                # disponibilidad que pinta la columna de Tab 2, y sin esto la
+                # tarjeta se queda apagada con ⚠️ sobre un análisis válido.
+                if result.file_path != mkv_path:
+                    result.file_path = mkv_path
+                    result.file_name = Path(mkv_path).name
+                    repoint_mkv_cache(fingerprint, mkv_path)
                 return result
             except Exception as e:
                 _logger.warning(

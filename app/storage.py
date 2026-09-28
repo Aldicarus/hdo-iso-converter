@@ -984,6 +984,51 @@ def _read_cache_raw(fingerprint_sha: str) -> dict | None:
         return None
 
 
+def repoint_mkv_cache(fingerprint: dict, nueva_ruta: str) -> bool:
+    """Apunta la entrada de caché a donde está AHORA el MKV. Best-effort.
+
+    La caché identifica el MKV por su CONTENIDO (SHA del primer 1 MB +
+    tamaño), así que moverlo no la invalida y el análisis se reaprovecha
+    entero. Lo que se queda atrás es `original_file_path`, y de ahí sale la
+    disponibilidad que pinta la columna de Tab 2: la tarjeta saldría apagada,
+    con ⚠️ y **sin botón de abrir**, sobre un análisis perfectamente válido.
+
+    Antes eso casi no pasaba porque el MKV se analizaba donde vivía. Desde que
+    el pipeline de CMv4.0 precachea el análisis, es el flujo NORMAL: la caché
+    se escribe con el MKV en `/mnt/output` y el usuario lo mueve a su
+    biblioteca acto seguido.
+
+    Devuelve si reapuntó algo. No lanza: esto adorna una tarjeta, y un
+    análisis que se sirve bien no puede caerse por no poder reescribir su
+    ruta.
+    """
+    try:
+        if not fingerprint:
+            return False
+        path = _mkv_audit_path(fingerprint["sha256_1mb"])
+        if not path.exists():
+            return False
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not _fingerprint_content_match(data.get("fingerprint") or {}, fingerprint):
+            return False
+        if data.get("original_file_path") == nueva_ruta:
+            return False
+        data["original_file_path"] = nueva_ruta
+        basic = data.get("basic")
+        if isinstance(basic, dict):
+            basic["file_path"] = nueva_ruta
+            basic["file_name"] = Path(nueva_ruta).name
+        # El fingerprint se reescribe entero: el mtime cambia al mover y, aunque
+        # la comparación no lo mire, dejarlo viejo describiría otro fichero.
+        data["fingerprint"] = fingerprint
+        _atomic_write_json(path, json.dumps(data, ensure_ascii=False))
+        logger.info("MKV cache reapuntado a %s", nueva_ruta)
+        return True
+    except (OSError, ValueError, KeyError) as e:
+        logger.info("no se pudo reapuntar el cache de %s: %s", nueva_ruta, e)
+        return False
+
+
 def write_mkv_cache_basic(
     fingerprint: dict,
     cache_version_basic: int,

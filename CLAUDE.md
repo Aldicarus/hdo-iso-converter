@@ -2491,10 +2491,37 @@ Seis decisiones que no son obvias:
   el propio MKV—, así que un test que filtre por `.mkv` señala al comando
   bueno. Lo destapó una mutación.
 
-Cubierto por `test_precache_tab2.py` (16 tests), con las 8 mutaciones
-verificadas: quitar la anotación, anotarla antes del Profile 8, no precachear,
-no persistir el básico, precachear antes de firmar, no pedir el perfil de
-luminancia, invertir la preferencia de RPU y propagar el fallo.
+### Y mover el MKV a la biblioteca no pierde el análisis
+
+La caché identifica el MKV por su **contenido** —SHA del primer 1 MB +
+tamaño, sin mtime y sin ruta—, así que sacarlo de `/mnt/output` y moverlo a
+la biblioteca **no la invalida**: al abrirlo desde su ruta nueva el único
+paso que se emite es `cache_hit`. Medido en el NAS.
+
+Lo que sí se quedaba atrás es `original_file_path`, y de ahí sale la
+disponibilidad que pinta la columna de Tab 2: la tarjeta salía apagada, con
+⚠️ y **sin botón de abrir**, sobre un análisis perfectamente válido. Antes
+casi no pasaba porque el MKV se analizaba donde vivía; **con el precache es
+el caso normal**, porque la caché se escribe con el fichero en `/mnt/output`
+y el usuario lo mueve acto seguido. Lo resuelve
+**`storage.repoint_mkv_cache`**, que el cache hit llama cuando la ruta no es
+la persistida.
+
+- **No reescribe si la ruta no ha cambiado.** Abrir un MKV es navegación: no
+  puede tocar el disco cada vez.
+- **Comprueba el fingerprint antes de reapuntar**, para que otro fichero no
+  secuestre una entrada que no es suya.
+- **No lanza.** Esto adorna una tarjeta; un análisis que se sirve bien no se
+  cae por no poder reescribir su ruta.
+
+Cubierto por `test_precache_tab2.py` (27 tests) con **12 mutaciones**
+verificadas. Dos de ellas enseñan por qué los guards de `repoint_mkv_cache`
+necesitan tests DIRECTOS: están tapados aguas arriba —`analyze_mkv` ya
+comprueba si la ruta cambió, y su `except` de cache hit se traga cualquier
+fallo y reanaliza—, así que quitarlos no se notaba desde el camino completo.
+**Y el script de mutación comprueba que el módulo está en verde antes de
+mutar**: un `✓` sobre un test que ya fallaba da confianza falsa justo donde
+se buscaba evidencia (pasó el 2026-09-28).
 
 ### Lo que el arnés tuvo que aprender
 

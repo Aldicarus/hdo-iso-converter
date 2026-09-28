@@ -308,5 +308,182 @@ class TestLaFaseHPrecachea(PhaseTestCase):
         self.assertIsNone(d.get("quality"))
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  Y el usuario mueve el MKV a su biblioteca
+# ══════════════════════════════════════════════════════════════════════
+
+class TestMoverElMkvNoPierdeElAnalisis(PhaseTestCase):
+    """El flujo real: el MKV sale a `/mnt/output` y se mueve a la biblioteca.
+
+    La caché identifica por CONTENIDO (SHA del primer 1 MB + tamaño), así que
+    mover **no la invalida** y el análisis se reaprovecha entero — eso ya
+    funcionaba. Lo que se quedaba atrás es `original_file_path`, y de ahí sale
+    la disponibilidad que pinta la columna de Tab 2: la tarjeta salía apagada,
+    con ⚠️ y **sin botón de abrir**, sobre un análisis perfectamente válido.
+
+    Antes casi no pasaba, porque el MKV se analizaba donde vivía. Con el
+    precache del pipeline es el caso NORMAL: la caché se escribe con el
+    fichero en `/mnt/output` y el usuario lo mueve acto seguido.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import storage
+        from phases import mkv_analyze
+        self.mod, self.storage = mkv_analyze, storage
+        self.cache = self.tmp / "mkv_audits"
+        self.cache.mkdir()
+        for mod, attr, val in ((storage, "MKV_AUDIT_DIR", self.cache),
+                               (mkv_analyze, "TMP_DIR", str(self.tmp))):
+            orig = getattr(mod, attr)
+            setattr(mod, attr, val)
+            self.addCleanup(setattr, mod, attr, orig)
+
+        self.origen = self.output_dir / "Peli (2024) [DV FEL].mkv"
+        write_artifacts(self.output_dir, self.origen.name, props=INJ_V40)
+        self.tb.define_mkv(self.origen.name, duration_s=7200.0)
+        self.tb.define_mediainfo(self.origen.name)
+        self.tb.define_pgs_packets(self.origen.name, {})
+        self.tb.define_media(self.origen.name, duration=7200.0, frames=FRAMES)
+
+    async def _analizar_y_cachear(self):
+        r = await self.mod.analyze_mkv(str(self.origen), use_cache=False)
+        self.mod.persist_mkv_basic_to_cache(str(self.origen), r)
+        return r
+
+    def _mover(self):
+        """A su ubicación final, con el MISMO contenido."""
+        destino = self.tmp / "biblioteca" / self.origen.name
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        self.origen.rename(destino)
+        return destino
+
+    def _persistido(self):
+        ficheros = list(self.cache.glob("*.json"))
+        self.assertEqual(len(ficheros), 1)
+        return json.loads(ficheros[0].read_text(encoding="utf-8"))
+
+    async def test_NO_se_reanaliza(self):
+        """Lo que el usuario preguntó. El fingerprint va por contenido."""
+        await self._analizar_y_cachear()
+        destino = self._mover()
+        pasos = []
+        async def cb(step): pasos.append(step)
+        await self.mod.analyze_mkv(str(destino), progress_callback=cb)
+        self.assertEqual(pasos, ["cache_hit"], pasos)
+
+    async def test_el_resultado_apunta_a_la_ruta_NUEVA(self):
+        await self._analizar_y_cachear()
+        destino = self._mover()
+        r = await self.mod.analyze_mkv(str(destino))
+        self.assertEqual(r.file_path, str(destino))
+
+    async def test_y_la_CACHÉ_queda_reapuntada(self):
+        """Si no, la columna de Tab 2 sigue diciendo que el fichero no está."""
+        await self._analizar_y_cachear()
+        destino = self._mover()
+        await self.mod.analyze_mkv(str(destino))
+        d = self._persistido()
+        self.assertEqual(d["original_file_path"], str(destino))
+        self.assertEqual(d["basic"]["file_path"], str(destino))
+
+    async def test_el_extendido_sobrevive_al_movimiento(self):
+        """Es lo caro: ~10 min de `extract-rpu` que no hay que repetir."""
+        await self._analizar_y_cachear()
+        self.mod.persist_mkv_quality_to_cache(str(self.origen), {
+            "quality_total_frames_rpu": FRAMES, "quality_classification": "real",
+            "quality_l8_unique_count": 7,
+        })
+        destino = self._mover()
+        await self.mod.analyze_mkv(str(destino))
+        d = self._persistido()
+        self.assertEqual(d["quality"]["quality_l8_unique_count"], 7)
+        self.assertEqual(d["original_file_path"], str(destino))
+
+    async def test_sin_mover_no_reescribe_nada(self):
+        """Abrir un MKV es navegación: no puede reescribir su caché cada vez."""
+        await self._analizar_y_cachear()
+        antes = list(self.cache.glob("*.json"))[0].stat().st_mtime_ns
+        await self.mod.analyze_mkv(str(self.origen))
+        self.assertEqual(list(self.cache.glob("*.json"))[0].stat().st_mtime_ns,
+                         antes, "ha reescrito la caché sin hacer falta")
+
+    async def test_si_no_puede_reapuntar_el_analisis_SIGUE_sirviendo(self):
+        """Esto adorna una tarjeta; un análisis válido no se cae por ello."""
+        from unittest.mock import patch
+        await self._analizar_y_cachear()
+        destino = self._mover()
+        with patch.object(self.storage, "_atomic_write_json",
+                          side_effect=OSError("disco lleno")):
+            r = await self.mod.analyze_mkv(str(destino))
+        self.assertEqual(r.file_path, str(destino))
+        self.assertTrue(r.tracks)
+
+
+class TestRepointMkvCache(PhaseTestCase):
+    """El contrato de `storage.repoint_mkv_cache`, a solas.
+
+    Hacen falta tests directos: sus dos guards están tapados aguas arriba
+    —`analyze_mkv` ya comprueba si la ruta cambió, y su `except` de cache hit
+    se traga cualquier fallo y reanaliza—, así que quitarlos no se notaba
+    desde el camino completo. Lo destapó la mutación.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import storage
+        self.storage = storage
+        self.cache = self.tmp / "mkv_audits"
+        self.cache.mkdir()
+        orig = storage.MKV_AUDIT_DIR
+        storage.MKV_AUDIT_DIR = self.cache
+        self.addCleanup(setattr, storage, "MKV_AUDIT_DIR", orig)
+
+        self.mkv = self.tmp / "peli.mkv"
+        self.mkv.write_bytes(b"\x00" * 4096)
+        self.fp = storage.compute_mkv_fingerprint(str(self.mkv))
+        self.entrada = self.cache / f"{self.fp['sha256_1mb']}.json"
+        self.entrada.write_text(json.dumps({
+            "fingerprint": self.fp,
+            "original_file_path": "/mnt/output/peli.mkv",
+            "versions": {"basic": 3, "quality": 2},
+            "basic": {"file_path": "/mnt/output/peli.mkv", "file_name": "peli.mkv"},
+        }), encoding="utf-8")
+
+    def test_reapunta_y_lo_dice(self):
+        self.assertTrue(
+            self.storage.repoint_mkv_cache(self.fp, "/mnt/library/peli.mkv"))
+        d = json.loads(self.entrada.read_text(encoding="utf-8"))
+        self.assertEqual(d["original_file_path"], "/mnt/library/peli.mkv")
+        self.assertEqual(d["basic"]["file_path"], "/mnt/library/peli.mkv")
+
+    def test_con_la_MISMA_ruta_no_reescribe(self):
+        """Abrir un MKV es navegación: no puede reescribir su caché cada vez."""
+        antes = self.entrada.stat().st_mtime_ns
+        self.assertFalse(
+            self.storage.repoint_mkv_cache(self.fp, "/mnt/output/peli.mkv"))
+        self.assertEqual(self.entrada.stat().st_mtime_ns, antes)
+
+    def test_si_el_fingerprint_no_cuadra_no_toca_nada(self):
+        """Otro MKV con el mismo nombre de fichero de caché no puede
+        secuestrar la entrada."""
+        ajeno = dict(self.fp, sha256_1mb=self.fp["sha256_1mb"], size_bytes=999)
+        self.assertFalse(self.storage.repoint_mkv_cache(ajeno, "/otro.mkv"))
+        d = json.loads(self.entrada.read_text(encoding="utf-8"))
+        self.assertEqual(d["original_file_path"], "/mnt/output/peli.mkv")
+
+    def test_no_lanza_si_no_puede_escribir(self):
+        from unittest.mock import patch
+        with patch.object(self.storage, "_atomic_write_json",
+                          side_effect=OSError("disco lleno")):
+            self.assertFalse(
+                self.storage.repoint_mkv_cache(self.fp, "/mnt/library/peli.mkv"))
+
+    def test_sin_entrada_de_cache_no_lanza(self):
+        self.entrada.unlink()
+        self.assertFalse(
+            self.storage.repoint_mkv_cache(self.fp, "/mnt/library/peli.mkv"))
+
+
 if __name__ == "__main__":
     unittest.main()
