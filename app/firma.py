@@ -62,6 +62,30 @@ CLAVE = os.environ.get("HDO_FIRMA_CLAVE", "uhd-blu-ray-toolkit/firma/v1").encode
 TIMEOUT_S = 300
 
 
+# Valores que cuentan como «sí» en `HDO_MOSTRAR_AUTORIA`. Se aceptan varios
+# porque la variable la escribe una persona en un `.env`, no un programa.
+_AFIRMATIVOS = {"1", "true", "yes", "si", "sí", "on"}
+
+
+def se_muestra_la_autoria() -> bool:
+    """¿Esta instalación enseña el chip de procedencia en Tab 2?
+
+    **Por defecto NO.** La marca se escribe en todas las instalaciones —eso no
+    cambia, y es lo que permite reconocer un MKV hecho con la app venga de
+    donde venga—, pero el chip solo se sirve donde `HDO_MOSTRAR_AUTORIA` está
+    puesta. Es una función personal del autor, no parte del producto.
+
+    Se lee en cada llamada y no al importar: el coste es un `dict.get` y así
+    un test puede cambiarla sin recargar el módulo.
+
+    Lo que esto **no** es: un secreto. La variable se ve en este código, que
+    es público, así que quien lo lea puede activarla y ver el chip en sus
+    propios ficheros —donde, por cierto, dirá la verdad—. Lo que se evita es
+    exponer la función a quien no la ha pedido, no esconderla.
+    """
+    return os.environ.get("HDO_MOSTRAR_AUTORIA", "").strip().lower() in _AFIRMATIVOS
+
+
 def rasgos_de(datos: dict) -> str:
     """La huella del contenido sobre la que se calcula la firma.
 

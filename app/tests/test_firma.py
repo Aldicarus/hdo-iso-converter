@@ -18,6 +18,7 @@ tiene tres modos de fallo, los tres silenciosos:
 Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_firma -v
 """
+import os
 import shutil
 import sys
 import tempfile
@@ -635,6 +636,113 @@ class TestTab2LoReconoce(unittest.IsolatedAsyncioTestCase):
         siempre: el bloque `basic` cacheado no trae el campo nuevo y
         Pydantic lo rellenaría con su default."""
         self.assertGreaterEqual(self.mod.CACHE_VERSION_BASIC, 3)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  El chip solo se enseña donde está activado
+# ══════════════════════════════════════════════════════════════════════
+
+class TestElInterruptor(unittest.TestCase):
+    """`HDO_MOSTRAR_AUTORIA`: la marca se escribe siempre, el chip no se ve.
+
+    La marca la pone toda instalación —eso es lo que permite reconocer un MKV
+    hecho con la app venga de donde venga— pero el chip es una herramienta del
+    autor y no parte del producto, así que por defecto no se sirve.
+    """
+
+    def setUp(self):
+        self._previo = os.environ.get("HDO_MOSTRAR_AUTORIA")
+        self.addCleanup(self._restaurar)
+
+    def _restaurar(self):
+        if self._previo is None:
+            os.environ.pop("HDO_MOSTRAR_AUTORIA", None)
+        else:
+            os.environ["HDO_MOSTRAR_AUTORIA"] = self._previo
+
+    def _con(self, valor):
+        if valor is None:
+            os.environ.pop("HDO_MOSTRAR_AUTORIA", None)
+        else:
+            os.environ["HDO_MOSTRAR_AUTORIA"] = valor
+        return firma.se_muestra_la_autoria()
+
+    def test_por_defecto_NO_se_muestra(self):
+        """Es el caso de todos los usuarios menos uno."""
+        self.assertFalse(self._con(None))
+        self.assertFalse(self._con(""))
+
+    def test_se_activa_con_los_valores_que_escribiria_una_persona(self):
+        for v in ("1", "true", "TRUE", "yes", "si", "sí", "on", " 1 "):
+            self.assertTrue(self._con(v), repr(v))
+
+    def test_un_valor_que_no_es_un_si_no_la_activa(self):
+        for v in ("0", "false", "no", "off", "quizá"):
+            self.assertFalse(self._con(v), repr(v))
+
+    def test_se_lee_en_CADA_llamada(self):
+        """Si se leyera al importar, un cambio en el `.env` no se vería hasta
+        reiniciar — y ningún test podría cambiarla."""
+        self.assertFalse(self._con(None))
+        self.assertTrue(self._con("1"))
+        self.assertFalse(self._con("0"))
+
+
+class TestElFiltroAlServir(unittest.TestCase):
+    """El filtro va en `_con_lectura`, el único punto que sirve el análisis."""
+
+    def setUp(self):
+        self._previo = os.environ.get("HDO_MOSTRAR_AUTORIA")
+        self.addCleanup(
+            lambda: os.environ.pop("HDO_MOSTRAR_AUTORIA", None)
+            if self._previo is None
+            else os.environ.__setitem__("HDO_MOSTRAR_AUTORIA", self._previo))
+
+    def _servido(self, activado: bool) -> dict:
+        from routers import tab2
+        if activado:
+            os.environ["HDO_MOSTRAR_AUTORIA"] = "1"
+        else:
+            os.environ.pop("HDO_MOSTRAR_AUTORIA", None)
+        return tab2._con_lectura({"hecho_con_esta_app": True,
+                                  "file_name": "x.mkv", "tracks": []})
+
+    def test_sin_activar_el_campo_sale_en_False(self):
+        """Aunque el fichero SÍ lleve la marca: el frontend no puede pintar un
+        chip de un dato que no recibe."""
+        self.assertFalse(self._servido(False)["hecho_con_esta_app"])
+
+    def test_activada_sale_el_valor_de_verdad(self):
+        self.assertTrue(self._servido(True)["hecho_con_esta_app"])
+
+
+class TestElCableadoDeLaVariable(unittest.TestCase):
+    """Las dos puntas que se pueden caer en silencio.
+
+    Si la variable está en el `.env` pero no en el `environment:` del compose,
+    el contenedor no la recibe: el chip no sale nunca y **nada avisa**. Es el
+    mismo cableado de tres puntas que `TMDB_APP_KEY`, con un punto menos.
+    """
+
+    def test_el_compose_la_pasa_al_contenedor(self):
+        compose = (APP_DIR.parent / "docker" / "docker-compose.yml").read_text(
+            encoding="utf-8")
+        self.assertIn("HDO_MOSTRAR_AUTORIA=${HDO_MOSTRAR_AUTORIA:-}", compose,
+                      "sin esto la variable del .env no llega al contenedor")
+
+    def test_el_env_example_la_documenta(self):
+        ejemplo = (APP_DIR.parent / "docker" / ".env.example").read_text(
+            encoding="utf-8")
+        self.assertIn("HDO_MOSTRAR_AUTORIA", ejemplo)
+
+    def test_el_campo_se_sigue_CALCULANDO_para_todos(self):
+        """El filtro va al servir, no al analizar: así la caché es la misma en
+        todas las instalaciones y activar la variable no obliga a reanalizar
+        nada."""
+        fuente = (APP_DIR / "phases" / "mkv_analyze.py").read_text(encoding="utf-8")
+        self.assertIn("hecho_con_esta_app=firma.lleva_nuestra_firma(data)", fuente)
+        self.assertNotIn("se_muestra_la_autoria", fuente,
+                         "el análisis no debe mirar la variable: filtra el que sirve")
 
 
 if __name__ == "__main__":

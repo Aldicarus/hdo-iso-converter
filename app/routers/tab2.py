@@ -30,6 +30,7 @@ El contrato HTTP está fijado en `tests/test_endpoints_tab1_tab2.py`, y que
 las URLs no cambien con este movimiento, en `test_rutas_no_cambian.py`.
 """
 from i18n import t as tr
+import firma
 import asyncio
 import json
 import logging
@@ -434,6 +435,13 @@ def _con_lectura(datos: dict) -> dict:
     except Exception as e:  # noqa: BLE001 - tres frases no tumban un análisis
         _logger.warning("La lectura del MKV falló (no bloquea): %s", e)
         datos["lectura"] = None
+    # El chip de procedencia solo se sirve donde está activado. Se filtra AQUÍ
+    # y no al analizar a propósito: el campo se calcula y se cachea igual en
+    # todas las instalaciones, así que activar o desactivar la variable no
+    # obliga a reanalizar nada. Mismo criterio que la lectura de arriba —se
+    # compone al servir— y que `session.plan`.
+    if not firma.se_muestra_la_autoria():
+        datos["hecho_con_esta_app"] = False
     return datos
 
 

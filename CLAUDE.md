@@ -2474,7 +2474,28 @@ Cinco decisiones que no son obvias:
 
 **Se lee en Tab 2**, que es donde el usuario va a abrir el fichero de todos
 modos para mirarle la radiografía: `analyze_mkv` rellena
-`hecho_con_esta_app` y la card del fichero pinta un chip verde. El veredicto
+`hecho_con_esta_app` y la card del fichero pinta un chip verde — **pero solo
+donde `HDO_MOSTRAR_AUTORIA` está puesta**, que por defecto no lo está. La
+marca se escribe en TODAS las instalaciones (es lo que permite reconocer un
+MKV hecho con la app venga de donde venga); lo que no se enseña es el chip,
+porque es una herramienta del autor y no parte del producto.
+
+- **El filtro va al SERVIR, en `_con_lectura`**, y no al analizar: así el
+  campo se calcula y se cachea igual en todas las instalaciones, y activar o
+  desactivar la variable no obliga a reanalizar nada. Mismo criterio que la
+  lectura del MKV, que `session.plan` y que el relato. Lo guarda un test:
+  `mkv_analyze` **no** puede mirar la variable.
+- **Dos puntas que se caen en silencio**: si la variable está en el `.env`
+  pero no en el `environment:` del compose, el contenedor no la recibe, el
+  chip no sale nunca y nada avisa. Es el cableado de `TMDB_APP_KEY` con un
+  punto menos, y tiene su guard.
+- **No es un secreto.** La variable se ve en el código, que es público, así
+  que quien lo lea puede activarla y ver el chip en sus propios ficheros —
+  donde, por cierto, dirá la verdad. Lo que se evita es exponer la función a
+  quien no la ha pedido, no esconderla. La alternativa con exclusividad real
+  (que el gate fuera tener `HDO_FIRMA_CLAVE` propia) se evaluó y se descartó:
+  obligaba a re-firmar lo ya firmado y quitaba lo más útil — reconocer un MKV
+  que OTRO haya hecho con la app. El veredicto
 se persiste con el análisis y **no puede quedarse viejo**, porque la caché va
 por fingerprint del primer 1 MB —donde vive la cabecera— y cualquier cosa que
 toque el `SegmentUID` la invalida. Lo que sí lo invalidaría es cambiar la

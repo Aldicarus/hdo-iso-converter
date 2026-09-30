@@ -48,6 +48,10 @@ services:
 
     environment:
       - TZ=${TZ:-Europe/Madrid}
+      # Enseña el chip de procedencia en «Consultar / Editar MKV». Vacío en
+      # una instalación normal: la marca se escribe siempre, pero el chip es
+      # una herramienta del autor y no parte del producto.
+      - HDO_MOSTRAR_AUTORIA=${HDO_MOSTRAR_AUTORIA:-}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
