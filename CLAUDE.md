@@ -3649,6 +3649,16 @@ Todas las pestañas comparten una **franja navy** en la parte superior que unifi
 ### Switching de tabs principales
 `switchTab(n)` debe marcar el active **por ID** (`tab-btn-N`), nunca por posición DOM — el orden visual no coincide con la numeración interna.
 
+### El contenido de un proyecto ocupa todo el ancho del centro
+Una sola regla en `style.css` —`.panel-project` (Tab 1, en el propio
+`.subtab-panel`) y `.project-panel-inner` (Tab 2 y Tab 3, en el envoltorio que
+pinta el JS)— **sin `max-width`** y con el mismo padding. Cada pestaña tenía su
+tope (860 / 900 / 1100 px, los dos últimos inline en la plantilla) y con la
+ventana ancha quedaban huecos distintos en cada una. No se vuelve a poner un
+tope ni un `style=` de ancho en esas plantillas: lo guarda
+`test_ancho_de_los_paneles.py`, que abre un proyecto por pestaña en Chrome a
+1920 px.
+
 ### Scroll horizontal de sub-tabs de proyecto
 Tab 1 y Tab 3 comparten el patrón. Arquitectura:
 - UN SOLO scroll container: `.subtab-projects` con `overflow-x: auto`.
