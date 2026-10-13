@@ -2317,7 +2317,7 @@ function _renderMkvEditPanel(project = mkvProject) {
   const panel = document.getElementById(`mkv-panel-${pid}`);
   if (!panel) return;
   panel.innerHTML = `
-    <div class="project-panel-inner" style="max-width:900px; margin:0 auto; padding:24px 20px">
+    <div class="project-panel-inner">
 
       <!-- Ficha TMDb (hidratada en async) -->
       <div id="mkv-edit-tmdb-card-${pid}" class="tmdb-card-slot"></div>

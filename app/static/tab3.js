@@ -2774,7 +2774,7 @@ function _createCMv40Panel(project) {
   panel.id = `cmv40-panel-${pid}`;
   panel.style.display = 'none';
   panel.innerHTML = `
-    <div class="project-panel-inner" style="max-width:1100px; margin:0 auto; padding:24px 20px">
+    <div class="project-panel-inner">
       <div id="cmv40-info-${pid}"></div>
       <div id="cmv40-phase-strip-${pid}" class="cmv40-phase-strip"></div>
       <div id="cmv40-active-phase-${pid}"></div>

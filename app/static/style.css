@@ -2646,12 +2646,16 @@ select { appearance: none; cursor: pointer;
    la altura por defecto es auto y el 100% del hijo colapsa a su contenido. */
 #panel-empty-projects.active-panel { height: 100%; }
 
-/* ── Panel de proyecto (review screen) ─────────────────────── */
-.panel-project {
+/* ── Panel de proyecto: el contenido de una sub-pestaña ───────
+   Las tres pestañas usan esta regla y ocupan TODO el ancho del centro.
+   Cada una tenía su tope —860 px Tab 1, 900 Tab 2 y 1100 Tab 3, los dos
+   últimos inline— y con la ventana ancha quedaban huecos a los lados,
+   distintos en cada pestaña. Tab 1 la lleva en el propio `.subtab-panel`;
+   Tab 2 y Tab 3, en el envoltorio de dentro. */
+.panel-project,
+.project-panel-inner {
   width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 20px 24px 40px;
+  padding: 24px 24px 40px;
   box-sizing: border-box;
 }
 .panel-project > * { margin-bottom: 14px; }
