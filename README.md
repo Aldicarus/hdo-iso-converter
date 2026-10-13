@@ -2,44 +2,47 @@
 
 # UHD Blu-ray Toolkit
 
-**Tus UHD Blu-ray, convertidos en MKV listos para Plex o Jellyfin, analizados a fondo y con su Dolby Vision actualizado a CMv4.0.**
+**The best version of every film, in a single MKV.**
 
-Una aplicación web que se instala en el NAS y se usa desde el navegador.<br>
-Sin recodificar: la imagen y el sonido son los del disco, bit a bit.
+The full picture of the UHD Blu-ray, with its Dolby Vision FEL layer intact,<br>
+upgraded with the colorist's CMv4.0 grade, and verified down to the last frame.
 
-[![Última versión](https://img.shields.io/github/v/release/Aldicarus/hdo-iso-converter?sort=semver&filter=v*&label=versi%C3%B3n)](https://github.com/Aldicarus/hdo-iso-converter/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Aldicarus/hdo-iso-converter?sort=semver&filter=v*&label=release)](https://github.com/Aldicarus/hdo-iso-converter/releases/latest)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/Aldicarus/hdo-iso-converter/pkgs/container/hdo-iso-converter)
-[![Licencia MIT](https://img.shields.io/badge/licencia-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[Qué hace](#qué-hace) · [Instalación](#instalación) · [Funcionalidades](#funcionalidades) · [Documentación técnica](docs/DOCUMENTACION_TECNICA.md) · [Agradecimientos](#agradecimientos)
+[Why](#why) · [Installation](#installation) · [Features](#features) · [Technical documentation](docs/TECHNICAL.md) · [Acknowledgements](#acknowledgements)
 
-<img src="docs/img/cmv4-proyecto.png" alt="UHD Blu-ray Toolkit: un proyecto de upgrade Dolby Vision CMv4.0 con la ficha de la película, la recomendación de la comunidad y la columna de trabajos">
+<img src="docs/img/cmv4-proyecto.png" alt="UHD Blu-ray Toolkit: a Dolby Vision CMv4.0 upgrade project with the film's card, the community verdict and the Jobs column">
 
 </div>
 
 ---
 
-## Qué hace
+## Why
 
-Un UHD Blu-ray trae mucho más de lo que se ve: el audio en varios idiomas y formatos, decenas de subtítulos, capítulos y, casi siempre, **Dolby Vision**, la tecnología que ajusta el brillo y el color escena a escena según el televisor. Pasarlo a un fichero cómodo de reproducir sin perder nada de eso exige una docena de herramientas de línea de comandos y bastante paciencia.
+No single source has the best version of a film.
 
-**UHD Blu-ray Toolkit lo reúne todo en una sola aplicación**, con tres herramientas:
+- **The UHD Blu-ray has the best picture.** It has the highest bitrate available, and on many discs Dolby Vision **Profile 7 FEL**: a full enhancement layer that carries picture information the base layer and streaming releases do not have.
+- **Streaming has the newest grading metadata.** Many streaming masters carry Dolby Vision **CM v4.0**, with trims the colorist made by hand for different kinds of displays. The disc only carries the older CM v2.9.
+
+UHD Blu-ray Toolkit puts the two together. It turns the disc into an MKV that keeps every layer, adds the colorist's CMv4.0 to it, and then shows exactly what ended up inside the file, so the result can be checked rather than assumed. Picture and sound are never re-encoded: they are the disc's, bit for bit.
+
+It runs on a NAS or any Linux machine with Docker and is used from the browser. Long jobs keep going after the browser is closed.
 
 | | |
 |---|---|
-| 💿 **Blu-ray ISO → MKV** | Convierte el disco en un MKV con el mejor audio, los subtítulos que hacen falta y los capítulos. Películas y series, con los nombres que Plex y Jellyfin reconocen. |
-| ✨ **Upgrade Dolby Vision CMv4.0** | Añade a tu MKV la versión moderna de los metadatos Dolby Vision, la que usan las plataformas de streaming: más precisa y con los ajustes del colorista para cada tipo de pantalla. |
-| ✏️ **Consultar / Editar MKV** | Radiografía completa de cualquier MKV —audio, HDR, Dolby Vision y el brillo de la película de principio a fin— y edición instantánea de pistas y capítulos. |
-
-Todo funciona en el NAS: los trabajos largos siguen adelante aunque se cierre el navegador, y la app avisa cuando terminan.
+| 💿 **Blu-ray ISO → MKV** | A lossless MKV of the disc, with the Dolby Vision FEL layer, the best audio tracks and the chapters |
+| ✨ **Dolby Vision CMv4.0 upgrade** | Adds the colorist's CMv4.0 trims to the disc's own Dolby Vision, without touching the picture |
+| 🔬 **Inspect / Edit MKV** | The DV+HDR deep dive of any MKV, to check the result, plus instant editing of tracks and chapters |
 
 ---
 
-## Instalación
+## Installation
 
-**Qué hace falta:** un NAS (como un QNAP con Container Station) o un ordenador con Linux y **Docker**, con procesador Intel o AMD de 64 bits. La aplicación se distribuye ya construida: no hay que compilar nada.
+**Requirements:** a NAS (such as a QNAP with Container Station) or a Linux computer with **Docker** and a 64-bit Intel or AMD processor. The app ships as a ready-made image, so there is nothing to compile.
 
-**1. Descargar los dos ficheros de configuración** en una carpeta nueva:
+**1. Download the two configuration files** into a new folder:
 
 ```bash
 mkdir uhd-bluray-toolkit && cd uhd-bluray-toolkit
@@ -47,124 +50,125 @@ curl -LO https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/dock
 curl -L  https://raw.githubusercontent.com/Aldicarus/hdo-iso-converter/main/docker/.env.example -o .env
 ```
 
-**2. Indicar las carpetas** editando el fichero `.env`. Cada una tiene que existir antes de arrancar:
+**2. Set your folders** in the `.env` file. Each folder must exist before the app starts:
 
-| En `.env` | Qué carpeta |
+| In `.env` | Folder |
 |---|---|
-| `ISOS_PATH` | Donde están los discos: ISOs, carpetas BDMV o ficheros M2TS |
-| `OUTPUT_PATH` | Donde se guardan los MKV terminados |
-| `LIBRARY_PATH` | Tu biblioteca de MKV, para consultarlos o actualizarlos *(opcional)* |
-| `TMP_PATH` | Espacio de trabajo temporal; mejor en un SSD y con el doble del tamaño de una película |
-| `CONFIG_PATH` | Donde la app guarda sus proyectos y ajustes |
-| `CMV40_RPU_PATH` | Una carpeta vacía creada a propósito, si no tienes ficheros RPU propios |
+| `ISOS_PATH` | Your discs: ISO images, BDMV folders or M2TS files |
+| `OUTPUT_PATH` | Where finished MKVs are saved |
+| `LIBRARY_PATH` | Your MKV library, to inspect or upgrade existing files *(optional)* |
+| `TMP_PATH` | Temporary working space. An SSD is best, with at least twice the size of a film free |
+| `CONFIG_PATH` | Where the app keeps its projects and settings |
+| `CMV40_RPU_PATH` | An empty folder created for the purpose, unless you keep your own RPU files |
 
-**3. Arrancar:**
+**3. Start the app:**
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-**4. Abrir** `http://IP-DEL-NAS:8090` en el navegador. Listo.
+**4. Open** `http://YOUR-NAS-IP:8090` in the browser.
 
 <details>
-<summary><b>Con Container Station (QNAP) o Portainer, sin línea de comandos</b></summary>
+<summary><b>With Container Station (QNAP) or Portainer, without the command line</b></summary>
 
-1. Descarga `docker-compose.yml` y `.env.example` desde los enlaces de arriba, renombra el segundo a `.env` y pon tus carpetas.
-2. Crea una aplicación de tipo *Docker Compose* (Container Station: *Aplicación → Crear* · Portainer: *Stacks → Add stack*).
-3. Pega el contenido de `docker-compose.yml`, añade el `.env` y despliega.
+1. Download `docker-compose.yml` and `.env.example` from the links above, rename the second one to `.env` and fill in your folders.
+2. Create a *Docker Compose* application (Container Station: *Applications → Create* · Portainer: *Stacks → Add stack*).
+3. Paste the contents of `docker-compose.yml`, add the `.env` file and deploy.
 
 </details>
 
-**Actualizar** es un solo comando, y la propia app avisa en la cabecera cuando hay una versión nueva:
+**Updating** takes one command, and the app itself shows a notice in its header when a new version is out:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
 
 > [!TIP]
-> La ficha de las películas y series (carátula, sinopsis, episodios) funciona nada más instalar. Para buscar ficheros en el repositorio DoviTools hace falta además una clave gratuita de Google, que se pega en ⚙︎ Configuración. El manual integrado explica paso a paso cómo conseguirla.
+> Film and TV show details from TMDb (posters, synopses, episodes) work right after installation. Searching the DoviTools repository for CMv4.0 files also needs a free Google API key, which goes in ⚙︎ Settings. The built-in manual explains how to get one, step by step.
 
 ---
 
-## Funcionalidades
+## Features
 
-### 💿 Del disco al MKV
+### 💿 A lossless MKV, with the FEL layer intact
 
-<img src="docs/img/iso-a-mkv.png" alt="Selección de pistas de audio y subtítulos de un proyecto ISO → MKV">
+<img src="docs/img/iso-a-mkv.png" alt="Audio and subtitle track selection in an ISO → MKV project">
 
-- **Las pistas, elegidas solas.** El mejor audio en tu idioma y en versión original (TrueHD Atmos, DTS-HD MA…), los subtítulos forzados y completos que hacen falta y los capítulos del disco. Lo descartado se queda a la vista, con el motivo, y se recupera con un clic.
-- **ISO, carpeta BDMV o ficheros M2TS.** El ISO se lee directamente, sin copiarlo ni descomprimirlo.
-- **Series de televisión.** Reconoce los episodios del disco, los empareja con la temporada en TMDb y crea un MKV por episodio, con nombres del tipo `Serie (2011) - S03E01 - Título.mkv`.
-- **Dolby Vision intacto**, incluida la capa de mejora FEL, y una comprobación final de que el MKV contiene exactamente lo que se pidió.
-- **Una cola de trabajos** que procesa los discos uno tras otro, con progreso real y tiempo restante.
+- **Dolby Vision FEL, preserved.** The base layer, the enhancement layer and the Dolby Vision metadata go into the MKV exactly as they are on the disc. The analysis tells a full enhancement layer (FEL) from a minimal one (MEL) and shows which one the disc has before anything is ripped.
+- **Nothing is re-encoded.** Video and audio streams are copied as they are, and ISO images are read directly, without copying or extracting them first.
+- **The right tracks, picked automatically.** The best audio format for your language and for the original language (TrueHD Atmos, DTS-HD MA…), the full and forced subtitles, and the disc's own chapters. Every discarded track stays visible, with the reason it was left out, and can be brought back with one click.
+- **ISO images, BDMV folders or M2TS files**, and TV shows: each episode on the disc becomes its own MKV, matched to its season on TMDb.
+- **A final check** compares the finished MKV against what was configured: tracks, languages, flags and chapters.
 
-### ✨ Upgrade Dolby Vision CMv4.0
+### ✨ The colorist's CMv4.0, on the disc's picture
 
-<p align="center"><img src="docs/img/cmv4-nuevo-proyecto.png" width="720" alt="Nuevo proyecto CMv4.0: la recomendación de la hoja DoviTools y los ficheros candidatos del repositorio"></p>
+<p align="center"><img src="docs/img/cmv4-nuevo-proyecto.png" width="720" alt="New CMv4.0 project: the DoviTools sheet verdict and the candidate files from the repository"></p>
 
-Dolby Vision viaja con unas instrucciones para que cada televisor adapte el brillo y el color a lo que es capaz de mostrar. Los Blu-ray traen la versión 2.9 de esas instrucciones; el streaming ya usa la **4.0**, con ajustes de colorista para cada tipo de pantalla. Esta herramienta lleva la 4.0 a tu MKV **sin tocar la imagen**.
+Dolby Vision carries a set of instructions that tells each TV how to fit the picture to what its screen can show. Those instructions are where the colorist's work lives, and CM v4.0 adds trims made by hand for each kind of display. The toolkit takes the CMv4.0 trims from a streaming master and adds them to the disc's own Dolby Vision. The disc's picture, its FEL layer and its bitrate stay as they are.
 
-- **Sabe qué películas lo admiten.** Consulta en vivo la hoja de la comunidad DoviTools y busca el fichero adecuado en su repositorio.
-- **Dice si merece la pena.** Mide lo que aporta ese fichero frente a lo que ya tiene tu disco y recomienda actualizar o dejar el MKV como está.
-- **Sincronización comprobada.** Si el fichero no cuadra fotograma a fotograma con tu edición, lo enseña en un gráfico y permite corregirlo antes de continuar.
-- **Automático de principio a fin.** Elige el camino más rápido para cada caso, ejecuta todas las fases solo y etiqueta el resultado con su calidad (`[CMv4 FULL]`, `CORE+`, `CORE`).
-- **El MKV sale con su radiografía hecha**, lista para consultarla al instante.
+- **It knows which films can take the upgrade.** It reads the DoviTools community sheet live and searches its repository for the matching file.
+- **It tells you whether the upgrade is worth it.** It measures whether the file actually carries trims made by a colorist or only generated ones, compares it with what the disc already has, and recommends upgrading or keeping the MKV as it is.
+- **It checks the sync frame by frame.** If the file does not line up with your edition of the film, a chart shows where they drift apart, and the offset can be corrected before going on.
+- **It runs the whole process by itself.** It picks the fastest route for each case and labels the result with its quality: `[CMv4 FULL]`, `CORE+` or `CORE`.
+- **The upgraded MKV comes with its deep dive already done**, ready to inspect right away.
 
-### ✏️ La radiografía de cada MKV
+### 🔬 The DV+HDR deep dive: check the result
 
-<img src="docs/img/mkv-radiografia.png" alt="Perfil de luminancia de una película: brillo por fotograma, percentiles y distribución">
+<img src="docs/img/mkv-radiografia.png" alt="Luminance profile of a film: brightness per frame, percentiles and distribution">
 
-- **Todo lo que hay dentro**: audio, subtítulos, HDR10 y Dolby Vision al detalle, desde el perfil y la versión hasta la cadena de mastering.
-- **El brillo de la película de principio a fin**, en un gráfico interactivo con sus picos, percentiles y cuánto metraje cae en cada nivel de brillo.
-- **Edición instantánea** de nombres de pistas, pistas por defecto y forzadas, y capítulos. Sin recodificar y en segundos; si el MKV está en la biblioteca, se trabaja sobre una copia y el original no se toca.
+- **Everything inside the file:** the Dolby Vision profile, its FEL or MEL layer, the CM version and its levels, the mastering chain and the HDR10 metadata, along with every audio format and its real bitrate.
+- **The film's brightness from start to finish**, in an interactive chart with its peaks, percentiles and how much of the running time falls at each brightness level.
+- **The CMv4.0 analysis**, which shows what the colorist's trims add and the quality tier they reach.
+- **Instant editing** of track names, default and forced flags, and chapters, with no re-encoding and in seconds. MKVs from the library are edited on a copy, so the original is never touched.
 
-### 📋 Siempre a la vista
+### 📋 Always in view
 
-- **La columna de trabajos** acompaña a las tres herramientas: qué se está haciendo, cuánto lleva, cuánto falta y el historial de todo lo terminado.
-- **Aviso al terminar** cada trabajo largo, aunque la pestaña esté en segundo plano.
-- **La ficha de cada película**, con carátula, sinopsis y puntuación de TMDb.
+- **The Jobs column** stays next to all three tools. It shows what is running, how long it has taken, how long is left, and a history of everything that has finished.
+- **A notification when each long job finishes**, even when the tab is in the background.
+- **A card for every film**, with its poster, synopsis and TMDb rating.
 
-### 📖 Un manual dentro de la app
+### 📖 A manual built into the app
 
-<p align="center"><img src="docs/img/manual-cmv4.png" width="720" alt="Manual Dolby Vision CMv4.0 integrado en la aplicación"></p>
+<p align="center"><img src="docs/img/manual-cmv4.png" width="720" alt="Dolby Vision CMv4.0 manual built into the app"></p>
 
-Una guía integrada explica Dolby Vision, sus perfiles, la hoja y el repositorio DoviTools y cada una de las rutas del upgrade, con diagramas de qué se hace en cada caso.
+The built-in guide explains Dolby Vision and its profiles, the DoviTools sheet and repository, and every route the upgrade can take, with a diagram of what happens in each case.
 
-### 🌗 A gusto de cada uno
+### 🌗 Your way
 
-- **Castellano, inglés y catalán**, detectado del navegador la primera vez.
-- **Modo claro y oscuro**, que por defecto sigue al del sistema.
-
----
-
-## Documentación técnica
-
-La descripción completa —todas las variables de configuración, los volúmenes, el pipeline de cada herramienta fase a fase, la API y el desarrollo local— está en **[docs/DOCUMENTACION_TECNICA.md](docs/DOCUMENTACION_TECNICA.md)**.
+- **English, Spanish and Catalan.** The language is picked up from the browser the first time.
+- **Light and dark mode.** By default it follows the system setting.
 
 ---
 
-## Agradecimientos
+## Technical documentation
 
-UHD Blu-ray Toolkit se apoya en el trabajo de mucha gente que lo comparte de forma abierta.
+The full description is in **[docs/TECHNICAL.md](docs/TECHNICAL.md)**. It covers every configuration variable, the Docker volumes, each tool's pipeline phase by phase, the API and local development.
 
-- **[R3S3t9999 (REC_9999)](https://github.com/R3S3t9999/DoVi_Scripts)**, autor de DoVi_Scripts, de la hoja DoviTools y del repositorio de ficheros CMv4.0 sobre los que se construye el upgrade. El repositorio lo mantiene una sola persona y se sostiene con donaciones: si te resulta útil, puedes **[apoyarlo en PayPal](https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6)**.
-- **[dovi_tool](https://github.com/quietvoid/dovi_tool)**, de quietvoid: el análisis, la edición y la inyección de los metadatos Dolby Vision.
-- **[MKVToolNix](https://mkvtoolnix.download/)**, de Moritz Bunkus: la lectura de los discos y la creación y edición de los MKV.
-- **[FFmpeg](https://ffmpeg.org/)**, en la compilación de **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)**.
-- **[MediaInfo](https://mediaarea.net/en/MediaInfo)**, de MediaArea: los detalles técnicos de cada pista.
-- **La comunidad del [hilo de Dolby Vision del foro de MakeMKV](https://forum.makemkv.com/forum/viewtopic.php?t=18602)**, donde se ha documentado casi todo lo que hay que saber sobre este tema.
-- **[FastAPI](https://fastapi.tiangolo.com/)** y **[Sortable.js](https://sortablejs.github.io/Sortable/)**.
+---
+
+## Acknowledgements
+
+UHD Blu-ray Toolkit is built on the work of many people who share it openly.
+
+- **[R3S3t9999 (REC_9999)](https://github.com/R3S3t9999/DoVi_Scripts)** is the author of DoVi_Scripts, the DoviTools sheet and the repository of CMv4.0 files that the upgrade relies on. The repository is maintained by one person and is funded by donations. If you find it useful, you can **[support it on PayPal](https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6)**.
+- **[dovi_tool](https://github.com/quietvoid/dovi_tool)** by quietvoid analyses, edits and injects the Dolby Vision metadata.
+- **[MKVToolNix](https://mkvtoolnix.download/)** by Moritz Bunkus reads the discs and creates and edits the MKVs.
+- **[FFmpeg](https://ffmpeg.org/)**, through the builds of **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)**.
+- **[MediaInfo](https://mediaarea.net/en/MediaInfo)** by MediaArea provides the technical details of every track.
+- **The community of the [Dolby Vision thread on the MakeMKV forum](https://forum.makemkv.com/forum/viewtopic.php?t=18602)** has documented almost everything there is to know about the subject.
+- **[FastAPI](https://fastapi.tiangolo.com/)** and **[Sortable.js](https://sortablejs.github.io/Sortable/)**.
 
 <a href="https://www.themoviedb.org/"><img src="app/static/img/tmdb.svg" alt="The Movie Database (TMDB)" height="18"></a>
 
-Fichas, carátulas y episodios proceden de **[The Movie Database](https://www.themoviedb.org/)**.
+Film details, posters and episodes come from **[The Movie Database](https://www.themoviedb.org/)**.
 This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ---
 
-## Licencia
+## License
 
-El código de la aplicación es software libre bajo licencia **MIT** ([`LICENSE`](LICENSE)). La imagen Docker incluye además herramientas de terceros con su propia licencia, entre ellas GPL. El inventario, los avisos y la oferta de código fuente están en [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md), y también dentro de la app, en ⚙︎ Configuración → Acerca de.
+The app's code is free software under the **MIT** license ([`LICENSE`](LICENSE)). The Docker image also contains third-party tools under their own licenses, some of them GPL. Their inventory, notices and source code offer are in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md), and also inside the app, under ⚙︎ Settings → About.
 
-<p align="center"><img src="docs/img/acerca-de.png" width="640" alt="Licencias y avisos de terceros en la configuración de la app"></p>
+<p align="center"><img src="docs/img/acerca-de.png" width="640" alt="Licenses and third-party notices in the app's settings"></p>
