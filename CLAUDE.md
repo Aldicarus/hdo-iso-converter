@@ -66,6 +66,10 @@ ISO2MKVFEL/
 ├── .github/workflows/
 │   └── publish-docker.yml      ← Publica imagen a ghcr.io en cada push a main
 ├── CLAUDE.md
+├── README.md                   ← La portada: qué hace, instalación y capturas. Para el público, no técnica
+├── docs/
+│   ├── DOCUMENTACION_TECNICA.md ← Lo que era el README: configuración, pipeline, API, desarrollo
+│   └── img/                    ← Las capturas del README
 ├── LICENSE                     ← MIT. El código de la app; las herramientas traen la suya
 ├── THIRD-PARTY-NOTICES.md      ← Qué contiene la imagen, bajo qué licencia y dónde está su fuente
 ├── archive/                    ← Specs históricas (no spec activa)
