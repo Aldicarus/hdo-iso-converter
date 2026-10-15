@@ -1012,6 +1012,13 @@ function buildProjectPanelHTML(pid) {
       </div>
     </div>
 
+    <div id="${pid}-titulo-aviso-banner" class="banner warning" style="display:none">
+      <span class="banner-icon"><span data-icono="aviso"></span></span>
+      <div><strong><span data-i18n="tab1.revisa_el_titulo_elegido"></span></strong>
+        <span id="${pid}-titulo-aviso-text"></span>
+      </div>
+    </div>
+
     <div id="${pid}-vo-warning-banner" class="banner warning" style="display:none">
       <span class="banner-icon"><span data-icono="aviso"></span></span>
       <div><strong><span data-i18n="core.vo_no_determinada_automaticamente"></span></strong>

@@ -925,6 +925,78 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
     + `${session.mkv_name || sourceName}`, 'success');
 
   await loadSessions();
+
+  // La Fase A eligió el título y encontró algo que no puede resolver sola.
+  // El proyecto ya existe y su panel está detrás: se sigue con él o se
+  // abandona. No se corrige nada — la elección es la misma con aviso o sin él.
+  if (avisosDelTitulo(session).length && !(await preguntarPorElTitulo(session))) {
+    await deleteSession(session.id);
+  }
+}
+
+/** Los avisos que la Fase A dejó sobre el título elegido. */
+function avisosDelTitulo(session) {
+  return (session && session.bdinfo_result && session.bdinfo_result.avisos_titulo) || [];
+}
+
+/** Las frases de los avisos del título, en el idioma de AHORA: el servidor
+ *  los guarda como datos —nombres, bytes, segundos— y no como texto. Un tipo
+ *  que esta versión no conozca no se pinta, en vez de enseñar su id. */
+function frasesDeAvisosDelTitulo(avisos) {
+  const gb = b => ((b || 0) / 1e9).toLocaleString(localeActual(), {maximumFractionDigits: 1});
+  return (avisos || []).map(a => {
+    if (a.tipo === 'titulo_menor') {
+      return tr('tab1.aviso_titulo_menor', {
+        gb_titulo: gb(a.bytes_titulo), ref: a.ref, gb_ref: gb(a.bytes_ref)});
+    }
+    if (a.tipo === 'varias_versiones') {
+      const otras = (a.otras || []).map(o => `${o.mpls} (${_fmtDuration(o.segundos)})`);
+      if (a.mas) otras.push('…');
+      return tr('tab1.aviso_varias_versiones', {otras: otras.join(', ')});
+    }
+    if (a.tipo === 'playlists_ofuscados') {
+      return tr('tab1.aviso_playlists_ofuscados', {n: a.n});
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+/** El aviso fijo del panel con lo que la Fase A no pudo resolver sobre el
+ *  título elegido. Se queda a la vista mientras exista el proyecto: el
+ *  diálogo del análisis solo sale una vez. Escribe en los ids del proyecto
+ *  activo (`E()`). */
+function renderAvisosDelTitulo(session) {
+  const frases = frasesDeAvisosDelTitulo(avisosDelTitulo(session));
+  if (frases.length) {
+    setText('titulo-aviso-text', ' ' + frases.join(' '));
+    show('titulo-aviso-banner');
+  } else {
+    hide('titulo-aviso-banner');
+  }
+}
+
+/** Pregunta si se sigue con un título que la Fase A marcó como dudoso.
+ *  Resuelve `true` para seguir y `false` para abandonar. */
+function preguntarPorElTitulo(session) {
+  const bd = session.bdinfo_result || {};
+  document.getElementById('titulo-dudoso-intro').textContent = tr('tab1.titulo_dudoso_intro', {
+    mpls: bd.main_mpls || '', duracion: _fmtDuration(bd.duration_seconds || 0)});
+  const lista = document.getElementById('titulo-dudoso-lista');
+  lista.innerHTML = '';
+  for (const frase of frasesDeAvisosDelTitulo(avisosDelTitulo(session))) {
+    const li = document.createElement('li');
+    li.textContent = frase;
+    lista.appendChild(li);
+  }
+  return new Promise(resolve => {
+    const responder = seguir => {
+      closeModal('titulo-dudoso-modal');
+      resolve(seguir);
+    };
+    document.getElementById('titulo-dudoso-seguir').onclick = () => responder(true);
+    document.getElementById('titulo-dudoso-abandonar').onclick = () => responder(false);
+    openModal('titulo-dudoso-modal');
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2454,6 +2526,8 @@ function renderProjectPanel(project) {
   renderPhaseStrip(session);
   renderExecutionHistory(session);
 
+  renderAvisosDelTitulo(session);
+
   // Banner VO warning
   const voWarning = session.vo_warning || '';
   if (voWarning) {
@@ -3120,6 +3194,7 @@ function showRawAnalysisData() {
     lines.push(`═══════════════════════════════════════════════`);
     lines.push(`Duración: ${bd.duration_seconds?.toFixed(1)}s | VO: ${bd.vo_language} | MPLS: ${bd.main_mpls}`);
     lines.push(`FEL: ${bd.has_fel} | Razón: ${bd.fel_reason}`);
+    if (bd.avisos_titulo?.length) lines.push(`Avisos del título: ${JSON.stringify(bd.avisos_titulo)}`);
     lines.push('');
 
     lines.push(`── Vídeo (${bd.video_tracks?.length || 0} pistas) ──`);

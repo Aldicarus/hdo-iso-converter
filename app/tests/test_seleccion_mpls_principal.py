@@ -365,6 +365,178 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.log.says("⚠️"), self.log.text)
 
 
+# ── Avisos: se avisa, no se corrige ────────────────────────────────────
+
+class TestAvisosDelTitulo(unittest.IsolatedAsyncioTestCase):
+    """Lo que la Fase A no puede resolver sola se apunta en
+    `bdinfo_result.avisos_titulo` y el usuario decide. Ninguno de estos
+    tests cambia QUÉ se elige: solo qué se dice."""
+
+    async def asyncSetUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="mpls_sel_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tb = FakeToolbox(self.tmp)
+        self.tb.install()
+        self.addCleanup(self.tb.uninstall)
+        self.log = CollectingLog()
+
+    async def _avisos(self, disco) -> tuple[str, list[dict]]:
+        avisos = []
+        _, mpls = await run_mkvmerge_identify(str(disco), self.log, avisos=avisos)
+        return Path(mpls).name, avisos
+
+    def _version(self, nombre: str, minutos: float) -> None:
+        self.tb.define_mkv(nombre, tracks=PISTAS_PELICULA,
+                           duration_s=minutos * 60)
+
+    async def test_dos_montajes_de_la_pelicula(self):
+        """Cine y extendido: los dos pasan el filtro y la regla elige uno.
+        El aviso nombra el otro con su duración."""
+        disco = _disco(self.tmp / "Montajes",
+                       {"00800.mpls": ["00010", "00011", "00012"],
+                        "00801.mpls": ["00010", "00011", "00013", "00012"]},
+                       {"00010": PELICULA // 3, "00011": PELICULA // 3,
+                        "00012": PELICULA // 3, "00013": PELICULA // 8})
+        self._version("00800.mpls", 137)
+        self._version("00801.mpls", 154)
+        elegido, avisos = await self._avisos(disco)
+        versiones = [a for a in avisos if a["tipo"] == "varias_versiones"]
+        self.assertEqual(len(versiones), 1, avisos)
+        self.assertEqual(versiones[0]["mpls"], elegido)
+        otra = {"00800.mpls", "00801.mpls"} - {elegido}
+        self.assertEqual([o["mpls"] for o in versiones[0]["otras"]], list(otra))
+        self.assertTrue(self.log.says("⚠️"), self.log.text)
+
+    async def test_unos_segundos_de_diferencia_no_son_otra_version(self):
+        """Un aviso legal o unos créditos localizados no son otro montaje."""
+        disco = _disco(self.tmp / "Creditos",
+                       {"00800.mpls": ["00010", "00011"],
+                        "00801.mpls": ["00010", "00012"]},
+                       {"00010": PELICULA, "00011": CLIP_TRAILER,
+                        "00012": CLIP_TRAILER})
+        self._version("00800.mpls", 137)
+        self._version("00801.mpls", 137.5)
+        _, avisos = await self._avisos(disco)
+        self.assertEqual(avisos, [])
+
+    async def test_playlists_senuelo(self):
+        """Los mismos segmentos en otro orden, tres veces: el disco esconde
+        la película. La elección no cambia; se avisa."""
+        orden = ["00010", "00011", "00012", "00013"]
+        playlists = {"00800.mpls": orden}
+        for i, perm in enumerate((["00011", "00010", "00012", "00013"],
+                                  ["00010", "00012", "00011", "00013"],
+                                  ["00013", "00012", "00011", "00010"])):
+            playlists[f"{900 + i:05d}.mpls"] = perm
+        disco = _disco(self.tmp / "Ofuscado", playlists,
+                       {c: PELICULA // 4 for c in orden})
+        self._version("00800.mpls", 137)
+        elegido, avisos = await self._avisos(disco)
+        self.assertEqual(elegido, "00800.mpls")
+        self.assertEqual([a for a in avisos if a["tipo"] == "playlists_ofuscados"],
+                         [{"tipo": "playlists_ofuscados", "mpls": "00800.mpls", "n": 3}])
+
+    async def test_dos_senuelos_no_bastan(self):
+        orden = ["00010", "00011", "00012"]
+        disco = _disco(self.tmp / "Dos",
+                       {"00800.mpls": orden,
+                        "00900.mpls": ["00011", "00010", "00012"],
+                        "00901.mpls": ["00012", "00011", "00010"]},
+                       {c: PELICULA // 3 for c in orden})
+        self._version("00800.mpls", 137)
+        _, avisos = await self._avisos(disco)
+        self.assertEqual(avisos, [])
+
+    async def test_un_disco_normal_no_trae_avisos(self):
+        disco = _disco(self.tmp / "Normal",
+                       {"00800.mpls": ["00800"], "00801.mpls": ["00801"]},
+                       {"00800": PELICULA, "00801": CLIP_TRAILER})
+        self._version("00800.mpls", 137)
+        self.tb.define_mkv("00801.mpls", tracks=PISTAS_TRAILER, duration_s=120)
+        _, avisos = await self._avisos(disco)
+        self.assertEqual(avisos, [])
+
+    async def test_los_avisos_quedan_en_la_sesion(self):
+        """`run_full_analysis` los deja en `bdinfo_result`, que es lo que
+        persiste y lo que la interfaz lee. Con el MPLS de la película
+        ilegible, el elegido es el tráiler y lo dice."""
+        playlists = {"00000.mpls": ["00000"], "00018.mpls": ["00100"]}
+        disco = _disco(self.tmp / "Divergente", playlists,
+                       {"00000": PELICULA, "00100": CLIP_TRAILER})
+        self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER, duration_s=594.7)
+        self.tb.fail_when_arg("mkvmerge", "00000.mpls", rc=2)
+        bdinfo, _, _ = await phase_a.run_full_analysis(str(disco), self.log)
+        self.assertEqual(bdinfo.avisos_titulo, [{
+            "tipo": "titulo_menor", "mpls": "00018.mpls",
+            "bytes_titulo": CLIP_TRAILER, "ref": "00000.mpls",
+            "bytes_ref": PELICULA}])
+
+
+class TestElReintentoConMasTiempo(unittest.IsolatedAsyncioTestCase):
+    """Con el NAS cargado, el `mkvmerge -J` de la película puede pasar de
+    30 s. Quedarse fuera por eso es elegir otra cosa: se le da un segundo
+    intento más largo. A un tráiler no se le espera."""
+
+    async def asyncSetUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="mpls_sel_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tb = FakeToolbox(self.tmp)
+        self.tb.install()
+        self.addCleanup(self.tb.uninstall)
+        self.log = CollectingLog()
+        self.disco = _disco(self.tmp / "Cargado",
+                            {"00000.mpls": ["00000"], "00018.mpls": ["00100"]},
+                            {"00000": PELICULA, "00100": CLIP_TRAILER})
+        self.tb.define_mkv("00000.mpls", tracks=PISTAS_PELICULA, duration_s=8340)
+        self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER, duration_s=594.7)
+
+    def _se_agota_la_primera_vez(self, *nombres):
+        """`_mkvmerge_j` que se agota en el primer intento con esos MPLS.
+        El agotamiento se SIMULA: depender del reloj haría el test frágil
+        bajo carga, y lo que se prueba es la decisión de reintentar."""
+        real = phase_a._mkvmerge_j
+        self.llamadas = []
+
+        async def _espia(path, timeout=None):
+            self.llamadas.append((Path(path).name, timeout))
+            veces = sum(1 for n, _ in self.llamadas if n == Path(path).name)
+            if Path(path).name in nombres and veces == 1:
+                return None, True
+            return await real(path, timeout)
+
+        p = mock.patch.object(phase_a, "_mkvmerge_j", _espia)
+        p.start()
+        self.addCleanup(p.stop)
+
+    async def test_la_pelicula_se_reintenta_y_se_elige(self):
+        self._se_agota_la_primera_vez("00000.mpls")
+        _, mpls = await run_mkvmerge_identify(str(self.disco), self.log)
+        self.assertEqual(Path(mpls).name, "00000.mpls")
+        self.assertIn(("00000.mpls", phase_a.IDENTIFY_TIMEOUT_REINTENTO),
+                      self.llamadas)
+        self.assertTrue(self.log.says("00000.mpls"), self.log.text)
+
+    async def test_un_trailer_que_se_agota_no_se_reintenta(self):
+        self._se_agota_la_primera_vez("00018.mpls")
+        _, mpls = await run_mkvmerge_identify(str(self.disco), self.log)
+        self.assertEqual(Path(mpls).name, "00000.mpls")
+        self.assertEqual([n for n, _ in self.llamadas].count("00018.mpls"), 1)
+
+    async def test_agotarse_de_verdad_se_distingue_de_fallar(self):
+        """El `True` de `_mkvmerge_j` sale del timeout real, no del fake:
+        un mkvmerge que no contesta a tiempo."""
+        lento = self.tmp / "mkvmerge_lento"
+        lento.write_text("#!/bin/sh\nsleep 5\n")
+        lento.chmod(0o755)
+        with mock.patch.object(phase_a, "MKVMERGE_BIN", str(lento)):
+            data, agotado = await phase_a._mkvmerge_j("x.mpls", timeout=0.2)
+        self.assertEqual((data, agotado), (None, True))
+        self.tb.fail_when_arg("mkvmerge", "00018.mpls", rc=2)
+        data, agotado = await phase_a._mkvmerge_j(
+            str(self.disco / "BDMV" / "PLAYLIST" / "00018.mpls"))
+        self.assertEqual((data, agotado), (None, False))
+
+
 # ── Modo serie: la misma criba ──────────────────────────────────────────
 
 class TestLosEpisodiosEntranEnLaCriba(unittest.IsolatedAsyncioTestCase):

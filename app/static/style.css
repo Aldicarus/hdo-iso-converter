@@ -1822,6 +1822,14 @@ select { appearance: none; cursor: pointer;
   margin-bottom: 12px;
   line-height: 1.45;
 }
+.titulo-dudoso-lista {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.titulo-dudoso-lista li + li { margin-top: 6px; }
 .modal-footer {
   display: flex;
   justify-content: flex-end;

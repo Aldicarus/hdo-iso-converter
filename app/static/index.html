@@ -7,8 +7,8 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
   <!-- Lo primero de todo: aplica el tema antes de que se pinte nada.
        Bloqueante a propósito; ver `/api/tema.js` en `main.py`. -->
-  <script src="/api/tema.js?v=20261013a"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20261013a">
+  <script src="/api/tema.js?v=20261015a"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20261015a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -710,6 +710,26 @@
     <div class="modal-footer">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('confirm-modal')" data-i18n="ui.cancelar"></button>
       <button class="btn btn-success btn-sm" id="confirm-ok-btn" data-i18n="ui.confirmar"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Título dudoso ══════════════════════════════════════
+     La Fase A eligió un título y encontró algo que no puede resolver sola
+     (`bdinfo_result.avisos_titulo`): un tráiler elegido por falta de algo
+     mejor, varias versiones de la película, playlists señuelo. El proyecto
+     ya existe; aquí se decide si se sigue con él o se abandona. Solo dos
+     salidas, y sin «Cancelar»: sería una tercera que significa lo mismo
+     que seguir. -->
+<div class="modal-overlay" id="titulo-dudoso-modal">
+  <div class="modal-box">
+    <div class="modal-title"><span data-icono="aviso"></span> <span data-i18n="tab1.revisa_el_titulo_elegido"></span></div>
+    <div class="modal-sub" id="titulo-dudoso-intro"></div>
+    <ul class="titulo-dudoso-lista" id="titulo-dudoso-lista"></ul>
+    <div class="modal-sub" data-i18n="tab1.titulo_dudoso_pregunta"></div>
+    <div class="modal-footer">
+      <button class="btn btn-danger btn-sm" id="titulo-dudoso-abandonar" data-i18n="tab1.abandonar_el_proyecto"></button>
+      <button class="btn btn-success btn-sm" id="titulo-dudoso-seguir" data-i18n="tab1.seguir_con_este_titulo"></button>
     </div>
   </div>
 </div>
@@ -1516,7 +1536,7 @@
              POSITIVO (`test_atribucion_tmdb.py`) que falla si desaparecen del
              marcado o si aparecen como valor en cualquiera de los catálogos. -->
         <a class="lic-tmdb" href="https://www.themoviedb.org/" target="_blank" rel="noreferrer">
-          <img src="/static/img/tmdb.svg?v=20261013a" alt="The Movie Database (TMDB)" width="180" height="13">
+          <img src="/static/img/tmdb.svg?v=20261015a" alt="The Movie Database (TMDB)" width="180" height="13">
         </a>
         <p class="lic-literal">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
         <p class="lic-literal">This product uses MediaInfo library, Copyright (c) 2002-2026 MediaArea.net SARL.</p>
@@ -1570,15 +1590,15 @@
 <!-- El catálogo ANTES de todo: un `<script src>` clásico es síncrono, así
      que `tr()` ya funciona cuando se parsean las constantes de módulo.
      El idioma lo decide el servidor, que es donde vive el ajuste. -->
-<script src="/api/i18n/catalogo.js?v=20261013a"></script>
-<script src="/static/i18n.js?v=20261013a"></script>
-<script src="/static/core.js?v=20261013a"></script>
-<script src="/static/workbar.js?v=20261013a"></script>
-<script src="/static/settings.js?v=20261013a"></script>
-<script src="/static/cmv40_modals.js?v=20261013a"></script>
-<script src="/static/tab1.js?v=20261013a"></script>
-<script src="/static/tab2.js?v=20261013a"></script>
-<script src="/static/tab3.js?v=20261013a"></script>
-<script src="/static/browser.js?v=20261013a"></script>
+<script src="/api/i18n/catalogo.js?v=20261015a"></script>
+<script src="/static/i18n.js?v=20261015a"></script>
+<script src="/static/core.js?v=20261015a"></script>
+<script src="/static/workbar.js?v=20261015a"></script>
+<script src="/static/settings.js?v=20261015a"></script>
+<script src="/static/cmv40_modals.js?v=20261015a"></script>
+<script src="/static/tab1.js?v=20261015a"></script>
+<script src="/static/tab2.js?v=20261015a"></script>
+<script src="/static/tab3.js?v=20261015a"></script>
+<script src="/static/browser.js?v=20261015a"></script>
 </body>
 </html>

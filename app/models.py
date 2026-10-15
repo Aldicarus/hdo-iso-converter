@@ -520,6 +520,13 @@ class BDInfoResult(BaseModel):
     """Nombre del fichero MPLS principal seleccionado en Fase A (ej: '00800.mpls').
     Se reutiliza en Fase D para garantizar que ambas fases procesan el mismo playlist."""
 
+    avisos_titulo: list[dict] = []
+    """Lo que la Fase A sabe del título elegido y no puede resolver sola
+    (``phase_a._avisos_del_titulo``): un tráiler elegido por falta de algo
+    mejor, varias versiones de la película, playlists señuelo. Son DATOS
+    —nombres, bytes, segundos— y no frases, para que la interfaz los escriba
+    en el idioma de cuando se miran. Vacío: nada que decir."""
+
     mkvmerge_raw: dict | None = None
     """JSON completo de mkvmerge -J tal como lo devolvió la herramienta.
     Se preserva para diagnóstico — permite ver las pistas originales sin
