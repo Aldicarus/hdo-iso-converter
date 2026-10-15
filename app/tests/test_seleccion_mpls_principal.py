@@ -283,10 +283,46 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
         _, mpls = await run_mkvmerge_identify(str(disco), self.log)
         self.assertEqual(Path(mpls).name, "00018.mpls")
         esperado = "[Fase A] " + tr(
-            "phase_a.titulo_elegido_menor_que_el_m2ts",
+            "phase_a.titulo_elegido_menor_que_otro",
             mpls="00018.mpls", gb_titulo=format(6 * CLIP_TRAILER / 1e9, ".1f"),
-            m2ts="00000.m2ts", gb_m2ts=format(PELICULA / 1e9, ".1f"))
+            ref="00000.mpls", gb_ref=format(PELICULA / 1e9, ".1f"))
         self.assertIn(esperado, self.log.lines)
+
+    async def test_el_aviso_mira_la_pelicula_entera_no_su_mayor_segmento(self):
+        """Película troceada en diez segmentos (seamless branching) e
+        ilegible para mkvmerge. El tráiler no llega a la mitad de la
+        película, pero sí a la mitad de su segmento mayor: con el m2ts más
+        grande como referencia, no se avisaba."""
+        segmentos = [f"{k:05d}" for k in range(10)]
+        disco = _disco(self.tmp / "Troceada",
+                       {"00800.mpls": segmentos, "00018.mpls": ["00100"]},
+                       {**{c: PELICULA // 10 for c in segmentos},
+                        "00100": int(PELICULA / 10 * 0.75)})
+        self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER,
+                           duration_s=594.7,
+                           playlist_size=int(PELICULA / 10 * 0.75))
+        self.tb.fail_when_arg("mkvmerge", "00800.mpls", rc=2)
+        _, mpls = await run_mkvmerge_identify(str(disco), self.log)
+        self.assertEqual(Path(mpls).name, "00018.mpls")
+        self.assertTrue(
+            any("00800.mpls" in l and "⚠️" in l for l in self.log.lines),
+            self.log.text)
+
+    async def test_un_bucle_no_deja_fuera_a_la_pelicula(self):
+        """El fondo de un menú con música: un clip repetido cincuenta veces.
+        mkvmerge suma el fichero una vez POR PLAYITEM, así que su
+        `playlist_size` es más del doble que el de la película; midiendo con
+        él, la película no pasaba el filtro de la mitad."""
+        disco = _disco(self.tmp / "Bucle",
+                       {"00000.mpls": ["00000"], "00099.mpls": ["00099"] * 50},
+                       {"00000": PELICULA, "00099": PELICULA // 20})
+        self.tb.define_mkv("00000.mpls", tracks=PISTAS_PELICULA,
+                           duration_s=8340.0, playlist_size=PELICULA)
+        self.tb.define_mkv("00099.mpls", tracks=PISTAS_TRAILER,
+                           duration_s=50 * 60.0,
+                           playlist_size=50 * (PELICULA // 20))
+        _, mpls = await run_mkvmerge_identify(str(disco), self.log)
+        self.assertEqual(Path(mpls).name, "00000.mpls")
 
     async def test_si_mkvmerge_muere_por_senal_tampoco_cuenta(self):
         """Un `returncode` negativo no es «salió bien», aunque mkvmerge haya
@@ -327,6 +363,34 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
         _, mpls = await run_mkvmerge_identify(str(disco), self.log)
         self.assertEqual(Path(mpls).name, "00800.mpls")
         self.assertFalse(self.log.says("⚠️"), self.log.text)
+
+
+# ── Modo serie: la misma criba ──────────────────────────────────────────
+
+class TestLosEpisodiosEntranEnLaCriba(unittest.IsolatedAsyncioTestCase):
+    """El modo serie cribaba igual —los 20 .mpls más grandes— y un episodio
+    es un clip, o sea un .mpls pequeño. Detrás de veinte playlists de
+    navegación de muchos clips no llegaba a la lista de la que el usuario
+    elige, y nada lo decía."""
+
+    async def test_un_episodio_con_mpls_pequeno_no_se_pierde(self):
+        tmp = Path(tempfile.mkdtemp(prefix="mpls_sel_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        tb = FakeToolbox(tmp)
+        tb.install()
+        self.addCleanup(tb.uninstall)
+        playlists = {f"{900 + i:05d}.mpls": [f"{500 + i:05d}"] * 8
+                     for i in range(21)}
+        m2ts = {f"{500 + i:05d}": CLIP_TRAILER for i in range(21)}
+        for ep in ("00801", "00802", "00803"):
+            playlists[f"{ep}.mpls"] = [ep]
+            m2ts[ep] = PELICULA // 4
+            tb.define_mkv(f"{ep}.mpls", tracks=PISTAS_PELICULA,
+                          duration_s=45 * 60.0, playlist_size=PELICULA // 4)
+        disco = _disco(tmp / "Serie", playlists, m2ts)
+        candidatos = await phase_a.identify_episode_candidates(str(disco))
+        self.assertEqual([c["mpls_name"] for c in candidatos],
+                         ["00801.mpls", "00802.mpls", "00803.mpls"])
 
 
 # ── Restaurar capítulos: el MPLS de la sesión ──────────────────────────

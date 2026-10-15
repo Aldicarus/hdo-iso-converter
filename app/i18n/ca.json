@@ -726,7 +726,7 @@
   "phase_a.sin_pistas_de_audio_detectadas": "no s'ha detectat cap pista d'àudio",
   "phase_a.stderr_vacio": "(stderr buit)",
   "phase_a.stn_table_no_cabe_p_p1_pi": "la STN_table no hi cap (p={p1}, pi_end={pi_end})",
-  "phase_a.titulo_elegido_menor_que_el_m2ts": "⚠️ El títol triat ({mpls}) reprodueix {gb_titulo} GB, menys de la meitat que el m2ts més gran del disc ({m2ts}, {gb_m2ts} GB). Potser no és la pel·lícula: revisa la durada i les pistes abans d'executar-lo.",
+  "phase_a.titulo_elegido_menor_que_otro": "⚠️ El títol triat ({mpls}) reprodueix {gb_titulo} GB, menys de la meitat que {ref} ({gb_ref} GB). Potser no és la pel·lícula: revisa la durada i les pistes abans d'executar-lo.",
   "phase_a.truncado_en_pg_entry_p1_de_n": "truncat a l'entrada PG {p1} de {n_pg}",
   "phase_a.truncado_en_pv_pa_entry_p1": "truncat a l'entrada pv/pa {p1}",
   "phase_a.truncado_tras_se_len_pv_pa_entry": "truncat després de se_len a l'entrada pv/pa {p1}",

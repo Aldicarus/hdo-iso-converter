@@ -184,28 +184,9 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None) -> tuple[dic
         await log_callback('[Fase A] ' + tr('phase_a.ficheros_mpls_encontrados', mpls_files=len(mpls_files)))
 
     # ── 2. Identificar los candidatos con mkvmerge -J ────────────
-    # Los 10 que más contenido reproducen (leído del binario, sin mkvmerge)
-    # más los 10 .mpls más grandes, que es como se elegía antes. El tamaño
-    # del .mpls mide cuántos clips y pistas lista, no cuánto dura: con él
-    # solo, la película puede quedarse fuera de la criba.
     stream_dir = _dir_stream(playlist_dir.parent)
-    contenido = {
-        p: _contenido_de_clips(stream_dir, _clips_del_mpls(str(p)))
-        for p in mpls_files
-    }
-    por_contenido = sorted(
-        (p for p in mpls_files if contenido[p] > 0),
-        key=lambda p: contenido[p], reverse=True,
-    )[:MAX_CANDIDATOS_MPLS]
-    por_tamano = sorted(
-        mpls_files, key=lambda p: p.stat().st_size, reverse=True,
-    )[:MAX_CANDIDATOS_MPLS]
-    # El orden de evaluación es el de antes (tamaño del .mpls, y por nombre
-    # a igualdad): es el último desempate de elegir_mpls_principal.
-    candidates = sorted(
-        sorted(set(por_contenido) | set(por_tamano), key=lambda p: p.name),
-        key=lambda p: p.stat().st_size, reverse=True,
-    )
+    contenido = _contenido_de_cada_mpls(mpls_files, stream_dir)
+    candidates = _criba_de_mpls(mpls_files, contenido, MAX_CANDIDATOS_MPLS)
 
     evaluados = []
     for mpls_path in candidates:
@@ -235,32 +216,38 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None) -> tuple[dic
 
     # Lo que la elección no puede arreglar sola: si el MPLS de la película
     # no se pudo leer, el elegido es lo mejor que quedaba — y puede ser un
-    # tráiler. Un título que reproduce menos de la mitad del m2ts más grande
-    # del disco no es la película, y eso se dice en vez de seguir callado.
+    # tráiler. La referencia es lo más grande que hay en el disco, leído del
+    # binario de TODOS los MPLS (también de los que mkvmerge no supo leer) y
+    # del m2ts más grande. Solo el m2ts no basta: en una película troceada en
+    # segmentos de 2 GB, un tráiler de 1,5 GB no llega a la mitad de la
+    # película pero sí a la mitad del segmento mayor.
+    tam_ref, nombre_ref = max(((c, p.name) for p, c in contenido.items()),
+                              default=(0, ""))
     mayor_m2ts = _mayor_m2ts(stream_dir) if stream_dir else None
-    if mayor_m2ts:
-        tam_mayor = Path(mayor_m2ts).stat().st_size
-        tam_elegido = _contenido_del_candidato(elegido)
-        if 0 < tam_elegido < FRACCION_MINIMA_DEL_TITULO * tam_mayor:
-            _logger.warning(
-                "MPLS principal %s reproduce %d bytes; el m2ts más grande "
-                "(%s) tiene %d", best_mpls.name, tam_elegido,
-                Path(mayor_m2ts).name, tam_mayor,
-            )
-            if log_callback:
-                await log_callback('[Fase A] ' + tr(
-                    'phase_a.titulo_elegido_menor_que_el_m2ts',
-                    mpls=best_mpls.name,
-                    gb_titulo=format(tam_elegido / 1e9, '.1f'),
-                    m2ts=Path(mayor_m2ts).name,
-                    gb_m2ts=format(tam_mayor / 1e9, '.1f'),
-                ))
+    if mayor_m2ts and Path(mayor_m2ts).stat().st_size > tam_ref:
+        # Un m2ts que ningún MPLS reproduce entero.
+        tam_ref, nombre_ref = Path(mayor_m2ts).stat().st_size, Path(mayor_m2ts).name
+    tam_elegido = _contenido_del_candidato(elegido)
+    if 0 < tam_elegido < FRACCION_MINIMA_DEL_TITULO * tam_ref:
+        _logger.warning(
+            "MPLS principal %s reproduce %d bytes; %s reproduce %d",
+            best_mpls.name, tam_elegido, nombre_ref, tam_ref,
+        )
+        if log_callback:
+            await log_callback('[Fase A] ' + tr(
+                'phase_a.titulo_elegido_menor_que_otro',
+                mpls=best_mpls.name,
+                gb_titulo=format(tam_elegido / 1e9, '.1f'),
+                ref=nombre_ref,
+                gb_ref=format(tam_ref / 1e9, '.1f'),
+            ))
 
     return best_data, str(best_mpls)
 
 
 # Cuántos MPLS se identifican con mkvmerge por cada criterio de la criba.
 MAX_CANDIDATOS_MPLS = 10
+MAX_CANDIDATOS_EPISODIO = 20
 
 # Un MPLS que reproduce menos de esta fracción del contenido del mayor no es
 # el título principal, tenga las pistas de audio que tenga: es un tráiler, un
@@ -277,10 +264,19 @@ def _pistas_de_audio(data: dict) -> int:
 
 
 def _contenido_del_candidato(candidato: dict) -> int:
-    """Bytes que reproduce el MPLS: el ``playlist_size`` de mkvmerge y, si no
-    viene, la suma de sus clips leída del binario."""
+    """Bytes que reproduce el MPLS: sus clips leídos del binario, cada uno una
+    vez, y el ``playlist_size`` de mkvmerge solo si el binario no se pudo leer.
+
+    En ese orden a propósito: mkvmerge suma el tamaño del fichero **una vez
+    por PlayItem** (``mm_multi_file_io_private_c``, sin deduplicar), así que
+    un playlist que repite un clip en bucle —el fondo musical de un menú, los
+    playlists señuelo de un disco ofuscado— infla su ``playlist_size`` y
+    podía dejar a la película por debajo de la mitad del «mayor».
+    """
+    if candidato.get("contenido"):
+        return int(candidato["contenido"])
     props = (candidato["data"].get("container") or {}).get("properties") or {}
-    return int(props.get("playlist_size") or candidato.get("contenido") or 0)
+    return int(props.get("playlist_size") or 0)
 
 
 def elegir_mpls_principal(candidatos: list[dict]) -> dict | None:
@@ -371,6 +367,39 @@ def _contenido_de_clips(stream_dir: Path | None, clips: list[str] | None) -> int
         if f is not None:
             total += f.stat().st_size
     return total
+
+
+def _contenido_de_cada_mpls(mpls_files: list[Path],
+                            stream_dir: Path | None) -> dict[Path, int]:
+    """Bytes que reproduce cada MPLS, leídos del binario (sin mkvmerge)."""
+    return {p: _contenido_de_clips(stream_dir, _clips_del_mpls(str(p)))
+            for p in mpls_files}
+
+
+def _criba_de_mpls(mpls_files: list[Path], contenido: dict[Path, int],
+                   n: int) -> list[Path]:
+    """Los MPLS que merece la pena identificar con mkvmerge -J.
+
+    Los ``n`` que más contenido reproducen más los ``n`` ``.mpls`` más
+    grandes, que es como se cribaba antes. El tamaño del ``.mpls`` mide
+    cuántos clips y pistas lista, no lo que dura: con él solo, un título de
+    un clip —una película, un episodio— podía quedarse fuera detrás de los
+    playlists de navegación de muchos clips.
+
+    El orden es el de antes (tamaño del ``.mpls``, y por nombre a igualdad),
+    porque es el último desempate de ``elegir_mpls_principal``.
+    """
+    por_contenido = sorted(
+        (p for p in mpls_files if contenido.get(p, 0) > 0),
+        key=lambda p: contenido[p], reverse=True,
+    )[:n]
+    por_tamano = sorted(
+        mpls_files, key=lambda p: p.stat().st_size, reverse=True,
+    )[:n]
+    return sorted(
+        sorted(set(por_contenido) | set(por_tamano), key=lambda p: p.name),
+        key=lambda p: p.stat().st_size, reverse=True,
+    )
 
 
 def _mayor_m2ts(stream_dir: Path) -> str | None:
@@ -681,12 +710,16 @@ async def identify_episode_candidates(
     if not mpls_files:
         return []
 
-    # Top 20 por tamaño — cubre cualquier disco real de serie. Análisis
+    # Los 20 que más reproducen más los 20 .mpls más grandes. Análisis
     # exhaustivo costaría mucho en discos con cientos de MPLS de
-    # navegación (común en BDs antiguos).
-    candidates_by_size = sorted(
-        mpls_files, key=lambda p: p.stat().st_size, reverse=True
-    )[:20]
+    # navegación (común en BDs antiguos), y con el tamaño del .mpls solo
+    # un episodio —un clip, un .mpls pequeño— podía quedarse fuera detrás
+    # de ellos sin que nadie lo viera: el usuario elige de esta lista.
+    candidates_by_size = _criba_de_mpls(
+        mpls_files,
+        _contenido_de_cada_mpls(mpls_files, _dir_stream(playlist_dir.parent)),
+        MAX_CANDIDATOS_EPISODIO,
+    )
 
     candidates = []
     total = len(candidates_by_size)

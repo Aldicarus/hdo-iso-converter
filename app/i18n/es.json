@@ -726,7 +726,7 @@
   "phase_a.sin_pistas_de_audio_detectadas": "sin pistas de audio detectadas",
   "phase_a.stderr_vacio": "(stderr vacío)",
   "phase_a.stn_table_no_cabe_p_p1_pi": "STN_table no cabe (p={p1}, pi_end={pi_end})",
-  "phase_a.titulo_elegido_menor_que_el_m2ts": "⚠️ El título elegido ({mpls}) reproduce {gb_titulo} GB, menos de la mitad que el m2ts más grande del disco ({m2ts}, {gb_m2ts} GB). Puede que no sea la película: revisa la duración y las pistas antes de ejecutarlo.",
+  "phase_a.titulo_elegido_menor_que_otro": "⚠️ El título elegido ({mpls}) reproduce {gb_titulo} GB, menos de la mitad que {ref} ({gb_ref} GB). Puede que no sea la película: revisa la duración y las pistas antes de ejecutarlo.",
   "phase_a.truncado_en_pg_entry_p1_de_n": "truncado en PG entry {p1} de {n_pg}",
   "phase_a.truncado_en_pv_pa_entry_p1": "truncado en pv/pa entry {p1}",
   "phase_a.truncado_tras_se_len_pv_pa_entry": "truncado tras se_len pv/pa entry {p1}",
