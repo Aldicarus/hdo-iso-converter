@@ -2655,7 +2655,7 @@ un metadato.
 Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 
 1. **mkvmerge -J** (requerido) — identificación de pistas, estructura del disco
-   - Selección del MPLS principal (`elegir_mpls_principal`): fuera los que no tienen audio y **los que reproducen menos de la mitad que el mayor**; de los que quedan, el de más pistas de audio, y a igualdad el `.mpls` más grande. Ver «El título principal: lo que reproduce, no lo que pesa el .mpls»
+   - Selección del MPLS principal (`elegir_mpls_principal`): fuera los que no tienen audio y **los que duran menos de la mitad que el más largo** (sumando sus tramos); de los que quedan, el de más pistas de audio, y a igualdad el `.mpls` más grande. Ver «El título principal: lo que dura, no lo que pesa el .mpls»
    - Adaptador BDInfoResult: JSON → modelos que consume phase_b
    - Codecs: mkvmerge → estilo BDInfo (ej: "TrueHD Atmos" → "Dolby TrueHD/Atmos Audio")
    - Idiomas: ISO 639-2 → nombres en inglés via `ISO639_TO_ENGLISH`
@@ -2696,7 +2696,7 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - **Datos raw**: mkvmerge -J raw + MediaInfo raw guardados en `bdinfo_result` para diagnóstico
 - **Atmos**: detección definitiva via `format_commercial` de MediaInfo; fallback heurístico por canales ≥8 si MediaInfo no disponible
 
-### El título principal: lo que reproduce, no lo que pesa el .mpls
+### El título principal: lo que dura, no lo que pesa el .mpls
 
 Caso real (octubre de 2026): **Divergente (2014)**, de un disco «Custom U-HD».
 La Fase A eligió `00018.mpls` —9 min 55 s, AVC 1080p, dos AC-3 2.0 en inglés—
@@ -2710,33 +2710,41 @@ lista, no lo que dura**: un carrete de tráilers de seis clips pesa más que el
 playlist de una película de un clip. Con dos audios a cada lado, ganaba el
 tráiler por desempate.
 
-- **Lo nuevo es un filtro, no otra regla**: fuera los MPLS que reproducen menos
-  de `FRACCION_MINIMA_DEL_TITULO` (0,5) que el mayor. El resto, incluido el
+- **Lo nuevo es un filtro, no otra regla**: fuera los MPLS que duran menos de
+  `FRACCION_MINIMA_DEL_TITULO` (0,5) que el más largo. El resto, incluido el
   desempate, es el de siempre: **donde la regla vieja acertaba, la nueva elige
-  lo mismo.** Las versiones de una película (cine y extendido) reproducen casi
-  lo mismo y siguen compitiendo entre sí.
-- **«Lo que reproduce» son sus clips leídos del binario, cada uno UNA vez**
-  (`_clips_del_mpls` + el tamaño de sus m2ts), y el `playlist_size` de
-  mkvmerge solo si el binario no se lee. **No al revés**: mkvmerge suma el
-  fichero una vez por PlayItem (`mm_multi_file_io_private_c`, comprobado en su
-  fuente), así que un playlist que repite un clip —el fondo musical de un
-  menú, los señuelos de un disco ofuscado— infla su `playlist_size` y podía
-  dejar a la película por debajo de la mitad. La primera versión del arreglo
-  medía con `playlist_size` y tenía ese agujero.
-- **La criba (`_criba_de_mpls`) añade los que más contenido reproducen** a los
+  lo mismo.** Las versiones de una película (cine y extendido) duran parecido
+  y siguen compitiendo entre sí.
+- **Se mide lo que DURA, sumando los tramos del binario** (`_segmentos_del_mpls`:
+  el `IN_time`/`OUT_time` de cada PlayItem, a 45 kHz), **cada tramo una vez**,
+  y el `playlist_duration` de mkvmerge solo si el binario no se lee. Las dos
+  alternativas se probaron y fallaron:
+  - **el tamaño de los m2ts** falla con un playlist que reproduce un TROZO del
+    m2ts de la película. Lo encontró la comprobación en el NAS: en The
+    Mandalorian and Grogu, `00001.mpls` va del segundo 11,7 al 45,2 del mismo
+    m2ts de 88,6 GB, así que «pesaba» como la película, pasaba el filtro y
+    competía por pistas — ahí ganó la película por desempate, con otro
+    reparto habría ganado el trozo — y el aviso de versiones lo anunciaba como
+    «otra versión de 34 s»;
+  - **lo que da mkvmerge** (`playlist_size` / `playlist_duration`) suma los
+    PlayItems sin deduplicar (`mm_multi_file_io_private_c`, comprobado en su
+    fuente), así que un playlist que repite un tramo —el fondo de un menú, los
+    señuelos de un disco ofuscado— parece el más largo y podía dejar a la
+    película por debajo de la mitad.
+- **La criba (`_criba_de_mpls`) añade los más largos** a los
   `.mpls` más grandes. Con la criba vieja sola, un título de un clip —una
   película, un episodio— ni se miraba. **La comparte el modo serie**
   (`identify_episode_candidates`), que cribaba igual: los 20 `.mpls` más
   grandes, y un episodio detrás de veinte playlists de navegación no llegaba a
   la lista de la que elige el usuario.
 - **Lo que el filtro no arregla, se dice**: si `mkvmerge -J` no sabe leer el
-  MPLS de la película, el elegido es lo mejor que queda. Cuando reproduce menos
-  de la mitad que **lo más grande del disco** —el MPLS que más reproduce,
-  leído del binario aunque mkvmerge no lo haya leído, o el m2ts más grande si
-  es mayor—, la Fase A lo escribe en el log
-  (`phase_a.titulo_elegido_menor_que_otro`). Medir solo contra el m2ts más
-  grande no basta: en una película troceada (seamless branching), un tráiler
-  de 1,5 GB llega a la mitad del segmento mayor y no a la de la película. Y un
+  MPLS de la película, el elegido es lo mejor que queda. Cuando dura menos de
+  la mitad que **el playlist más largo del disco** —leído del binario, también
+  si mkvmerge no lo supo leer—, la Fase A lo escribe en el log
+  (`phase_a.titulo_elegido_menor_que_otro`). La primera versión comparaba
+  contra el m2ts más grande, y no basta: en una película troceada (seamless
+  branching), un tráiler llega a la mitad del segmento mayor y no a la de la
+  película. Y un
   `mkvmerge -J` que falla ya deja una línea en `docker logs`: antes ese MPLS
   desaparecía de los candidatos sin rastro.
 - **MediaInfo analiza el m2ts del título elegido** (`m2ts_principal_del_mpls`),
@@ -2773,7 +2781,7 @@ como frases, para que la interfaz los escriba en el idioma de cuando se miran
 
 | tipo | cuándo |
 |---|---|
-| `titulo_menor` | el elegido reproduce menos de la mitad que lo más grande del disco (lo de arriba) |
+| `titulo_menor` | el elegido dura menos de la mitad que el playlist más largo del disco (lo de arriba) |
 | `varias_versiones` | otros títulos completos —pasan el filtro y tienen audio— con más de `DIFERENCIA_MINIMA_ENTRE_VERSIONES_S` (60 s) de diferencia: el montaje de cine y el extendido. Unos créditos localizados no son otra versión |
 | `playlists_ofuscados` | al menos `MIN_SENUELOS` (3) playlists con los mismos clips que el elegido **en otro orden**: así esconden algunos discos la película, y si el elegido es un señuelo el MKV sale con las escenas desordenadas |
 
@@ -2803,9 +2811,19 @@ que es el último desempate. El test del reintento SIMULA el agotamiento —con
 el reloj sería frágil bajo carga—, y uno aparte comprueba con un binario que
 duerme que el `True` sale del timeout de verdad.
 
-`test_seleccion_mpls_principal.py` (35 tests) y
+`test_seleccion_mpls_principal.py` (39 tests) y
 `test_titulo_dudoso_en_pantalla.py` (8, en Chrome y en las tres lenguas), con
-23 mutaciones verificadas entre los dos. Las fixtures de
+26 mutaciones verificadas entre los dos.
+
+**La comprobación en el NAS (2026-10-15) tuvo poco corpus**: de los 48
+orígenes con proyecto, 46 ya no estaban en `/mnt/isos` (se borran tras
+ripearlos). En los dos que quedan —Minions & Monsters y The Mandalorian and
+Grogu— la regla vieja, la nueva y el `main_mpls` guardado coinciden, y
+MediaInfo miraría el mismo m2ts. El script (`claude_tools/seleccion/` en el
+NAS) abre cada origen una vez y comparte cada `mkvmerge -J` entre las dos
+reglas: el módulo viejo es el del contenedor y el nuevo, una copia al lado.
+Vale la pena repetirlo cuando haya discos nuevos en `/mnt/isos`, y sobre todo
+con uno de los que dieron el aviso. Las fixtures de
 `fixtures_discos/` **no sirven para validar esto**: guardan el MPLS elegido y
 no los demás candidatos.
 
