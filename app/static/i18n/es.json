@@ -304,7 +304,7 @@
   "tab1.analizando_n_ficheros_m2ts": "Analizando {n} fichero{p2} M2TS",
   "tab1.arrastra_para_reordenar": "Arrastra para reordenar",
   "tab1.aviso_playlists_ofuscados": "Hay {n} playlists más con los mismos segmentos en otro orden. Algunos discos lo hacen para dificultar la copia: si el elegido no es el bueno, el MKV saldrá con las escenas desordenadas.",
-  "tab1.aviso_titulo_menor": "Reproduce {gb_titulo} GB, menos de la mitad que {ref} ({gb_ref} GB). Puede que no sea la película.",
+  "tab1.aviso_titulo_menor": "Dura {dur_titulo}, menos de la mitad que {ref} ({dur_ref}). Puede que no sea la película.",
   "tab1.aviso_varias_versiones": "El disco trae más versiones de la película: {otras}. La app procesa la elegida y no permite cambiarla.",
   "tab1.bitrate_sintetico": "bitrate_sintético={bitrate_kbps}",
   "tab1.bitrate_sintetico_kbps": "Bitrate sintético: {bitrate_kbps} kbps",

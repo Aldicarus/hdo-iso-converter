@@ -304,7 +304,7 @@
   "tab1.analizando_n_ficheros_m2ts": "Analyzing {n} M2TS file{p2}",
   "tab1.arrastra_para_reordenar": "Drag to reorder",
   "tab1.aviso_playlists_ofuscados": "There are {n} more playlists with the same segments in a different order. Some discs do this to make copying harder: if the chosen one isn't the right one, the MKV will come out with its scenes out of order.",
-  "tab1.aviso_titulo_menor": "It plays {gb_titulo} GB, less than half of {ref} ({gb_ref} GB). It may not be the film.",
+  "tab1.aviso_titulo_menor": "It lasts {dur_titulo}, less than half of {ref} ({dur_ref}). It may not be the film.",
   "tab1.aviso_varias_versiones": "The disc has other versions of the film: {otras}. The app processes the chosen one and can't switch to another.",
   "tab1.bitrate_sintetico": "synthetic_bitrate={bitrate_kbps}",
   "tab1.bitrate_sintetico_kbps": "Synthetic bitrate: {bitrate_kbps} kbps",

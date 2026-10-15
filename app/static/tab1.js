@@ -943,14 +943,15 @@ function avisosDelTitulo(session) {
  *  los guarda como datos —nombres, bytes, segundos— y no como texto. Un tipo
  *  que esta versión no conozca no se pinta, en vez de enseñar su id. */
 function frasesDeAvisosDelTitulo(avisos) {
-  const gb = b => ((b || 0) / 1e9).toLocaleString(localeActual(), {maximumFractionDigits: 1});
+  // `_fmtDuration` no baja del minuto: un tráiler de 40 s saldría «0min».
+  const dur = s => (s < 60 ? `${Math.round(s || 0)} s` : _fmtDuration(s));
   return (avisos || []).map(a => {
     if (a.tipo === 'titulo_menor') {
       return tr('tab1.aviso_titulo_menor', {
-        gb_titulo: gb(a.bytes_titulo), ref: a.ref, gb_ref: gb(a.bytes_ref)});
+        dur_titulo: dur(a.segundos_titulo), ref: a.ref, dur_ref: dur(a.segundos_ref)});
     }
     if (a.tipo === 'varias_versiones') {
-      const otras = (a.otras || []).map(o => `${o.mpls} (${_fmtDuration(o.segundos)})`);
+      const otras = (a.otras || []).map(o => `${o.mpls} (${dur(o.segundos)})`);
       if (a.mas) otras.push('…');
       return tr('tab1.aviso_varias_versiones', {otras: otras.join(', ')});
     }

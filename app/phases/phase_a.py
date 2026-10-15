@@ -188,15 +188,14 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None,
         await log_callback('[Fase A] ' + tr('phase_a.ficheros_mpls_encontrados', mpls_files=len(mpls_files)))
 
     # ── 2. Identificar los candidatos con mkvmerge -J ────────────
-    stream_dir = _dir_stream(playlist_dir.parent)
-    clips_de = {p: _clips_del_mpls(str(p)) for p in mpls_files}
-    contenido = {p: _contenido_de_clips(stream_dir, clips_de[p]) for p in mpls_files}
-    candidates = _criba_de_mpls(mpls_files, contenido, MAX_CANDIDATOS_MPLS)
-    evaluados = await _identificar_candidatos(candidates, contenido, log_callback)
+    segmentos_de = {p: _segmentos_del_mpls(str(p)) for p in mpls_files}
+    duracion = {p: _duracion_de_segmentos(segmentos_de[p]) for p in mpls_files}
+    candidates = _criba_de_mpls(mpls_files, duracion, MAX_CANDIDATOS_MPLS)
+    evaluados = await _identificar_candidatos(candidates, duracion, log_callback)
     _logger.info(
         "Candidatos a MPLS principal: %s",
         ", ".join(f"{c['path'].name} ({_pistas_de_audio(c['data'])} audio, "
-                  f"{_contenido_del_candidato(c) / 1e9:.1f} GB)" for c in evaluados),
+                  f"{_duracion_del_candidato(c) / 60:.1f} min)" for c in evaluados),
     )
 
     elegido = elegir_mpls_principal(evaluados)
@@ -212,8 +211,9 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None,
             '[Fase A] ' + tr('phase_a.mpls_principal_pistas_audio_pistas_total', p1=best_mpls.name, best_audio_count=_pistas_de_audio(best_data), n_tracks=n_tracks)
         )
 
-    for aviso in _avisos_del_titulo(elegido, evaluados, clips_de, contenido,
-                                    _mayor_m2ts(stream_dir) if stream_dir else None):
+    clips_de = {p: ([c for c, _, _ in s] if s else None)
+                for p, s in segmentos_de.items()}
+    for aviso in _avisos_del_titulo(elegido, evaluados, clips_de, duracion):
         _logger.warning("Aviso sobre el MPLS principal %s: %s", best_mpls.name, aviso)
         if avisos is not None:
             avisos.append(aviso)
@@ -245,8 +245,11 @@ MIN_SENUELOS = 3
 # Cuántas versiones alternativas se nombran en el aviso.
 MAX_VERSIONES_EN_EL_AVISO = 5
 
+# Los timestamps del MPLS (IN_time / OUT_time de cada PlayItem) van a 45 kHz.
+_TICKS_POR_SEGUNDO = 45000
 
-async def _identificar_candidatos(candidates: list[Path], contenido: dict[Path, int],
+
+async def _identificar_candidatos(candidates: list[Path], duracion: dict[Path, float],
                                   log_callback=None) -> list[dict]:
     """``mkvmerge -J`` sobre cada candidato, con un segundo intento más largo
     para los que no terminaron a tiempo y pueden ser la película.
@@ -264,9 +267,9 @@ async def _identificar_candidatos(candidates: list[Path], contenido: dict[Path, 
         elif agotado:
             agotados.append(mpls_path)
 
-    mayor = max(contenido.values(), default=0)
+    mayor = max(duracion.values(), default=0)
     for mpls_path in agotados:
-        if contenido.get(mpls_path, 0) < FRACCION_MINIMA_DEL_TITULO * mayor:
+        if duracion.get(mpls_path, 0) < FRACCION_MINIMA_DEL_TITULO * mayor:
             continue
         if log_callback:
             await log_callback('[Fase A] ' + tr(
@@ -276,31 +279,24 @@ async def _identificar_candidatos(candidates: list[Path], contenido: dict[Path, 
         if data is not None:
             leidos[mpls_path] = data
 
-    return [{"path": p, "data": leidos[p], "contenido": contenido.get(p, 0)}
+    return [{"path": p, "data": leidos[p], "duracion": duracion.get(p, 0)}
             for p in candidates if p in leidos]
-
-
-def _duracion_s(candidato: dict) -> float:
-    props = (candidato["data"].get("container") or {}).get("properties") or {}
-    return (props.get("playlist_duration") or props.get("duration") or 0) / 1e9
 
 
 def _avisos_del_titulo(elegido: dict, evaluados: list[dict],
                        clips_de: dict[Path, list[str] | None],
-                       contenido: dict[Path, int],
-                       mayor_m2ts: str | None) -> list[dict]:
+                       duracion: dict[Path, float]) -> list[dict]:
     """Lo que la Fase A sabe del título elegido y no puede resolver sola.
 
-    Son DATOS (nombres, bytes, segundos), no frases: el log los escribe en el
-    idioma de cuando se analizó y la interfaz en el de cuando se mira. No
-    cambian la elección — es la misma con avisos o sin ellos —, y quien
-    decide si se sigue es el usuario.
+    Son DATOS (nombres, segundos), no frases: el log los escribe en el idioma
+    de cuando se analizó y la interfaz en el de cuando se mira. No cambian la
+    elección — es la misma con avisos o sin ellos —, y quien decide si se
+    sigue es el usuario.
 
-    - ``titulo_menor``: el elegido reproduce menos de la mitad que lo más
-      grande del disco. La referencia sale del binario de TODOS los MPLS
-      (también de los que mkvmerge no leyó) y del m2ts más grande: solo el
-      m2ts no basta, porque en una película troceada un tráiler llega a la
-      mitad del segmento mayor y no a la de la película.
+    - ``titulo_menor``: el elegido dura menos de la mitad que el playlist más
+      largo del disco, leído del binario de TODOS los MPLS — también de los
+      que mkvmerge no supo leer, que es justo el caso: si el de la película
+      falla, lo mejor que queda puede ser un tráiler.
     - ``varias_versiones``: otros títulos completos —pasan el filtro de la
       mitad y tienen audio— con una duración distinta. El montaje de cine y
       el extendido: la regla elige uno y el usuario no lo ve.
@@ -312,28 +308,24 @@ def _avisos_del_titulo(elegido: dict, evaluados: list[dict],
     avisos = []
     nombre = elegido["path"].name
 
-    tam_ref, nombre_ref = max(((c, p.name) for p, c in contenido.items()),
+    dur_ref, nombre_ref = max(((d, p.name) for p, d in duracion.items()),
                               default=(0, ""))
-    if mayor_m2ts and Path(mayor_m2ts).stat().st_size > tam_ref:
-        # Un m2ts que ningún MPLS reproduce entero.
-        tam_ref, nombre_ref = Path(mayor_m2ts).stat().st_size, Path(mayor_m2ts).name
-    tam_elegido = _contenido_del_candidato(elegido)
-    if 0 < tam_elegido < FRACCION_MINIMA_DEL_TITULO * tam_ref:
+    dur = _duracion_del_candidato(elegido)
+    if 0 < dur < FRACCION_MINIMA_DEL_TITULO * dur_ref:
         avisos.append({"tipo": "titulo_menor", "mpls": nombre,
-                       "bytes_titulo": tam_elegido,
-                       "ref": nombre_ref, "bytes_ref": tam_ref})
+                       "segundos_titulo": round(dur),
+                       "ref": nombre_ref, "segundos_ref": round(dur_ref)})
 
-    dur = _duracion_s(elegido)
     otras = sorted(
         (c for c in _elegibles(evaluados) if c is not elegido
-         and abs(_duracion_s(c) - dur) >= DIFERENCIA_MINIMA_ENTRE_VERSIONES_S),
-        key=_duracion_s, reverse=True,
+         and abs(_duracion_del_candidato(c) - dur) >= DIFERENCIA_MINIMA_ENTRE_VERSIONES_S),
+        key=_duracion_del_candidato, reverse=True,
     )
     if otras:
         avisos.append({"tipo": "varias_versiones", "mpls": nombre,
                        "segundos": round(dur),
                        "otras": [{"mpls": c["path"].name,
-                                  "segundos": round(_duracion_s(c))}
+                                  "segundos": round(_duracion_del_candidato(c))}
                                  for c in otras[:MAX_VERSIONES_EN_EL_AVISO]],
                        "mas": max(0, len(otras) - MAX_VERSIONES_EN_EL_AVISO)})
 
@@ -357,10 +349,8 @@ def _linea_de_aviso(aviso: dict) -> str:
     """La línea del log de un aviso de ``_avisos_del_titulo``."""
     if aviso["tipo"] == "titulo_menor":
         return tr('phase_a.titulo_elegido_menor_que_otro',
-                  mpls=aviso["mpls"],
-                  gb_titulo=format(aviso["bytes_titulo"] / 1e9, '.1f'),
-                  ref=aviso["ref"],
-                  gb_ref=format(aviso["bytes_ref"] / 1e9, '.1f'))
+                  mpls=aviso["mpls"], dur_titulo=_hms(aviso["segundos_titulo"]),
+                  ref=aviso["ref"], dur_ref=_hms(aviso["segundos_ref"]))
     if aviso["tipo"] == "varias_versiones":
         otras = ", ".join(f"{o['mpls']} ({_hms(o['segundos'])})"
                           for o in aviso["otras"])
@@ -370,13 +360,14 @@ def _linea_de_aviso(aviso: dict) -> str:
                   duracion=_hms(aviso["segundos"]), otras=otras)
     return tr('phase_a.playlists_ofuscados', mpls=aviso["mpls"], n=aviso["n"])
 
-# Un MPLS que reproduce menos de esta fracción del contenido del mayor no es
-# el título principal, tenga las pistas de audio que tenga: es un tráiler, un
-# extra o un menú. Caso real, Divergente (2014) de un disco «Custom U-HD»: un
-# tráiler de 9 min 55 s con dos AC-3 empataba en pistas de audio con la
-# película (dos DTS-HD MA) y ganaba por tener el .mpls más grande — 1,6 GB
-# contra 97,1. Las versiones de una misma película (montaje del cine y
-# extendido) reproducen casi lo mismo y siguen compitiendo entre sí.
+
+# Un MPLS que dura menos de esta fracción del más largo no es el título
+# principal, tenga las pistas de audio que tenga: es un tráiler, un extra, un
+# menú o un trozo de la película. Caso real, Divergente (2014) de un disco
+# «Custom U-HD»: un tráiler de 9 min 55 s con dos AC-3 empataba en pistas de
+# audio con la película (dos DTS-HD MA) y ganaba por tener el .mpls más
+# grande. Las versiones de una misma película (montaje del cine y extendido)
+# duran parecido y siguen compitiendo entre sí.
 FRACCION_MINIMA_DEL_TITULO = 0.5
 
 
@@ -384,37 +375,41 @@ def _pistas_de_audio(data: dict) -> int:
     return sum(1 for t in data.get("tracks", []) if t.get("type") == "audio")
 
 
-def _contenido_del_candidato(candidato: dict) -> int:
-    """Bytes que reproduce el MPLS: sus clips leídos del binario, cada uno una
-    vez, y el ``playlist_size`` de mkvmerge solo si el binario no se pudo leer.
+def _duracion_del_candidato(candidato: dict) -> float:
+    """Segundos que reproduce el MPLS: sus tramos leídos del binario, cada uno
+    una vez, y el ``playlist_duration`` de mkvmerge solo si el binario no se
+    pudo leer.
 
-    En ese orden a propósito: mkvmerge suma el tamaño del fichero **una vez
-    por PlayItem** (``mm_multi_file_io_private_c``, sin deduplicar), así que
-    un playlist que repite un clip en bucle —el fondo musical de un menú, los
-    playlists señuelo de un disco ofuscado— infla su ``playlist_size`` y
-    podía dejar a la película por debajo de la mitad del «mayor».
+    Se mide en TIEMPO y no en bytes. Midiendo el tamaño de los m2ts, un
+    playlist que reproduce 34 segundos del m2ts de la película «pesaba» lo
+    mismo que la película y competía con ella por número de pistas: es el
+    ``00001.mpls`` de The Mandalorian and Grogu, del segundo 11,7 al 45,2 de
+    un m2ts de 88,6 GB. Y se cuenta cada tramo una vez porque mkvmerge suma
+    los PlayItems sin deduplicar: un playlist que repite un tramo en bucle —el
+    fondo de un menú, los señuelos de un disco ofuscado— no dura más por
+    repetirlo.
     """
-    if candidato.get("contenido"):
-        return int(candidato["contenido"])
+    if candidato.get("duracion"):
+        return float(candidato["duracion"])
     props = (candidato["data"].get("container") or {}).get("properties") or {}
-    return int(props.get("playlist_size") or 0)
+    return (props.get("playlist_duration") or props.get("duration") or 0) / 1e9
 
 
 def elegir_mpls_principal(candidatos: list[dict]) -> dict | None:
     """El título principal entre los MPLS ya identificados con mkvmerge -J.
 
-    Cada candidato es ``{"path", "data", "contenido"}`` —``data`` es el JSON
+    Cada candidato es ``{"path", "data", "duracion"}`` —``data`` es el JSON
     de mkvmerge— y la lista viene en el orden de evaluación.
 
     1. Fuera los que no tienen audio.
-    2. Fuera los que reproducen menos de ``FRACCION_MINIMA_DEL_TITULO`` del
-       que más reproduce.
+    2. Fuera los que duran menos de ``FRACCION_MINIMA_DEL_TITULO`` del más
+       largo.
     3. Entre los que quedan, el de más pistas de audio; a igualdad, el
        primero de la lista.
 
     El paso 3 es la regla de siempre, con su desempate: lo nuevo es el 2, así
     que un disco en el que la regla vieja ya acertaba elige lo mismo. Sin
-    ningún tamaño conocido el paso 2 no filtra nada.
+    ninguna duración conocida el paso 2 no filtra nada.
 
     Devuelve el candidato elegido o ``None`` si ninguno tiene audio.
     """
@@ -427,24 +422,26 @@ def elegir_mpls_principal(candidatos: list[dict]) -> dict | None:
 
 def _elegibles(candidatos: list[dict]) -> list[dict]:
     """Los pasos 1 y 2 de ``elegir_mpls_principal``: los que tienen audio y
-    reproducen al menos ``FRACCION_MINIMA_DEL_TITULO`` del que más."""
+    duran al menos ``FRACCION_MINIMA_DEL_TITULO`` del más largo."""
     con_audio = [c for c in candidatos if _pistas_de_audio(c["data"]) > 0]
     if not con_audio:
         return []
-    mayor = max(_contenido_del_candidato(c) for c in con_audio)
+    mayor = max(_duracion_del_candidato(c) for c in con_audio)
     if mayor <= 0:
         return con_audio
     return [c for c in con_audio
-            if _contenido_del_candidato(c) >= FRACCION_MINIMA_DEL_TITULO * mayor]
+            if _duracion_del_candidato(c) >= FRACCION_MINIMA_DEL_TITULO * mayor]
 
 
-def _clips_del_mpls(mpls_path: str) -> list[str] | None:
-    """Los clips (``00000``, ``00800``…) que reproduce un MPLS, en orden.
+def _segmentos_del_mpls(mpls_path: str) -> list[tuple[str, int, int]] | None:
+    """Los tramos que reproduce un MPLS, en orden: ``(clip, IN, OUT)``.
 
-    Lee el ``Clip_Information_file_name`` de cada PlayItem del binario —el
-    mismo layout que ``_parse_mpls_marks_binary``—, así que no hace falta
-    mkvmerge. Los ángulos alternativos de un PlayItem multi-ángulo no se
-    cuentan. Devuelve ``None`` si el fichero no se puede leer o no es un MPLS.
+    Lee el ``Clip_Information_file_name`` (+0), el ``IN_time`` (+12) y el
+    ``OUT_time`` (+16) de cada PlayItem del binario —el mismo layout que
+    ``_parse_mpls_marks_binary`` y ``parse_mpls_pg_streams``—, así que no
+    hace falta mkvmerge. Los tiempos van en ticks de 45 kHz. Los ángulos
+    alternativos de un PlayItem multi-ángulo no se cuentan. Devuelve
+    ``None`` si el fichero no se puede leer o no es un MPLS.
     """
     try:
         data = Path(mpls_path).read_bytes()
@@ -456,17 +453,33 @@ def _clips_del_mpls(mpls_path: str) -> list[str] | None:
         p = int.from_bytes(data[8:12], "big") + 4 + 2  # length(4) + reserved(2)
         n_playitems = int.from_bytes(data[p:p + 2], "big")
         p += 2 + 2                                      # n_playitems + n_subpaths
-        clips = []
+        tramos = []
         for _ in range(n_playitems):
             pi_length = int.from_bytes(data[p:p + 2], "big")
             pi_data = p + 2
-            if pi_data + 9 > len(data):
+            if pi_data + 20 > len(data):
                 return None
-            clips.append(data[pi_data:pi_data + 5].decode("ascii"))
+            tramos.append((data[pi_data:pi_data + 5].decode("ascii"),
+                           int.from_bytes(data[pi_data + 12:pi_data + 16], "big"),
+                           int.from_bytes(data[pi_data + 16:pi_data + 20], "big")))
             p = pi_data + pi_length
-        return clips
+        return tramos
     except (UnicodeDecodeError, ValueError):
         return None
+
+
+def _clips_del_mpls(mpls_path: str) -> list[str] | None:
+    """Los clips (``00000``, ``00800``…) que reproduce un MPLS, en orden."""
+    tramos = _segmentos_del_mpls(mpls_path)
+    return [clip for clip, _, _ in tramos] if tramos is not None else None
+
+
+def _duracion_de_segmentos(tramos: list[tuple[str, int, int]] | None) -> float:
+    """Segundos que reproducen esos tramos, contando cada uno una vez: un
+    playlist que repite un tramo en bucle no dura más por repetirlo."""
+    if not tramos:
+        return 0.0
+    return sum(max(0, fin - ini) for _, ini, fin in set(tramos)) / _TICKS_POR_SEGUNDO
 
 
 def _dir_stream(bdmv_dir: Path) -> Path | None:
@@ -486,55 +499,35 @@ def _fichero_de_clip(stream_dir: Path, clip: str) -> Path | None:
     return None
 
 
-def _contenido_de_clips(stream_dir: Path | None, clips: list[str] | None) -> int:
-    """Bytes de los m2ts que reproduce un MPLS. Cada clip cuenta una vez: un
-    playlist que repite un clip en bucle no pesa más por repetirlo."""
-    if stream_dir is None or not clips:
-        return 0
-    total = 0
-    for clip in set(clips):
-        f = _fichero_de_clip(stream_dir, clip)
-        if f is not None:
-            total += f.stat().st_size
-    return total
+def _duracion_de_cada_mpls(mpls_files: list[Path]) -> dict[Path, float]:
+    """Segundos que reproduce cada MPLS, leídos del binario (sin mkvmerge)."""
+    return {p: _duracion_de_segmentos(_segmentos_del_mpls(str(p))) for p in mpls_files}
 
 
-def _contenido_de_cada_mpls(mpls_files: list[Path],
-                            stream_dir: Path | None) -> dict[Path, int]:
-    """Bytes que reproduce cada MPLS, leídos del binario (sin mkvmerge)."""
-    return {p: _contenido_de_clips(stream_dir, _clips_del_mpls(str(p)))
-            for p in mpls_files}
-
-
-def _criba_de_mpls(mpls_files: list[Path], contenido: dict[Path, int],
+def _criba_de_mpls(mpls_files: list[Path], duracion: dict[Path, float],
                    n: int) -> list[Path]:
     """Los MPLS que merece la pena identificar con mkvmerge -J.
 
-    Los ``n`` que más contenido reproducen más los ``n`` ``.mpls`` más
-    grandes, que es como se cribaba antes. El tamaño del ``.mpls`` mide
-    cuántos clips y pistas lista, no lo que dura: con él solo, un título de
-    un clip —una película, un episodio— podía quedarse fuera detrás de los
-    playlists de navegación de muchos clips.
+    Los ``n`` más largos más los ``n`` ``.mpls`` más grandes, que es como se
+    cribaba antes. El tamaño del ``.mpls`` mide cuántos clips y pistas lista,
+    no lo que dura: con él solo, un título de un clip —una película, un
+    episodio— podía quedarse fuera detrás de los playlists de navegación de
+    muchos clips.
 
     El orden es el de antes (tamaño del ``.mpls``, y por nombre a igualdad),
     porque es el último desempate de ``elegir_mpls_principal``.
     """
-    por_contenido = sorted(
-        (p for p in mpls_files if contenido.get(p, 0) > 0),
-        key=lambda p: contenido[p], reverse=True,
+    por_duracion = sorted(
+        (p for p in mpls_files if duracion.get(p, 0) > 0),
+        key=lambda p: duracion[p], reverse=True,
     )[:n]
     por_tamano = sorted(
         mpls_files, key=lambda p: p.stat().st_size, reverse=True,
     )[:n]
     return sorted(
-        sorted(set(por_contenido) | set(por_tamano), key=lambda p: p.name),
+        sorted(set(por_duracion) | set(por_tamano), key=lambda p: p.name),
         key=lambda p: p.stat().st_size, reverse=True,
     )
-
-
-def _mayor_m2ts(stream_dir: Path) -> str | None:
-    m2ts = list(stream_dir.glob("*.m2ts")) + list(stream_dir.glob("*.M2TS"))
-    return str(max(m2ts, key=lambda p: p.stat().st_size)) if m2ts else None
 
 
 def m2ts_principal_del_mpls(mpls_path: str) -> str | None:
@@ -858,7 +851,7 @@ async def identify_episode_candidates(
     # de ellos sin que nadie lo viera: el usuario elige de esta lista.
     candidates_by_size = _criba_de_mpls(
         mpls_files,
-        _contenido_de_cada_mpls(mpls_files, _dir_stream(playlist_dir.parent)),
+        _duracion_de_cada_mpls(mpls_files),
         MAX_CANDIDATOS_EPISODIO,
     )
 

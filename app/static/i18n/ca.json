@@ -304,7 +304,7 @@
   "tab1.analizando_n_ficheros_m2ts": "S'estan analitzant {n} fitxer{p2} M2TS",
   "tab1.arrastra_para_reordenar": "Arrossega per reordenar",
   "tab1.aviso_playlists_ofuscados": "Hi ha {n} playlists més amb els mateixos segments en un altre ordre. Alguns discs ho fan per dificultar la còpia: si el triat no és el bo, l'MKV sortirà amb les escenes desordenades.",
-  "tab1.aviso_titulo_menor": "Reprodueix {gb_titulo} GB, menys de la meitat que {ref} ({gb_ref} GB). Potser no és la pel·lícula.",
+  "tab1.aviso_titulo_menor": "Dura {dur_titulo}, menys de la meitat que {ref} ({dur_ref}). Potser no és la pel·lícula.",
   "tab1.aviso_varias_versiones": "El disc porta més versions de la pel·lícula: {otras}. L'app processa la triada i no permet canviar-la.",
   "tab1.bitrate_sintetico": "bitrate_sintètic={bitrate_kbps}",
   "tab1.bitrate_sintetico_kbps": "Bitrate sintètic: {bitrate_kbps} kbps",

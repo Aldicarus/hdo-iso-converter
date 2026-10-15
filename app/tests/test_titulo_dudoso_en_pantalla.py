@@ -43,8 +43,8 @@ CHROME = next((c for c in _CHROME_CANDIDATOS if c and Path(c).exists()), None)
 
 # Los tres tipos, con la forma que escribe `phase_a._avisos_del_titulo`.
 AVISOS = [
-    {"tipo": "titulo_menor", "mpls": "00018.mpls", "bytes_titulo": 1_619_625_984,
-     "ref": "00000.mpls", "bytes_ref": 97_100_000_000},
+    {"tipo": "titulo_menor", "mpls": "00018.mpls", "segundos_titulo": 595,
+     "ref": "00000.mpls", "segundos_ref": 8340},
     {"tipo": "varias_versiones", "mpls": "00018.mpls", "segundos": 595,
      "otras": [{"mpls": "00801.mpls", "segundos": 9240}], "mas": 0},
     {"tipo": "playlists_ofuscados", "mpls": "00018.mpls", "n": 37},

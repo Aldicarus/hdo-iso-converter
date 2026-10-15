@@ -14,8 +14,9 @@ datos a las pistas del tráiler: un AC-3 2.0 salía etiquetado «DTS-HD MA 2.0»
 
 Lo que se fija aquí:
 
-  · un MPLS que reproduce menos de la mitad que el mayor no es el título,
-    tenga las pistas que tenga;
+  · un MPLS que dura menos de la mitad que el más largo no es el título,
+    tenga las pistas que tenga — y la duración es la de sus TRAMOS: un trozo
+    de 34 s del m2ts de la película no «pesa» como la película;
   · la película entra en la criba aunque su .mpls sea de los pequeños;
   · si el MPLS de la película no se puede leer, la Fase A lo DICE;
   · MediaInfo describe el título elegido, no el m2ts más grande del disco;
@@ -41,14 +42,18 @@ from cmv40_harness import CollectingLog, FakeToolbox  # noqa: E402
 from i18n import t as tr  # noqa: E402
 from phases import phase_a  # noqa: E402
 from phases.phase_a import (  # noqa: E402
-    _clips_del_mpls, _contenido_de_clips, elegir_mpls_principal,
-    m2ts_principal_del_mpls, run_mkvmerge_identify,
+    _clips_del_mpls, _duracion_de_segmentos, _hms, _segmentos_del_mpls,
+    elegir_mpls_principal, m2ts_principal_del_mpls, run_mkvmerge_identify,
 )
 
 # Tamaños a escala (los ficheros son dispersos, pero no hace falta pedirle
-# 97 GB al disco de CI): lo que decide son las proporciones.
+# 97 GB al disco de CI). Lo que decide la elección es la DURACIÓN de los
+# tramos del MPLS; el tamaño solo decide qué m2ts mira MediaInfo.
 PELICULA = 20_000_000
 CLIP_TRAILER = 60_000
+PELICULA_S = 8340      # 2 h 19 min
+TRAILER_S = 99         # cada uno de los seis clips del tráiler: 9 min 54 s
+TICKS = 45000
 
 
 # ── MPLS sintéticos ─────────────────────────────────────────────────────
@@ -61,7 +66,7 @@ def _u32(v: int) -> bytes:
     return int(v).to_bytes(4, "big")
 
 
-def _playitem(clip: str, in_ticks: int = 0, out_ticks: int = 45000 * 60) -> bytes:
+def _playitem(clip: str, in_ticks: int = 0, out_ticks: int = TICKS * 60) -> bytes:
     """PlayItem mínimo, con el layout que leen `_clips_del_mpls` y
     `_parse_mpls_marks_binary`: el clip en +0, IN en +12 y OUT en +16."""
     body = bytearray()
@@ -75,9 +80,18 @@ def _playitem(clip: str, in_ticks: int = 0, out_ticks: int = 45000 * 60) -> byte
     return _u16(len(body)) + bytes(body)
 
 
-def _mpls(clips: list[str]) -> bytes:
-    playlist = bytearray(_u32(0) + _u16(0) + _u16(len(clips)) + _u16(0))
-    playlist += b"".join(_playitem(c) for c in clips)
+def _tramo(entrada) -> tuple[str, int, int]:
+    """`"00000"` (un minuto), `("00000", segundos)` o `("00000", in, out)`."""
+    if isinstance(entrada, str):
+        return entrada, 0, TICKS * 60
+    if len(entrada) == 2:
+        return entrada[0], 0, round(entrada[1] * TICKS)
+    return entrada[0], round(entrada[1] * TICKS), round(entrada[2] * TICKS)
+
+
+def _mpls(entradas: list) -> bytes:
+    playlist = bytearray(_u32(0) + _u16(0) + _u16(len(entradas)) + _u16(0))
+    playlist += b"".join(_playitem(*_tramo(e)) for e in entradas)
     playlist[0:4] = _u32(len(playlist) - 4)
     marks = _u32(2) + _u16(0)
     header = bytearray(40)
@@ -88,7 +102,7 @@ def _mpls(clips: list[str]) -> bytes:
     return bytes(header) + bytes(playlist) + marks
 
 
-def _disco(raiz: Path, playlists: dict[str, list[str]],
+def _disco(raiz: Path, playlists: dict[str, list],
            m2ts: dict[str, int]) -> Path:
     """Un disco extraído: `BDMV/PLAYLIST/*.mpls` y `BDMV/STREAM/*.m2ts`."""
     (raiz / "BDMV" / "PLAYLIST").mkdir(parents=True)
@@ -121,10 +135,12 @@ PISTAS_PELICULA = [
 
 # ── La regla, sin disco ─────────────────────────────────────────────────
 
-def _cand(nombre: str, audios: int, tam: int | None = None,
-          contenido: int = 0) -> dict:
-    props = {} if tam is None else {"playlist_size": tam}
-    return {"path": Path(nombre), "contenido": contenido,
+def _cand(nombre: str, audios: int, segundos: float | None = None,
+          duracion: float = 0) -> dict:
+    """Un candidato como lo arma `_identificar_candidatos`: `segundos` es el
+    `playlist_duration` de mkvmerge y `duracion`, lo leído del binario."""
+    props = {} if segundos is None else {"playlist_duration": int(segundos * 1e9)}
+    return {"path": Path(nombre), "duracion": duracion,
             "data": {"container": {"properties": props},
                      "tracks": [{"type": "audio"}] * audios}}
 
@@ -140,55 +156,66 @@ class TestLaRegla(unittest.TestCase):
         """Los dos con dos audios, el tráiler primero en la lista (su .mpls
         es más grande). La regla vieja elegía el tráiler."""
         self.assertEqual(_elegido([
-            _cand("00018.mpls", 2, 1_619_625_984),
-            _cand("00000.mpls", 2, 97_100_000_000),
+            _cand("00018.mpls", 2, 594.7),
+            _cand("00000.mpls", 2, PELICULA_S),
         ]), "00000.mpls")
+
+    def test_un_trozo_de_la_pelicula_no_compite_con_ella(self):
+        """The Mandalorian and Grogu: `00001.mpls` reproduce del segundo 11,7
+        al 45,2 del MISMO m2ts que la película. Midiendo bytes «pesaba» como
+        ella; con una pista de audio más, ganaba."""
+        self.assertEqual(_elegido([
+            _cand("00001.mpls", 3, 33.5),
+            _cand("00800.mpls", 2, 7925.4),
+        ]), "00800.mpls")
 
     def test_un_extra_con_mas_audios_tampoco_gana(self):
         """Un extra con pista de comentarios no se convierte en la película
         por tener una pista más."""
         self.assertEqual(_elegido([
-            _cand("00020.mpls", 4, 3_000_000_000),
-            _cand("00800.mpls", 3, 70_000_000_000),
+            _cand("00020.mpls", 4, 1500),
+            _cand("00800.mpls", 3, 8000),
         ]), "00800.mpls")
 
     def test_dos_versiones_de_la_pelicula_siguen_compitiendo(self):
-        """Montaje del cine y extendido reproducen casi lo mismo: gana el de
-        más audios, como siempre — y no el que más reproduce."""
+        """Montaje del cine y extendido duran parecido: gana el de más
+        audios, como siempre — y no el más largo."""
         self.assertEqual(_elegido([
-            _cand("00801.mpls", 3, 64_000_000_000),
-            _cand("00800.mpls", 4, 60_000_000_000),
+            _cand("00801.mpls", 3, 9200),
+            _cand("00800.mpls", 4, 8000),
         ]), "00800.mpls")
 
     def test_a_igualdad_se_conserva_el_desempate_de_antes(self):
         """Mismos audios y los dos elegibles: el primero de la lista, que es
         el .mpls más grande — lo que elegía la regla vieja."""
         self.assertEqual(_elegido([
-            _cand("00800.mpls", 3, 60_000_000_000),
-            _cand("00801.mpls", 3, 64_000_000_000),
+            _cand("00800.mpls", 3, 8000),
+            _cand("00801.mpls", 3, 9200),
         ]), "00800.mpls")
 
-    def test_sin_playlist_size_vale_el_contenido_leido_del_binario(self):
+    def test_lo_leido_del_binario_manda_sobre_mkvmerge(self):
+        """mkvmerge suma los PlayItems sin deduplicar: un bucle de 50 vueltas
+        le parece el más largo. El binario cuenta cada tramo una vez."""
         self.assertEqual(_elegido([
-            _cand("00018.mpls", 2, contenido=1_600_000_000),
-            _cand("00000.mpls", 2, contenido=97_000_000_000),
+            _cand("00099.mpls", 2, 50 * 400, duracion=400),
+            _cand("00000.mpls", 2, PELICULA_S, duracion=PELICULA_S),
         ]), "00000.mpls")
 
-    def test_sin_ningun_tamano_es_la_regla_de_siempre(self):
+    def test_sin_ninguna_duracion_es_la_regla_de_siempre(self):
         self.assertEqual(_elegido([
             _cand("00018.mpls", 2), _cand("00000.mpls", 2),
             _cand("00001.mpls", 1),
         ]), "00018.mpls")
 
     def test_sin_audio_no_hay_titulo(self):
-        self.assertIsNone(_elegido([_cand("00000.mpls", 0, 9_000_000_000)]))
+        self.assertIsNone(_elegido([_cand("00000.mpls", 0, PELICULA_S)]))
 
-    def test_uno_sin_audio_no_cuenta_como_el_mayor(self):
-        """Un MPLS sin audio enorme (un ángulo, un loop de menú) no deja
-        fuera a la película por la vía del tamaño."""
+    def test_uno_sin_audio_no_cuenta_como_el_mas_largo(self):
+        """Un MPLS sin audio larguísimo (un ángulo, el fondo de un menú) no
+        deja fuera a la película por la vía de la duración."""
         self.assertEqual(_elegido([
-            _cand("00999.mpls", 0, 200_000_000_000),
-            _cand("00000.mpls", 2, 60_000_000_000),
+            _cand("00999.mpls", 0, 10 * PELICULA_S),
+            _cand("00000.mpls", 2, PELICULA_S),
         ]), "00000.mpls")
 
 
@@ -209,14 +236,23 @@ class TestLeerElMplsBinario(unittest.TestCase):
         self.assertIsNone(_clips_del_mpls(str(f)))
         self.assertIsNone(_clips_del_mpls(str(self.tmp / "no_existe.mpls")))
 
-    def test_un_clip_en_bucle_cuenta_una_vez(self):
-        """Un playlist que repite un clip —el fondo de un menú en bucle— no
-        reproduce más contenido por repetirlo. Contándolo cada vez, cien
-        vueltas a un clip pequeño pesarían como una película."""
-        disco = _disco(self.tmp / "d", {}, {"00050": CLIP_TRAILER})
-        self.assertEqual(
-            _contenido_de_clips(disco / "BDMV" / "STREAM", ["00050"] * 100),
-            CLIP_TRAILER)
+    def test_los_tramos_con_sus_tiempos(self):
+        f = self.tmp / "x.mpls"
+        f.write_bytes(_mpls([("00001", 11.7, 45.2), ("00002", 600)]))
+        self.assertEqual(_segmentos_del_mpls(str(f)),
+                         [("00001", round(11.7 * TICKS), round(45.2 * TICKS)),
+                          ("00002", 0, 600 * TICKS)])
+
+    def test_un_tramo_en_bucle_cuenta_una_vez(self):
+        """Un playlist que repite un tramo —el fondo de un menú en bucle— no
+        dura más por repetirlo. Contándolo cada vez, cien vueltas a un clip
+        de un minuto durarían como una película."""
+        self.assertEqual(_duracion_de_segmentos([("00050", 0, 60 * TICKS)] * 100), 60)
+
+    def test_un_trozo_del_m2ts_dura_lo_que_dura_el_trozo(self):
+        """Lo que reproduce un playlist es su tramo, no el fichero entero."""
+        self.assertAlmostEqual(_duracion_de_segmentos(
+            [("00001", round(11.7 * TICKS), round(45.2 * TICKS))]), 33.5, places=2)
 
     def test_mediainfo_describe_el_titulo_elegido_no_el_disco(self):
         """El m2ts que se le pasa a MediaInfo es el mayor de los que
@@ -249,17 +285,17 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
     def _divergente(self, n_trailers: int = 1):
         """La película en un MPLS de un solo clip —un .mpls pequeño— y uno o
         varios tráilers de seis clips cada uno, con .mpls más grandes."""
-        playlists = {"00000.mpls": ["00000"]}
+        playlists = {"00000.mpls": [("00000", PELICULA_S)]}
         m2ts = {"00000": PELICULA}
         for i in range(n_trailers):
             clips = [f"{100 + 6 * i + k:05d}" for k in range(6)]
-            playlists[f"{18 + i:05d}.mpls"] = clips
+            playlists[f"{18 + i:05d}.mpls"] = [(c, TRAILER_S) for c in clips]
             m2ts.update({c: CLIP_TRAILER for c in clips})
             self.tb.define_mkv(f"{18 + i:05d}.mpls", tracks=PISTAS_TRAILER,
-                               duration_s=594.7,
+                               duration_s=6 * TRAILER_S,
                                playlist_size=6 * CLIP_TRAILER)
         self.tb.define_mkv("00000.mpls", tracks=PISTAS_PELICULA,
-                           duration_s=8340.0, playlist_size=PELICULA)
+                           duration_s=PELICULA_S, playlist_size=PELICULA)
         return _disco(self.tmp / "Divergente", playlists, m2ts)
 
     async def test_divergente_elige_la_pelicula(self):
@@ -284,8 +320,8 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Path(mpls).name, "00018.mpls")
         esperado = "[Fase A] " + tr(
             "phase_a.titulo_elegido_menor_que_otro",
-            mpls="00018.mpls", gb_titulo=format(6 * CLIP_TRAILER / 1e9, ".1f"),
-            ref="00000.mpls", gb_ref=format(PELICULA / 1e9, ".1f"))
+            mpls="00018.mpls", dur_titulo=_hms(6 * TRAILER_S),
+            ref="00000.mpls", dur_ref=_hms(PELICULA_S))
         self.assertIn(esperado, self.log.lines)
 
     async def test_el_aviso_mira_la_pelicula_entera_no_su_mayor_segmento(self):
@@ -295,11 +331,11 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
         grande como referencia, no se avisaba."""
         segmentos = [f"{k:05d}" for k in range(10)]
         disco = _disco(self.tmp / "Troceada",
-                       {"00800.mpls": segmentos, "00018.mpls": ["00100"]},
+                       {"00800.mpls": [(c, PELICULA_S / 10) for c in segmentos],
+                        "00018.mpls": [("00100", 600)]},
                        {**{c: PELICULA // 10 for c in segmentos},
                         "00100": int(PELICULA / 10 * 0.75)})
-        self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER,
-                           duration_s=594.7,
+        self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER, duration_s=600,
                            playlist_size=int(PELICULA / 10 * 0.75))
         self.tb.fail_when_arg("mkvmerge", "00800.mpls", rc=2)
         _, mpls = await run_mkvmerge_identify(str(disco), self.log)
@@ -309,17 +345,18 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
             self.log.text)
 
     async def test_un_bucle_no_deja_fuera_a_la_pelicula(self):
-        """El fondo de un menú con música: un clip repetido cincuenta veces.
-        mkvmerge suma el fichero una vez POR PLAYITEM, así que su
-        `playlist_size` es más del doble que el de la película; midiendo con
-        él, la película no pasaba el filtro de la mitad."""
+        """El fondo de un menú con música: un tramo repetido cincuenta veces.
+        mkvmerge suma los PlayItems sin deduplicar, así que para él dura más
+        del doble que la película; midiendo con eso, la película no pasaba
+        el filtro de la mitad."""
         disco = _disco(self.tmp / "Bucle",
-                       {"00000.mpls": ["00000"], "00099.mpls": ["00099"] * 50},
+                       {"00000.mpls": [("00000", PELICULA_S)],
+                        "00099.mpls": [("00099", 400)] * 50},
                        {"00000": PELICULA, "00099": PELICULA // 20})
         self.tb.define_mkv("00000.mpls", tracks=PISTAS_PELICULA,
-                           duration_s=8340.0, playlist_size=PELICULA)
+                           duration_s=PELICULA_S, playlist_size=PELICULA)
         self.tb.define_mkv("00099.mpls", tracks=PISTAS_TRAILER,
-                           duration_s=50 * 60.0,
+                           duration_s=50 * 400.0,
                            playlist_size=50 * (PELICULA // 20))
         _, mpls = await run_mkvmerge_identify(str(disco), self.log)
         self.assertEqual(Path(mpls).name, "00000.mpls")
@@ -352,12 +389,31 @@ class TestRunMkvmergeIdentify(unittest.IsolatedAsyncioTestCase):
         await phase_a.run_full_analysis(str(disco), self.log)
         self.assertEqual(Path(self.tb.one("mediainfo").argv[-1]).name, "00000.m2ts")
 
+    async def test_el_trozo_de_the_mandalorian(self):
+        """El caso real: `00001.mpls` reproduce 33,5 s del mismo m2ts que la
+        película y aquí trae una pista de audio más. Midiendo bytes ganaba
+        él; midiendo lo que dura, ni compite ni sale como «otra versión»."""
+        disco = _disco(self.tmp / "Mandalorian",
+                       {"00800.mpls": [("00001", 11.7, 7937.1)],
+                        "00001.mpls": [("00001", 11.7, 45.2)]},
+                       {"00001": PELICULA})
+        self.tb.define_mkv("00800.mpls", tracks=PISTAS_PELICULA,
+                           duration_s=7925.4, playlist_size=PELICULA)
+        self.tb.define_mkv("00001.mpls", tracks=PISTAS_PELICULA + [
+            {"type": "audio", "codec": "AC-3", "language": "eng", "channels": 2}],
+            duration_s=33.5, playlist_size=PELICULA)
+        avisos = []
+        _, mpls = await run_mkvmerge_identify(str(disco), self.log, avisos=avisos)
+        self.assertEqual(Path(mpls).name, "00800.mpls")
+        self.assertEqual(avisos, [])
+
     async def test_un_disco_normal_no_avisa(self):
         disco = _disco(self.tmp / "Normal",
-                       {"00800.mpls": ["00800"], "00801.mpls": ["00801"]},
+                       {"00800.mpls": [("00800", PELICULA_S)],
+                        "00801.mpls": [("00801", 120)]},
                        {"00800": PELICULA, "00801": CLIP_TRAILER})
         self.tb.define_mkv("00800.mpls", tracks=PISTAS_PELICULA,
-                           duration_s=8340.0, playlist_size=PELICULA)
+                           duration_s=PELICULA_S, playlist_size=PELICULA)
         self.tb.define_mkv("00801.mpls", tracks=PISTAS_TRAILER,
                            duration_s=120.0, playlist_size=CLIP_TRAILER)
         _, mpls = await run_mkvmerge_identify(str(disco), self.log)
@@ -393,8 +449,9 @@ class TestAvisosDelTitulo(unittest.IsolatedAsyncioTestCase):
         """Cine y extendido: los dos pasan el filtro y la regla elige uno.
         El aviso nombra el otro con su duración."""
         disco = _disco(self.tmp / "Montajes",
-                       {"00800.mpls": ["00010", "00011", "00012"],
-                        "00801.mpls": ["00010", "00011", "00013", "00012"]},
+                       {"00800.mpls": [("00010", 2700), ("00011", 2700), ("00012", 2820)],
+                        "00801.mpls": [("00010", 2700), ("00011", 2700),
+                                       ("00013", 1020), ("00012", 2820)]},
                        {"00010": PELICULA // 3, "00011": PELICULA // 3,
                         "00012": PELICULA // 3, "00013": PELICULA // 8})
         self._version("00800.mpls", 137)
@@ -410,8 +467,8 @@ class TestAvisosDelTitulo(unittest.IsolatedAsyncioTestCase):
     async def test_unos_segundos_de_diferencia_no_son_otra_version(self):
         """Un aviso legal o unos créditos localizados no son otro montaje."""
         disco = _disco(self.tmp / "Creditos",
-                       {"00800.mpls": ["00010", "00011"],
-                        "00801.mpls": ["00010", "00012"]},
+                       {"00800.mpls": [("00010", 8200), ("00011", 30)],
+                        "00801.mpls": [("00010", 8200), ("00012", 60)]},
                        {"00010": PELICULA, "00011": CLIP_TRAILER,
                         "00012": CLIP_TRAILER})
         self._version("00800.mpls", 137)
@@ -449,7 +506,7 @@ class TestAvisosDelTitulo(unittest.IsolatedAsyncioTestCase):
 
     async def test_un_disco_normal_no_trae_avisos(self):
         disco = _disco(self.tmp / "Normal",
-                       {"00800.mpls": ["00800"], "00801.mpls": ["00801"]},
+                       {"00800.mpls": [("00800", 8220)], "00801.mpls": [("00801", 120)]},
                        {"00800": PELICULA, "00801": CLIP_TRAILER})
         self._version("00800.mpls", 137)
         self.tb.define_mkv("00801.mpls", tracks=PISTAS_TRAILER, duration_s=120)
@@ -460,16 +517,17 @@ class TestAvisosDelTitulo(unittest.IsolatedAsyncioTestCase):
         """`run_full_analysis` los deja en `bdinfo_result`, que es lo que
         persiste y lo que la interfaz lee. Con el MPLS de la película
         ilegible, el elegido es el tráiler y lo dice."""
-        playlists = {"00000.mpls": ["00000"], "00018.mpls": ["00100"]}
+        playlists = {"00000.mpls": [("00000", PELICULA_S)],
+                     "00018.mpls": [("00100", 594)]}
         disco = _disco(self.tmp / "Divergente", playlists,
                        {"00000": PELICULA, "00100": CLIP_TRAILER})
-        self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER, duration_s=594.7)
+        self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER, duration_s=594)
         self.tb.fail_when_arg("mkvmerge", "00000.mpls", rc=2)
         bdinfo, _, _ = await phase_a.run_full_analysis(str(disco), self.log)
         self.assertEqual(bdinfo.avisos_titulo, [{
             "tipo": "titulo_menor", "mpls": "00018.mpls",
-            "bytes_titulo": CLIP_TRAILER, "ref": "00000.mpls",
-            "bytes_ref": PELICULA}])
+            "segundos_titulo": 594, "ref": "00000.mpls",
+            "segundos_ref": PELICULA_S}])
 
 
 class TestElReintentoConMasTiempo(unittest.IsolatedAsyncioTestCase):
@@ -485,7 +543,8 @@ class TestElReintentoConMasTiempo(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.tb.uninstall)
         self.log = CollectingLog()
         self.disco = _disco(self.tmp / "Cargado",
-                            {"00000.mpls": ["00000"], "00018.mpls": ["00100"]},
+                            {"00000.mpls": [("00000", PELICULA_S)],
+                             "00018.mpls": [("00100", 594)]},
                             {"00000": PELICULA, "00100": CLIP_TRAILER})
         self.tb.define_mkv("00000.mpls", tracks=PISTAS_PELICULA, duration_s=8340)
         self.tb.define_mkv("00018.mpls", tracks=PISTAS_TRAILER, duration_s=594.7)
@@ -555,7 +614,7 @@ class TestLosEpisodiosEntranEnLaCriba(unittest.IsolatedAsyncioTestCase):
                      for i in range(21)}
         m2ts = {f"{500 + i:05d}": CLIP_TRAILER for i in range(21)}
         for ep in ("00801", "00802", "00803"):
-            playlists[f"{ep}.mpls"] = [ep]
+            playlists[f"{ep}.mpls"] = [(ep, 45 * 60)]
             m2ts[ep] = PELICULA // 4
             tb.define_mkv(f"{ep}.mpls", tracks=PISTAS_PELICULA,
                           duration_s=45 * 60.0, playlist_size=PELICULA // 4)
@@ -579,7 +638,7 @@ class TestUnaCabeceraCompartidaNoFusionaLosEpisodios(unittest.IsolatedAsyncioTes
         self.addCleanup(self.tb.uninstall)
         playlists, m2ts = {}, {"00700": CLIP_TRAILER}
         for ep in ("00801", "00802", "00803"):
-            playlists[f"{ep}.mpls"] = ["00700", ep]
+            playlists[f"{ep}.mpls"] = [("00700", 90), (ep, 45 * 60 - 90)]
             m2ts[ep] = PELICULA // 4
             self.tb.define_mkv(f"{ep}.mpls", tracks=PISTAS_PELICULA,
                                duration_s=45 * 60.0)

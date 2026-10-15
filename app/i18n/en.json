@@ -728,7 +728,7 @@
   "phase_a.sin_pistas_de_audio_detectadas": "no audio tracks detected",
   "phase_a.stderr_vacio": "(stderr empty)",
   "phase_a.stn_table_no_cabe_p_p1_pi": "the STN_table does not fit (p={p1}, pi_end={pi_end})",
-  "phase_a.titulo_elegido_menor_que_otro": "⚠️ The chosen title ({mpls}) plays {gb_titulo} GB, less than half of {ref} ({gb_ref} GB). It may not be the film: check the duration and the tracks before running it.",
+  "phase_a.titulo_elegido_menor_que_otro": "⚠️ The chosen title ({mpls}) lasts {dur_titulo}, less than half of {ref} ({dur_ref}). It may not be the film: check the duration and the tracks before running it.",
   "phase_a.truncado_en_pg_entry_p1_de_n": "truncated at PG entry {p1} of {n_pg}",
   "phase_a.truncado_en_pv_pa_entry_p1": "truncated at pv/pa entry {p1}",
   "phase_a.truncado_tras_se_len_pv_pa_entry": "truncated after se_len at pv/pa entry {p1}",
