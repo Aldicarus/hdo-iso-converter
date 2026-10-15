@@ -2762,7 +2762,50 @@ Las sesiones ya creadas **no se corrigen solas**: su `main_mpls` es el que
 eligió la Fase A al crearlas. Un proyecto con el título equivocado se rehace
 reanalizando el origen.
 
-`test_seleccion_mpls_principal.py` (26 tests, 11 mutaciones). Las fixtures de
+#### Lo que no se puede resolver solo, se avisa — y decide el usuario
+
+Hay casos que ninguna regla resuelve sin leer la navegación del disco, y el
+usuario decidió el 2026-10-15 que **se avisen sin tocar el algoritmo**: la
+elección es la misma con aviso o sin él. `_avisos_del_titulo` los deja en
+**`bdinfo_result.avisos_titulo`** como DATOS —nombres, bytes, segundos— y no
+como frases, para que la interfaz los escriba en el idioma de cuando se miran
+(el log, en el de cuando se analizó):
+
+| tipo | cuándo |
+|---|---|
+| `titulo_menor` | el elegido reproduce menos de la mitad que lo más grande del disco (lo de arriba) |
+| `varias_versiones` | otros títulos completos —pasan el filtro y tienen audio— con más de `DIFERENCIA_MINIMA_ENTRE_VERSIONES_S` (60 s) de diferencia: el montaje de cine y el extendido. Unos créditos localizados no son otra versión |
+| `playlists_ofuscados` | al menos `MIN_SENUELOS` (3) playlists con los mismos clips que el elegido **en otro orden**: así esconden algunos discos la película, y si el elegido es un señuelo el MKV sale con las escenas desordenadas |
+
+- **Al terminar el análisis, si hay avisos, un diálogo con dos salidas**
+  (`titulo-dudoso-modal`, `preguntarPorElTitulo`): seguir o **abandonar**,
+  que borra el proyecto con el `deleteSession` de siempre. Sin «Cancelar»:
+  sería una tercera salida que significa lo mismo que seguir.
+- **Y un aviso fijo en el panel** (`renderAvisosDelTitulo`), porque el diálogo
+  sale una vez y el rip puede ser días después.
+- **Un tipo que el frontend no conozca no se pinta**: un servidor más nuevo
+  no puede hacer salir su id en pantalla.
+- **«Abandonar» no da la otra versión.** No hay forma de elegir el MPLS desde
+  la interfaz; lo que el aviso compra es saber qué versión se va a ripear
+  antes de gastar cuarenta minutos en ella.
+- **«Abandonar» sobre un «Reanalizar» borra el proyecto**, que es correcto:
+  `/api/analyze` reutiliza el id por fingerprint y ya ha reescrito la sesión
+  de antes.
+
+**Reintento con más tiempo** (`_identificar_candidatos`): un `mkvmerge -J` que
+se agota (`_mkvmerge_j` devuelve `agotado`, que separa «no terminó» de «no
+supo leerlo») se repite una vez con `IDENTIFY_TIMEOUT_REINTENTO` (180 s), pero
+solo si el MPLS reproduce al menos la mitad que el mayor: con un rip leyendo
+del mismo pool, 30 s pueden no bastar para un playlist de muchos segmentos, y
+perder la película por eso es elegir otra cosa. A un tráiler no se le espera.
+Los que entran al reintentar conservan su puesto en el orden de evaluación,
+que es el último desempate. El test del reintento SIMULA el agotamiento —con
+el reloj sería frágil bajo carga—, y uno aparte comprueba con un binario que
+duerme que el `True` sale del timeout de verdad.
+
+`test_seleccion_mpls_principal.py` (35 tests) y
+`test_titulo_dudoso_en_pantalla.py` (8, en Chrome y en las tres lenguas), con
+23 mutaciones verificadas entre los dos. Las fixtures de
 `fixtures_discos/` **no sirven para validar esto**: guardan el MPLS elegido y
 no los demás candidatos.
 
