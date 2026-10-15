@@ -2655,7 +2655,7 @@ un metadato.
 Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 
 1. **mkvmerge -J** (requerido) — identificación de pistas, estructura del disco
-   - Selección inteligente del MPLS: 10 más grandes, elige el de más pistas audio
+   - Selección del MPLS principal (`elegir_mpls_principal`): fuera los que no tienen audio y **los que reproducen menos de la mitad que el mayor**; de los que quedan, el de más pistas de audio, y a igualdad el `.mpls` más grande. Ver «El título principal: lo que reproduce, no lo que pesa el .mpls»
    - Adaptador BDInfoResult: JSON → modelos que consume phase_b
    - Codecs: mkvmerge → estilo BDInfo (ej: "TrueHD Atmos" → "Dolby TrueHD/Atmos Audio")
    - Idiomas: ISO 639-2 → nombres en inglés via `ISO639_TO_ENGLISH`
@@ -2665,7 +2665,7 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
    - Duración: `playlist_duration / 1_000_000_000` (nanosegundos → segundos)
 
 2. **MediaInfo** (opcional, no bloquea si falla) — metadata extendida sobre el m2ts principal
-   - `find_main_m2ts()`: el fichero más grande en `BDMV/STREAM/`
+   - `m2ts_principal_del_mpls()`: el m2ts más grande **de los que reproduce el MPLS elegido**; `find_main_m2ts()` (el más grande de `BDMV/STREAM/`) solo de respaldo. En un disco normal son el mismo fichero; cuando no, MediaInfo describía otro y sus datos se pegaban a pistas que no son suyas
    - `mediainfo --Output=JSON` → parseo del JSON
    - **Audio**: bitrate real por pista, `Format_Commercial_IfAny` (detección definitiva Atmos/DTS:X), channel layout, compression mode (Lossless/Lossy)
    - **Vídeo**: bitrate real, HDR10 metadata (MaxCLL, MaxFALL, mastering display luminance), color primaries (BT.2020), transfer characteristics (PQ), bit depth
@@ -2695,6 +2695,54 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 
 - **Datos raw**: mkvmerge -J raw + MediaInfo raw guardados en `bdinfo_result` para diagnóstico
 - **Atmos**: detección definitiva via `format_commercial` de MediaInfo; fallback heurístico por canales ≥8 si MediaInfo no disponible
+
+### El título principal: lo que reproduce, no lo que pesa el .mpls
+
+Caso real (octubre de 2026): **Divergente (2014)**, de un disco «Custom U-HD».
+La Fase A eligió `00018.mpls` —9 min 55 s, AVC 1080p, dos AC-3 2.0 en inglés—
+en vez de la película (`00000.m2ts`, 97,1 GB, HEVC con Dolby Vision, DTS-HD MA
+7.1 en castellano e inglés). El MKV habría salido sin castellano, sin DV y con
+un capítulo, y nada avisó.
+
+La regla era «los 10 `.mpls` más grandes; el de más pistas de audio; a
+igualdad, el primero». **El tamaño de un `.mpls` mide cuántos clips y pistas
+lista, no lo que dura**: un carrete de tráilers de seis clips pesa más que el
+playlist de una película de un clip. Con dos audios a cada lado, ganaba el
+tráiler por desempate.
+
+- **Lo nuevo es un filtro, no otra regla**: fuera los MPLS que reproducen menos
+  de `FRACCION_MINIMA_DEL_TITULO` (0,5) que el mayor, medido con el
+  `playlist_size` de mkvmerge —la misma base que la estimación de tamaño—. El
+  resto, incluido el desempate, es el de siempre: **donde la regla vieja
+  acertaba, la nueva elige lo mismo.** Las versiones de una película (cine y
+  extendido) reproducen casi lo mismo y siguen compitiendo entre sí.
+- **La criba añade los 10 que más contenido reproducen**, leído del binario
+  (`_clips_del_mpls` + el tamaño de sus m2ts, cada clip una vez para que un
+  bucle no pese). Con la criba vieja sola, una película con un `.mpls` pequeño
+  ni se miraba. Son hasta 20 `mkvmerge -J`, normalmente muchos menos: las dos
+  listas coinciden casi enteras.
+- **Lo que el filtro no arregla, se dice**: si `mkvmerge -J` no sabe leer el
+  MPLS de la película, el elegido es lo mejor que queda. Cuando el título
+  elegido reproduce menos de la mitad del m2ts más grande del disco, la Fase A
+  lo escribe en el log (`phase_a.titulo_elegido_menor_que_el_m2ts`). Y un
+  `mkvmerge -J` que falla ya deja una línea en `docker logs`: antes ese MPLS
+  desaparecía de los candidatos sin rastro.
+- **MediaInfo analiza el m2ts del título elegido** (`m2ts_principal_del_mpls`),
+  no el mayor del disco: en Divergente pegó los datos del DTS-HD MA de la
+  película a los AC-3 del tráiler, y la pista salió como «Inglés DTS-HD MA 2.0».
+- **«Restaurar del disco» lee el MPLS de la SESIÓN** (`_mpls_de_la_sesion`, el
+  mismo helper que el pipeline), no vuelve a elegirlo. Elegirlo otra vez
+  restauraba, en una serie, los capítulos del título más «de película» del
+  disco en vez de los del episodio; y en una sesión creada con otra regla, los
+  de otro título.
+
+Las sesiones ya creadas **no se corrigen solas**: su `main_mpls` es el que
+eligió la Fase A al crearlas. Un proyecto con el título equivocado se rehace
+reanalizando el origen.
+
+`test_seleccion_mpls_principal.py` (21 tests, 7 mutaciones). Las fixtures de
+`fixtures_discos/` **no sirven para validar esto**: guardan el MPLS elegido y
+no los demás candidatos.
 
 ### Reglas de audio (spec §5.1)
 - Solo se incluyen pistas en Castellano y en VO

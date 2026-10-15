@@ -255,7 +255,8 @@ class FakeToolbox:
         self._flush()
 
     def define_mkv(self, name: str, *, tracks: list[dict] | None = None,
-                   title: str = "", duration_s: float = 7200.0) -> None:
+                   title: str = "", duration_s: float = 7200.0,
+                   playlist_size: int | None = None) -> None:
         """Las pistas que `mkvmerge -J` reportará para un MKV.
 
         Cada pista es un dict con `type` ("video"/"audio"/"subtitles") y los
@@ -269,6 +270,11 @@ class FakeToolbox:
         stream. Sin ese segundo campo, el fake describía un disco en el que los
         cores no existen y NINGÚN test podía ver que Fase E los tomaba por
         pistas independientes.
+
+        `playlist_size` declara que el fichero es un MPLS: mkvmerge añade
+        entonces `playlist`, `playlist_duration` y `playlist_size` —los bytes
+        que reproduce el playlist— a las propiedades del contenedor, que es
+        con lo que la Fase A distingue la película de un tráiler.
 
         Por defecto describe un UHD Blu-ray dual-layer con Dolby Vision: dos
         pistas HEVC (la segunda a 1920x1080 es la Enhancement Layer, que es
@@ -290,6 +296,7 @@ class FakeToolbox:
             ]
         self._scenario.setdefault("mkvs", {})[name] = {
             "tracks": tracks, "title": title, "duration_s": duration_s,
+            "playlist_size": playlist_size,
         }
         self._flush()
 
@@ -874,6 +881,10 @@ def main():
             DESPACHO[BINARY](sc) if BINARY in DESPACHO else None
         except Exception:
             pass
+        # Lo que escribió por stdout también es su trabajo: sin vaciarlo, morir
+        # por señal se lo lleva del buffer y un `mkvmerge -J` que llegó a dar
+        # su JSON parecería no haber dicho nada.
+        sys.stdout.flush()
 
     if forced:
         sys.stderr.write(forced.get("stderr", "fallo simulado"))
@@ -1394,12 +1405,19 @@ def mkvmerge(sc):
         titulo = del_fichero.get("title")
         if titulo is None:
             titulo = spec["title"]
+        propiedades = {
+            "title": titulo,
+            "duration": int(spec["duration_s"] * 1e9),
+            "segment_uid": uid,
+        }
+        if spec.get("playlist_size") is not None:
+            propiedades.update({
+                "playlist": True,
+                "playlist_duration": int(spec["duration_s"] * 1e9),
+                "playlist_size": spec["playlist_size"],
+            })
         sys.stdout.write(json.dumps({
-            "container": {"supported": True, "properties": {
-                "title": titulo,
-                "duration": int(spec["duration_s"] * 1e9),
-                "segment_uid": uid,
-            }},
+            "container": {"supported": True, "properties": propiedades},
             "tracks": out,
             "chapters": [],
         }))

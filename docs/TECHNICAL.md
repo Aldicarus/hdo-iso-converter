@@ -189,8 +189,8 @@ Characters that NTFS/SMB forbid (`/\\:*?"<>|`) are sanitised; UTF-8 accents are 
 
 A pipeline of 4 tools runs with the source open:
 
-1. **mkvmerge -J** — identifies tracks, codecs, languages and structure.
-2. **MediaInfo** — real bitrate per track, HDR10 metadata (MaxCLL/MaxFALL, mastering display primaries + luminance), definitive Atmos/DTS:X detection through `Format_Commercial`, channel layout.
+1. **mkvmerge -J** — identifies tracks, codecs, languages and structure. It also picks the main title: playlists that play less than half of the largest one are discarded (trailers, extras, menus), and among the rest the one with the most audio tracks wins. If the chosen title plays less than half of the disc's largest m2ts, the log says so.
+2. **MediaInfo** — run on the largest m2ts of the chosen playlist. Real bitrate per track, HDR10 metadata (MaxCLL/MaxFALL, mastering display primaries + luminance), definitive Atmos/DTS:X detection through `Format_Commercial`, channel layout.
 3. **dovi_tool** — RPU analysis: Profile (4/5/7/8), FEL vs MEL, CM version (v2.9/v4.0), L1/L2/L5/L6/L8/L9/L10/L11/L254.
 4. **mkvextract** — chapters from the MPLS with precise timestamps (only if the source has an MPLS).
 

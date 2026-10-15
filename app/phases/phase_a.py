@@ -16,10 +16,11 @@ HERRAMIENTAS
 
 mkvmerge -J <mpls_path>
   Devuelve JSON con pistas, info de playlist y capítulos.
-  Selecciona el MPLS principal (el de más pistas audio entre los 10 más grandes).
+  Selecciona el MPLS principal: entre los que reproducen al menos la mitad
+  que el mayor, el de más pistas de audio (ver elegir_mpls_principal).
 
 mediainfo --Output=JSON <m2ts_path>
-  Ejecutado sobre el m2ts más grande (feature principal).
+  Ejecutado sobre el m2ts más grande del MPLS elegido (feature principal).
   Proporciona: bitrate real, Format_Commercial_IfAny (Atmos/DTS:X definitivo),
   HDR10 metadata, channel layout, compression mode.
 
@@ -142,10 +143,10 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None) -> tuple[dic
     """
     Encuentra el MPLS principal y ejecuta ``mkvmerge -J`` sobre él.
 
-    Selección inteligente del MPLS: ejecuta ``mkvmerge -J`` sobre los
-    candidatos y elige el que tiene más pistas de audio (el título
-    principal siempre tiene más pistas que menús o playlists de
-    navegación). Se descartan MPLS sin pistas de audio.
+    Ejecuta ``mkvmerge -J`` sobre los candidatos y elige con
+    ``elegir_mpls_principal``: fuera los que no tienen audio y los que
+    reproducen menos de la mitad que el mayor, y de los que quedan, el de
+    más pistas de audio.
 
     Args:
         share_path:   Ruta al directorio raíz del disco montado
@@ -182,37 +183,215 @@ async def run_mkvmerge_identify(share_path: str, log_callback=None) -> tuple[dic
     if log_callback:
         await log_callback('[Fase A] ' + tr('phase_a.ficheros_mpls_encontrados', mpls_files=len(mpls_files)))
 
-    # ── 2. Identificar cada MPLS con mkvmerge -J ─────────────────
-    # Limitamos a los 10 más grandes por tamaño de fichero para no
-    # ralentizar el análisis en discos con muchos playlists.
-    candidates_by_size = sorted(mpls_files, key=lambda p: p.stat().st_size, reverse=True)[:10]
+    # ── 2. Identificar los candidatos con mkvmerge -J ────────────
+    # Los 10 que más contenido reproducen (leído del binario, sin mkvmerge)
+    # más los 10 .mpls más grandes, que es como se elegía antes. El tamaño
+    # del .mpls mide cuántos clips y pistas lista, no cuánto dura: con él
+    # solo, la película puede quedarse fuera de la criba.
+    stream_dir = _dir_stream(playlist_dir.parent)
+    contenido = {
+        p: _contenido_de_clips(stream_dir, _clips_del_mpls(str(p)))
+        for p in mpls_files
+    }
+    por_contenido = sorted(
+        (p for p in mpls_files if contenido[p] > 0),
+        key=lambda p: contenido[p], reverse=True,
+    )[:MAX_CANDIDATOS_MPLS]
+    por_tamano = sorted(
+        mpls_files, key=lambda p: p.stat().st_size, reverse=True,
+    )[:MAX_CANDIDATOS_MPLS]
+    # El orden de evaluación es el de antes (tamaño del .mpls, y por nombre
+    # a igualdad): es el último desempate de elegir_mpls_principal.
+    candidates = sorted(
+        sorted(set(por_contenido) | set(por_tamano), key=lambda p: p.name),
+        key=lambda p: p.stat().st_size, reverse=True,
+    )
 
-    best_data = None
-    best_audio_count = -1
-    best_mpls = None
-
-    for mpls_path in candidates_by_size:
+    evaluados = []
+    for mpls_path in candidates:
         data = await _run_mkvmerge_j(str(mpls_path))
         if data is None:
             continue
-        audio_count = sum(1 for t in data.get("tracks", []) if t.get("type") == "audio")
-        if audio_count > best_audio_count:
-            best_audio_count = audio_count
-            best_data = data
-            best_mpls = mpls_path
+        evaluados.append({"path": mpls_path, "data": data,
+                          "contenido": contenido[mpls_path]})
+    _logger.info(
+        "Candidatos a MPLS principal: %s",
+        ", ".join(f"{c['path'].name} ({_pistas_de_audio(c['data'])} audio, "
+                  f"{_contenido_del_candidato(c) / 1e9:.1f} GB)" for c in evaluados),
+    )
 
-    if best_data is None or best_audio_count == 0:
+    elegido = elegir_mpls_principal(evaluados)
+    if elegido is None:
         raise RuntimeError(
             tr('phase_a.ningun_mpls_valido_con_pistas_de', playlist_dir=playlist_dir)
         )
+    best_data, best_mpls = elegido["data"], elegido["path"]
 
     if log_callback:
         n_tracks = len(best_data.get("tracks", []))
         await log_callback(
-            '[Fase A] ' + tr('phase_a.mpls_principal_pistas_audio_pistas_total', p1=best_mpls.name, best_audio_count=best_audio_count, n_tracks=n_tracks)
+            '[Fase A] ' + tr('phase_a.mpls_principal_pistas_audio_pistas_total', p1=best_mpls.name, best_audio_count=_pistas_de_audio(best_data), n_tracks=n_tracks)
         )
 
+    # Lo que la elección no puede arreglar sola: si el MPLS de la película
+    # no se pudo leer, el elegido es lo mejor que quedaba — y puede ser un
+    # tráiler. Un título que reproduce menos de la mitad del m2ts más grande
+    # del disco no es la película, y eso se dice en vez de seguir callado.
+    mayor_m2ts = _mayor_m2ts(stream_dir) if stream_dir else None
+    if mayor_m2ts:
+        tam_mayor = Path(mayor_m2ts).stat().st_size
+        tam_elegido = _contenido_del_candidato(elegido)
+        if 0 < tam_elegido < FRACCION_MINIMA_DEL_TITULO * tam_mayor:
+            _logger.warning(
+                "MPLS principal %s reproduce %d bytes; el m2ts más grande "
+                "(%s) tiene %d", best_mpls.name, tam_elegido,
+                Path(mayor_m2ts).name, tam_mayor,
+            )
+            if log_callback:
+                await log_callback('[Fase A] ' + tr(
+                    'phase_a.titulo_elegido_menor_que_el_m2ts',
+                    mpls=best_mpls.name,
+                    gb_titulo=format(tam_elegido / 1e9, '.1f'),
+                    m2ts=Path(mayor_m2ts).name,
+                    gb_m2ts=format(tam_mayor / 1e9, '.1f'),
+                ))
+
     return best_data, str(best_mpls)
+
+
+# Cuántos MPLS se identifican con mkvmerge por cada criterio de la criba.
+MAX_CANDIDATOS_MPLS = 10
+
+# Un MPLS que reproduce menos de esta fracción del contenido del mayor no es
+# el título principal, tenga las pistas de audio que tenga: es un tráiler, un
+# extra o un menú. Caso real, Divergente (2014) de un disco «Custom U-HD»: un
+# tráiler de 9 min 55 s con dos AC-3 empataba en pistas de audio con la
+# película (dos DTS-HD MA) y ganaba por tener el .mpls más grande — 1,6 GB
+# contra 97,1. Las versiones de una misma película (montaje del cine y
+# extendido) reproducen casi lo mismo y siguen compitiendo entre sí.
+FRACCION_MINIMA_DEL_TITULO = 0.5
+
+
+def _pistas_de_audio(data: dict) -> int:
+    return sum(1 for t in data.get("tracks", []) if t.get("type") == "audio")
+
+
+def _contenido_del_candidato(candidato: dict) -> int:
+    """Bytes que reproduce el MPLS: el ``playlist_size`` de mkvmerge y, si no
+    viene, la suma de sus clips leída del binario."""
+    props = (candidato["data"].get("container") or {}).get("properties") or {}
+    return int(props.get("playlist_size") or candidato.get("contenido") or 0)
+
+
+def elegir_mpls_principal(candidatos: list[dict]) -> dict | None:
+    """El título principal entre los MPLS ya identificados con mkvmerge -J.
+
+    Cada candidato es ``{"path", "data", "contenido"}`` —``data`` es el JSON
+    de mkvmerge— y la lista viene en el orden de evaluación.
+
+    1. Fuera los que no tienen audio.
+    2. Fuera los que reproducen menos de ``FRACCION_MINIMA_DEL_TITULO`` del
+       que más reproduce.
+    3. Entre los que quedan, el de más pistas de audio; a igualdad, el
+       primero de la lista.
+
+    El paso 3 es la regla de siempre, con su desempate: lo nuevo es el 2, así
+    que un disco en el que la regla vieja ya acertaba elige lo mismo. Sin
+    ningún tamaño conocido el paso 2 no filtra nada.
+
+    Devuelve el candidato elegido o ``None`` si ninguno tiene audio.
+    """
+    con_audio = [c for c in candidatos if _pistas_de_audio(c["data"]) > 0]
+    if not con_audio:
+        return None
+    mayor = max(_contenido_del_candidato(c) for c in con_audio)
+    if mayor > 0:
+        con_audio = [c for c in con_audio
+                     if _contenido_del_candidato(c) >= FRACCION_MINIMA_DEL_TITULO * mayor]
+    # max() devuelve el primero de los empatados: el desempate de antes.
+    return max(con_audio, key=lambda c: _pistas_de_audio(c["data"]))
+
+
+def _clips_del_mpls(mpls_path: str) -> list[str] | None:
+    """Los clips (``00000``, ``00800``…) que reproduce un MPLS, en orden.
+
+    Lee el ``Clip_Information_file_name`` de cada PlayItem del binario —el
+    mismo layout que ``_parse_mpls_marks_binary``—, así que no hace falta
+    mkvmerge. Los ángulos alternativos de un PlayItem multi-ángulo no se
+    cuentan. Devuelve ``None`` si el fichero no se puede leer o no es un MPLS.
+    """
+    try:
+        data = Path(mpls_path).read_bytes()
+    except OSError:
+        return None
+    if len(data) < 40 or data[:4] != b"MPLS":
+        return None
+    try:
+        p = int.from_bytes(data[8:12], "big") + 4 + 2  # length(4) + reserved(2)
+        n_playitems = int.from_bytes(data[p:p + 2], "big")
+        p += 2 + 2                                      # n_playitems + n_subpaths
+        clips = []
+        for _ in range(n_playitems):
+            pi_length = int.from_bytes(data[p:p + 2], "big")
+            pi_data = p + 2
+            if pi_data + 9 > len(data):
+                return None
+            clips.append(data[pi_data:pi_data + 5].decode("ascii"))
+            p = pi_data + pi_length
+        return clips
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
+def _dir_stream(bdmv_dir: Path) -> Path | None:
+    """El ``STREAM`` de un ``BDMV`` (o ``stream`` en discos en minúsculas)."""
+    for nombre in ("STREAM", "stream"):
+        d = bdmv_dir / nombre
+        if d.is_dir():
+            return d
+    return None
+
+
+def _fichero_de_clip(stream_dir: Path, clip: str) -> Path | None:
+    for ext in (".m2ts", ".M2TS"):
+        f = stream_dir / f"{clip}{ext}"
+        if f.is_file():
+            return f
+    return None
+
+
+def _contenido_de_clips(stream_dir: Path | None, clips: list[str] | None) -> int:
+    """Bytes de los m2ts que reproduce un MPLS. Cada clip cuenta una vez: un
+    playlist que repite un clip en bucle no pesa más por repetirlo."""
+    if stream_dir is None or not clips:
+        return 0
+    total = 0
+    for clip in set(clips):
+        f = _fichero_de_clip(stream_dir, clip)
+        if f is not None:
+            total += f.stat().st_size
+    return total
+
+
+def _mayor_m2ts(stream_dir: Path) -> str | None:
+    m2ts = list(stream_dir.glob("*.m2ts")) + list(stream_dir.glob("*.M2TS"))
+    return str(max(m2ts, key=lambda p: p.stat().st_size)) if m2ts else None
+
+
+def m2ts_principal_del_mpls(mpls_path: str) -> str | None:
+    """El m2ts más grande de los que reproduce ESE MPLS.
+
+    Es el que describe el título elegido. ``find_main_m2ts`` da el más grande
+    del disco, que en un disco normal es el mismo; cuando no lo es, MediaInfo
+    describía otro fichero y sus datos acababan pegados a pistas que no son
+    suyas (Divergente: un AC-3 2.0 etiquetado «DTS-HD MA 2.0»).
+    """
+    stream_dir = _dir_stream(Path(mpls_path).parent.parent)
+    clips = _clips_del_mpls(mpls_path)
+    if stream_dir is None or not clips:
+        return None
+    ficheros = [f for f in (_fichero_de_clip(stream_dir, c) for c in set(clips)) if f]
+    return str(max(ficheros, key=lambda f: f.stat().st_size)) if ficheros else None
 
 
 async def _run_mkvmerge_j(mpls_path: str) -> dict | None:
@@ -232,7 +411,11 @@ async def _run_mkvmerge_j(mpls_path: str) -> dict | None:
         _logger.warning("mkvmerge -J timeout para %s", mpls_path)
         return None
 
-    if proc.returncode >= 2:
+    # `not in (0, 1)` y no `>= 2`: muerto por señal, el código llega negativo.
+    # Sin la línea de log, un MPLS que mkvmerge no sabe leer desaparecía de
+    # los candidatos sin dejar rastro — y si era la película, se elegía otro.
+    if proc.returncode not in (0, 1):
+        _logger.warning("mkvmerge -J salió con %s para %s", proc.returncode, mpls_path)
         return None
 
     try:
@@ -2494,8 +2677,9 @@ async def run_full_analysis(
         await log_callback('[Fase A] ├─ ' + tr('phase_a.paso_2_4_extrayendo_capitulos_del'))
     chapters_raw = parse_mpls_chapters(mpls_path)
 
-    # 3. MediaInfo sobre m2ts principal
-    m2ts_path = find_main_m2ts(share_path)
+    # 3. MediaInfo sobre el m2ts principal DEL TÍTULO ELEGIDO, no del disco:
+    # sus datos se pegan a las pistas que dio mkvmerge -J sobre ese MPLS.
+    m2ts_path = m2ts_principal_del_mpls(mpls_path) or find_main_m2ts(share_path)
     if m2ts_path:
         bdinfo.main_m2ts = Path(m2ts_path).name
         size_gb = Path(m2ts_path).stat().st_size / 1e9

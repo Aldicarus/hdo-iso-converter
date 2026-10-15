@@ -2488,7 +2488,13 @@ async def reset_chapters(session_id: str):
             # fallaba siempre con un mensaje que no señalaba la causa.
             from phases.phase_a import parse_mpls_chapters, run_mkvmerge_identify
 
-            _, mpls_path = await run_mkvmerge_identify(src.bdmv_root)
+            # El MPLS de la SESIÓN, el mismo que lee el pipeline. Volver a
+            # elegirlo restauraba los capítulos de otro título: en una serie,
+            # los del MPLS más «de película» del disco en vez del episodio, y
+            # en una sesión creada con otra regla de selección, los de otro.
+            mpls_path = _mpls_de_la_sesion(session, src.bdmv_root)
+            if not mpls_path:
+                _, mpls_path = await run_mkvmerge_identify(src.bdmv_root)
             chapters_raw = parse_mpls_chapters(mpls_path)
     except HTTPException:
         raise
@@ -2508,6 +2514,29 @@ async def reset_chapters(session_id: str):
 
 
 # ── Ejecución del pipeline (Fases D + E) ──────────────────────────────────────
+
+def _mpls_de_la_sesion(session, disc_root: str) -> str | None:
+    """El MPLS que reproduce la sesión, dentro del disco abierto en ``disc_root``.
+
+    ``session.mpls_path`` en una serie (el del episodio) y
+    ``bdinfo_result.main_mpls`` en una película (el que eligió la Fase A). Se
+    persiste solo el nombre porque el punto de montaje cambia entre montajes.
+    ``None`` si la sesión no lo sabe o el fichero ya no está.
+    """
+    nombre = None
+    if session.mpls_path:
+        nombre = Path(session.mpls_path).name
+    elif session.bdinfo_result and session.bdinfo_result.main_mpls:
+        nombre = session.bdinfo_result.main_mpls
+    if not nombre:
+        return None
+    for playlist_dir in (Path(disc_root) / "BDMV" / "PLAYLIST",
+                         Path(disc_root) / "PLAYLIST"):
+        candidato = playlist_dir / nombre
+        if candidato.exists():
+            return str(candidato)
+    return None
+
 
 def _check_source_available(session) -> tuple[bool, str, str]:
     """Verifica que el origen referenciado por la sesión sigue disponible
@@ -2862,24 +2891,8 @@ async def _run_pipeline(session_id: str) -> None:
             #   1. session.mpls_path (modo serie — nombre del MPLS específico)
             #   2. session.bdinfo_result.main_mpls (modo película — detectado en Fase A)
             #   3. find_main_mpls (fallback general)
-            mkvmerge_source = None
-            preferred_mpls_name = None
-            if session.mpls_path:
-                preferred_mpls_name = Path(session.mpls_path).name
-            elif session.bdinfo_result and session.bdinfo_result.main_mpls:
-                preferred_mpls_name = session.bdinfo_result.main_mpls
-
-            if preferred_mpls_name:
-                for candidate_dir in [
-                    Path(mount_point) / "BDMV" / "PLAYLIST",
-                    Path(mount_point) / "PLAYLIST",
-                ]:
-                    candidate_path = candidate_dir / preferred_mpls_name
-                    if candidate_path.exists():
-                        mkvmerge_source = str(candidate_path)
-                        break
-            if not mkvmerge_source:
-                mkvmerge_source = find_main_mpls(mount_point)
+            mkvmerge_source = (_mpls_de_la_sesion(session, mount_point)
+                               or find_main_mpls(mount_point))
             await log('[Fase A] ' + tr('tab1.playlist_principal', p1=Path(mkvmerge_source).name))
 
         # Alias mpls_path para no romper código posterior — semánticamente
