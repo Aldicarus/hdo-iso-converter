@@ -2861,6 +2861,12 @@ def _resolve_m2ts_from_mpls(share_path: str, mpls_path: str,
     """Determina el m2ts referenciado por un MPLS específico.
 
     Estrategia (orden de preferencia):
+      0. El m2ts más grande de los que reproduce el MPLS, leído del binario
+         (``m2ts_principal_del_mpls``). Va primero porque el 1 da el PRIMER
+         fichero del playlist, y en un disco que abre cada episodio con un
+         clip compartido —la cabecera de un anime, un aviso— ese primero es
+         el mismo para todos: los episodios se fusionaban como «variantes»
+         en el dedupe y MediaInfo y el conteo PGS analizaban la cabecera.
       1. Leer `container.properties.playlist_file` o `playlist_files` del
          JSON de mkvmerge -J — campo estándar que apunta al m2ts asociado.
       2. Convención de nombre: '00800.mpls' → '00800.m2ts' en BDMV/STREAM/.
@@ -2871,6 +2877,10 @@ def _resolve_m2ts_from_mpls(share_path: str, mpls_path: str,
 
     Devuelve la ruta absoluta del m2ts o None si no se puede resolver.
     """
+    principal = m2ts_principal_del_mpls(mpls_path)
+    if principal:
+        return principal
+
     props = (mkvmerge_data.get("container") or {}).get("properties") or {}
     pf = props.get("playlist_file") or props.get("playlist_files")
     if isinstance(pf, list) and pf:

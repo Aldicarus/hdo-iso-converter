@@ -1351,6 +1351,35 @@ def ffmpeg(sc):
     return 0
 
 
+def ficheros_de_playlist(mpls):
+    """Los m2ts que reproduce un MPLS, como los lista `mkvmerge -J` en su
+    `playlist_file`: en el orden de los PlayItems y CON repeticiones
+    (`open_multi` de mkvtoolnix, sin deduplicar). `None` si no es un MPLS
+    de verdad, o sea, si el test no lo construyó como tal."""
+    try:
+        data = Path(mpls).read_bytes()
+    except OSError:
+        return None
+    if len(data) < 40 or data[:4] != b"MPLS":
+        return None
+    try:
+        p = int.from_bytes(data[8:12], "big") + 6
+        n = int.from_bytes(data[p:p + 2], "big")
+        p += 4
+        stream = Path(mpls).parent.parent / "STREAM"
+        out = []
+        for _ in range(n):
+            largo = int.from_bytes(data[p:p + 2], "big")
+            clip = data[p + 2:p + 7].decode("ascii")
+            f = stream / (clip + ".m2ts")
+            if f.exists():
+                out.append(str(f))
+            p += 2 + largo
+        return out
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
 def mkvmerge(sc):
     # `-J` y `--identify --identification-format json` son EQUIVALENTES en
     # mkvmerge, y el pipeline usa las dos: Tab 2 y la Fase A van con `-J`, la
@@ -1416,6 +1445,14 @@ def mkvmerge(sc):
                 "playlist_duration": int(spec["duration_s"] * 1e9),
                 "playlist_size": spec["playlist_size"],
             })
+        # Un MPLS de verdad trae SIEMPRE su `playlist_file`. Sin él, quien lo
+        # lee caía a la convención de nombre (`00801.mpls` → `00801.m2ts`) y
+        # ningún test veía qué pasa cuando el primer fichero del playlist no
+        # es el del episodio.
+        lista = ficheros_de_playlist(positional[-1]) if positional else None
+        if lista is not None:
+            propiedades["playlist"] = True
+            propiedades["playlist_file"] = lista
         sys.stdout.write(json.dumps({
             "container": {"supported": True, "properties": propiedades},
             "tracks": out,

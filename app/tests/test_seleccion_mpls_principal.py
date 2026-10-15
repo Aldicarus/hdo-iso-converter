@@ -393,6 +393,41 @@ class TestLosEpisodiosEntranEnLaCriba(unittest.IsolatedAsyncioTestCase):
                          ["00801.mpls", "00802.mpls", "00803.mpls"])
 
 
+class TestUnaCabeceraCompartidaNoFusionaLosEpisodios(unittest.IsolatedAsyncioTestCase):
+    """Cada episodio abre con el mismo clip —la cabecera de un anime—. El
+    m2ts «del episodio» era el PRIMERO de su `playlist_file`, o sea la
+    cabecera para todos: el dedupe los fusionaba como variantes del mismo
+    título y el filtro de tamaño medía la cabecera."""
+
+    async def asyncSetUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="mpls_sel_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tb = FakeToolbox(self.tmp)
+        self.tb.install()
+        self.addCleanup(self.tb.uninstall)
+        playlists, m2ts = {}, {"00700": CLIP_TRAILER}
+        for ep in ("00801", "00802", "00803"):
+            playlists[f"{ep}.mpls"] = ["00700", ep]
+            m2ts[ep] = PELICULA // 4
+            self.tb.define_mkv(f"{ep}.mpls", tracks=PISTAS_PELICULA,
+                               duration_s=45 * 60.0)
+        self.disco = _disco(self.tmp / "Anime", playlists, m2ts)
+
+    async def test_el_mkvmerge_falso_da_la_cabecera_primero(self):
+        """La premisa: sin esto el test de abajo no probaría nada."""
+        data = await phase_a._run_mkvmerge_j(
+            str(self.disco / "BDMV" / "PLAYLIST" / "00802.mpls"))
+        primero = data["container"]["properties"]["playlist_file"][0]
+        self.assertEqual(Path(primero).name, "00700.m2ts")
+
+    async def test_salen_los_tres_episodios(self):
+        candidatos = await phase_a.identify_episode_candidates(str(self.disco))
+        self.assertEqual([c["mpls_name"] for c in candidatos],
+                         ["00801.mpls", "00802.mpls", "00803.mpls"])
+        self.assertEqual([Path(c["m2ts_resolved_path"]).name for c in candidatos],
+                         ["00801.m2ts", "00802.m2ts", "00803.m2ts"])
+
+
 # ── Restaurar capítulos: el MPLS de la sesión ──────────────────────────
 
 class TestRestaurarCapitulosLeeElMplsDeLaSesion(ApiTestCase):
