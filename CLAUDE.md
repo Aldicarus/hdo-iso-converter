@@ -2732,13 +2732,13 @@ mkvmerge para emparejar las capas (`contains_dovi_base_layer_for_enhancement_lay
 - **Contar vídeos no basta**: los E10 de Juego de Tronos listan la BL dos veces
   en MediaInfo. Lo que separa es la mitad de resolución, y tiene su test.
 
-**Lo que esto no garantiza** es que el MKV lleve la EL. Que mkvmerge la oculte
-dice que la emparejó, y emparejada la combina al muxear — pero una pista que no
-llega a sondearse **tampoco tiene ID**, y desde el `-J` los dos casos se ven
-igual. Ningún disco con la EL al final se ha ripeado todavía en el NAS (la
-sesión de Pulp Fiction está sin ejecutar), y `_validate_final_mkv` no mira el
-DV. Para confirmarlo, la radiografía de Tab 2 sobre el MKV resultante: Profile 7
-y su tipo de capa.
+**Que el MKV lleve la EL no lo decide la detección**, y desde el `-J` no se
+podía saber: que mkvmerge la oculte dice que la emparejó, pero una pista que no
+llega a sondearse **tampoco tiene ID**, y los dos casos se ven igual.
+**Confirmado con el disco real** (2026-10-16): el usuario externo ripeó
+Apocalypse Now con v3.3.1 y la radiografía de Tab 2 da **Profile 7 FEL**, así
+que mkvmerge la combina aunque vaya la última. Es un disco; `_validate_final_mkv`
+sigue sin mirar el DV.
 
 **Y el MaxCLL/MaxFALL de Tab 1 se perdía igual que el de Tab 2**: el `int()`
 sobre `'300 cd/m2'` lo dejaba en `None`, y 19 sesiones del NAS lo traían en el
