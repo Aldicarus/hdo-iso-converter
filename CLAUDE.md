@@ -2716,9 +2716,26 @@ se distingue de nada. Medido sobre las 84 sesiones del NAS: las dos únicas con
 la EL en MediaInfo y sin hueco en mkvmerge son Pulp Fiction y esta, las dos de
 HDO.
 
-La tercera vía es **`capa_de_mejora_en_mediainfo`**, y su regla es la de
-mkvmerge para emparejar las capas (`contains_dovi_base_layer_for_enhancement_layer`):
-**un HEVC a la mitad de ancho y alto que otro HEVC** del mismo fichero.
+La tercera vía es **`capa_de_mejora_en_mediainfo`**: **un HEVC a la mitad de
+ancho y alto que otro, y que `mkvmerge -J` NO lista**. Las dos mitades salen del
+`r_mpeg_ts.cpp` de mkvmerge, y hacen falta las dos:
+
+- la resolución es la de su emparejamiento para un Profile 7 UHD
+  (`contains_dovi_base_layer_for_enhancement_layer`: BL a 3840x2160, EL a
+  1920x1080);
+- pero `pair_dovi_base_and_enhancement_layer_tracks` solo oculta una pista con
+  **configuración Dolby Vision** (`m_dovi_config`, del descriptor del PMT o de
+  un RPU que encuentra al sondear). Un HEVC secundario sin DV a la mitad de
+  resolución sale **listado**, y con la resolución sola se tomaba por una EL —
+  el falso positivo que encontró la revisión externa (Codex) del 2026-10-16.
+
+Se compara por **PID**: el `ID` de MediaInfo (en decimal, `"4117"`) contra el
+`properties.number` de los **vídeos** de `mkvmerge -J`, que en un MPEG-TS es el
+PID. Medido sobre las 81 sesiones del NAS con MediaInfo: mkvmerge lista un solo
+vídeo (4113) y la EL es siempre el HEVC 1920x1080 de PID 4117 que no lista, así
+que ningún disco cambia de resultado. Solo vídeos porque el JSON de un MPLS sale
+de su primer clip y MediaInfo mira el m2ts mayor: se compara lo mínimo. Si falta
+el PID en un lado, se cuenta: más HEVC distintos en MediaInfo que en mkvmerge.
 
 - **Va en `enrich_tracks_with_mediainfo`**, no en `_detect_fel`, porque
   MediaInfo corre después de mkvmerge; y así la ven los tres puntos de entrada
@@ -2729,8 +2746,32 @@ mkvmerge para emparejar las capas (`contains_dovi_base_layer_for_enhancement_lay
   —su `HDR_Format` dice «SMPTE ST 2086» en las DOS pistas de los 39 discos
   dual-layer del corpus—, así que FEL o MEL lo sigue diciendo dovi_tool, y si
   falla la tarjeta enseña «dual-layer sin confirmar», que es la verdad.
-- **Contar vídeos no basta**: los E10 de Juego de Tronos listan la BL dos veces
-  en MediaInfo. Lo que separa es la mitad de resolución, y tiene su test.
+- **Contar vídeos no basta**: en 7 discos del NAS (Juego de Tronos, La Momia)
+  MediaInfo lista además un «AVC 1920x1080» con el MISMO ID que la BL. Para
+  ffmpeg y mkvmerge un PID es UNA pista, así que `_hevc_de_mediainfo` cuenta uno
+  por PID; y el AVC no entra porque la EL es HEVC.
+- **Queda abierto, y no es de este cambio**: si mkvmerge LISTA un HEVC 1080p
+  junto al de 2160p, `_build_video_tracks` lo marca EL (la vía 1, de cuando
+  mkvmerge no combinaba las capas) y con dovi_tool fallando queda «FEL
+  asumido». Con el mkvmerge actual eso es un HEVC que no emparejó, o sea sin
+  DV, pero un UHD Blu-ray con un segundo vídeo HEVC no aparece en el corpus.
+
+**La muestra de dovi_tool se saca por el PID de la EL** (`-map 0:i:4117`, de
+`pid_de_la_capa_de_mejora`), no con `-map 0:v:1`. El segundo vídeo es la EL
+solo si el m2ts tiene dos; con un vídeo secundario delante, `0:v:1` coge ese:
+si es AVC, ffmpeg falla en el `hevc_mp4toannexb`, y si es HEVC, dovi_tool dice
+«No RPU was found» — y en los dos casos el disco se queda sin confirmar.
+Comprobado con el ffmpeg de producción (n7.1.5) sobre un TS sintético con los
+tres PIDs.
+
+- **Vale también para la EL que vio `_detect_fel`**: la pista es la misma, la
+  vea quien la vea. Por eso la candidata que mkvmerge ocultó tiene preferencia
+  pero una que LISTA también da su PID — la primera versión la descartaba y
+  devolvía la muestra al segundo vídeo; lo encontró la segunda pasada de Codex,
+  sobre el plan antes de escribirlo.
+- **Sin PID (sin MediaInfo, o sin `ID`), `0:v:1` como antes.** Si el map por PID
+  falla no se reintenta con el segundo vídeo: el PID sale del MediaInfo del
+  mismo fichero, y si no está ahí, el segundo vídeo tampoco es de fiar.
 
 **Que el MKV lleve la EL no lo decide la detección**, y desde el `-J` no se
 podía saber: que mkvmerge la oculte dice que la emparejó, pero una pista que no
@@ -2745,9 +2786,21 @@ sobre `'300 cd/m2'` lo dejaba en `None`, y 19 sesiones del NAS lo traían en el
 JSON crudo de MediaInfo. El parser es uno, `phase_a.nits_de_mediainfo`, y
 `mkv_analyze` lo importa.
 
-El MediaInfo falso emite ahora `Width`/`Height` en el vídeo y, con
-`video={"el": True}`, la segunda pista HEVC a 1920x1080 con su `@typeorder`,
-como el real. `test_capa_de_mejora_dv.py` (17 tests, 5 mutaciones).
+**El ffmpeg falso ignoraba `-map`**: devolvía el contenido de la EL saliera el
+stream que saliera, así que ningún test podía ver que se muestreaba el vídeo
+equivocado. Hoy, sobre un m2ts con sus vídeos declarados, resuelve `0:v:N` y
+`0:i:PID` contra ellos y devuelve los dos errores reales (el map que no casa y
+el AVC en el filtro), y un vídeo que no es la EL sale **sin RPU**, sobre el que
+el dovi_tool falso falla como el real (código 1, `Error: No RPU was found in
+input file`, comprobado en el NAS). El MediaInfo falso da `ID` a cada vídeo
+(4113 la BL, 4117 la EL), admite vídeos extra (`video={"extra": [...]}`) y
+numera los `@typeorder`; el mkvmerge falso emite `properties.number` —el PID en
+un `.mpls`/`.m2ts`, con la numeración de un UHD Blu-ray, y el número de pista
+en un MKV—, como el real. `test_capa_de_mejora_dv.py` (32 tests, 5
+mutaciones del código). Y dos sobre el arnés que enseñan para qué sirve: con
+el bug de `0:v:1` y sin mirar el argv, los tests de «otro vídeo delante»
+fallan porque dovi_tool no confirma; con el ffmpeg falso ignorando `-map`
+pasan los tres, y sin el «No RPU» del dovi_tool falso pasa el de dos HEVC.
 
 ### El título principal: lo que dura, no lo que pesa el .mpls
 

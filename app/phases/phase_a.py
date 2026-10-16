@@ -2549,13 +2549,82 @@ def nits_de_mediainfo(valor) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def capa_de_mejora_en_mediainfo(mi: MediaInfoResult | None) -> bool:
-    """¿Ve MediaInfo la Enhancement Layer de un Dolby Vision dual-layer?
+def _hevc_de_mediainfo(mi: MediaInfoResult | None) -> list[tuple[int | None, int, int]]:
+    """Los vídeos HEVC que lista MediaInfo, como `(pid, ancho, alto)`.
 
-    Es la regla con la que el propio mkvmerge empareja las dos capas
-    (`contains_dovi_base_layer_for_enhancement_layer`, en su lector MPEG-TS):
-    un HEVC cuyo ancho y alto son la MITAD de los de otro HEVC del mismo
-    fichero — en un UHD Blu-ray, la BL a 3840x2160 y la EL a 1920x1080.
+    El `ID` de MediaInfo en un m2ts es el PID en decimal (`"4117"`). Uno por
+    PID: MediaInfo puede describir dos veces el mismo stream, y para ffmpeg y
+    mkvmerge un PID es UNA pista. Sin `ID` cada entrada cuenta aparte.
+    """
+    if mi is None or not mi.raw_json:
+        return []
+    vistos: set[int] = set()
+    out = []
+    for t in mi.raw_json.get("media", {}).get("track", []):
+        if t.get("@type") != "Video" or str(t.get("Format", "")).upper() != "HEVC":
+            continue
+        try:
+            an, al = int(t.get("Width")), int(t.get("Height"))
+        except (TypeError, ValueError):
+            continue
+        m = _RE_PRIMER_ENTERO.match(str(t.get("ID") or ""))
+        pid = int(m.group(1)) if m else None
+        if pid is not None:
+            if pid in vistos:
+                continue
+            vistos.add(pid)
+        out.append((pid, an, al))
+    return out
+
+
+def pids_de_mkvmerge(bdinfo: BDInfoResult) -> set[int] | None:
+    """Los PIDs de los VÍDEOS que lista `mkvmerge -J` (`properties.number`).
+
+    Lo que mkvmerge NO lista es lo que ha ocultado, y lo único que oculta en un
+    MPEG-TS es la capa de mejora que ha emparejado con su BL. Solo vídeos: el
+    JSON de un MPLS sale de su primer clip y MediaInfo mira el m2ts mayor, así
+    que se compara lo mínimo — en un Blu-ray los PIDs van por rangos según el
+    tipo de pista y un audio no puede llevar el de una EL, pero un m2ts suelto
+    no tiene por qué seguirlos. `None` si el JSON no trae PIDs de vídeo:
+    entonces no se sabe qué ocultó.
+    """
+    pids = set()
+    for t in (bdinfo.mkvmerge_raw or {}).get("tracks", []):
+        n = (t.get("properties") or {}).get("number")
+        if t.get("type") == "video" and isinstance(n, int):
+            pids.add(n)
+    return pids or None
+
+
+def _candidatas_a_capa(mi: MediaInfoResult | None) -> tuple[int, list[int | None]]:
+    """(cuántos HEVC distintos lista MediaInfo, PIDs de los que están a la
+    mitad de ancho y alto que otro). Un PID `None` es una pista sin `ID`."""
+    hevc = _hevc_de_mediainfo(mi)
+    tamanos = {(an, al) for _, an, al in hevc}
+    return len(hevc), [pid for pid, an, al in hevc if (an * 2, al * 2) in tamanos]
+
+
+def _capa_oculta(mi: MediaInfoResult | None, pids_listados: set[int] | None,
+                 hevc_listados: int) -> bool:
+    """¿Hay una candidata a capa de mejora que mkvmerge NO lista?"""
+    n_hevc, candidatas = _candidatas_a_capa(mi)
+    if not candidatas:
+        return False
+    if pids_listados is not None:
+        conocidas = [pid for pid in candidatas if pid is not None]
+        if any(pid not in pids_listados for pid in conocidas):
+            return True
+        if len(conocidas) == len(candidatas):
+            return False
+    # Sin PIDs en algún lado: lo que sí se sabe es cuántos HEVC hay en cada
+    # lista, y si MediaInfo ve más que mkvmerge, alguno está oculto.
+    return n_hevc > hevc_listados
+
+
+def capa_de_mejora_en_mediainfo(mi: MediaInfoResult | None, *,
+                                pids_listados: set[int] | None,
+                                hevc_listados: int) -> bool:
+    """¿Ve MediaInfo la Enhancement Layer de un Dolby Vision dual-layer?
 
     Hace falta porque `_detect_fel` no lo ve todo. mkvmerge combina la EL con
     la BL y la oculta, pero le deja su ID, y los IDs van en el orden del PMT.
@@ -2565,40 +2634,70 @@ def capa_de_mejora_en_mediainfo(mi: MediaInfoResult | None) -> bool:
     se ve. Medido sobre las 84 sesiones del NAS: las dos únicas con la EL en
     MediaInfo y sin hueco en mkvmerge son esa.
 
+    La EL es **un HEVC a la mitad de ancho y alto que otro, y que mkvmerge NO
+    lista**. Las dos mitades hacen falta:
+
+    - la resolución es la de mkvmerge para un Profile 7 UHD
+      (`contains_dovi_base_layer_for_enhancement_layer`: BL a 3840x2160, EL a
+      1920x1080);
+    - pero mkvmerge solo empareja —y oculta— una pista con configuración Dolby
+      Vision (`m_dovi_config`, del descriptor del PMT o de un RPU en el
+      stream). Un HEVC secundario sin DV a la mitad de resolución sale
+      LISTADO, y con la resolución sola se tomaba por una EL.
+
+    `pids_listados` son los PIDs del `mkvmerge -J` (`pids_de_mkvmerge`) y
+    `hevc_listados`, cuántos HEVC lista. Se comparan PIDs; si falta alguno, se
+    cuentan HEVC. Medido sobre las 81 sesiones del NAS con MediaInfo: en todas,
+    la EL es el HEVC 1920x1080 de PID 4117 que mkvmerge no lista.
+
     MediaInfo no sirve para decir QUÉ es la capa: su `HDR_Format` da «SMPTE
     ST 2086» en las dos pistas de los 39 discos dual-layer del corpus. Eso lo
     sigue diciendo `dovi_tool`, que corre en cuanto esto da True.
     """
-    if mi is None or not mi.raw_json:
-        return False
-    tamanos = []
-    for t in mi.raw_json.get("media", {}).get("track", []):
-        if t.get("@type") != "Video" or str(t.get("Format", "")).upper() != "HEVC":
-            continue
-        try:
-            tamanos.append((int(t.get("Width")), int(t.get("Height"))))
-        except (TypeError, ValueError):
-            continue
-    return any(
-        (an * 2, al * 2) in tamanos
-        for an, al in tamanos
-    )
+    return _capa_oculta(mi, pids_listados, hevc_listados)
 
 
-async def run_dovi_analysis(m2ts_path: str) -> DoviInfo | None:
+def pid_de_la_capa_de_mejora(bdinfo: BDInfoResult) -> int | None:
+    """El PID de la EL según el MediaInfo del m2ts, para sacar su muestra.
+
+    `run_dovi_analysis` la sacaba con `-map 0:v:1`, el segundo vídeo, que es la
+    EL solo si el m2ts tiene dos. Con el PID no depende de cuántos haya ni de
+    dónde vaya la EL en el PMT. Vale también cuando la vio `_detect_fel`: la
+    pista es la misma, la vea quien la vea.
+
+    Manda la candidata que mkvmerge ocultó, pero una que LISTA también vale: es
+    la vía de `_detect_fel` con un mkvmerge que da la EL como pista aparte, y
+    ahí descartarla devolvía la muestra al segundo vídeo — que, con otro vídeo
+    delante, no es la EL. `None` sin MediaInfo o sin `ID`.
+    """
+    _, candidatas = _candidatas_a_capa(bdinfo.mediainfo_result)
+    conocidas = [pid for pid in candidatas if pid is not None]
+    listados = pids_de_mkvmerge(bdinfo) or set()
+    return next((pid for pid in conocidas if pid not in listados),
+                conocidas[0] if conocidas else None)
+
+
+async def run_dovi_analysis(m2ts_path: str, el_pid: int | None = None) -> DoviInfo | None:
     """
     Pipeline dovi_tool: ffmpeg extrae 30s del EL → extract-rpu → info --summary.
     Devuelve DoviInfo o None si falla. Limpia ficheros temporales siempre.
+
+    `el_pid` es el PID de la EL (`pid_de_la_capa_de_mejora`): la muestra se
+    saca de ese stream (`-map 0:i:PID`). Sin él, del segundo vídeo, que es la
+    EL cuando el m2ts tiene dos. Si el map por PID falla no se prueba con el
+    segundo vídeo: el PID sale del MediaInfo del mismo fichero, y si no está
+    ahí, el segundo vídeo tampoco es de fiar.
     """
     pid = os.getpid()
     tmp_el = str(Path(TMP_DIR) / f"_el_sample_{pid}.hevc")
     tmp_rpu = str(Path(TMP_DIR) / f"_rpu_{pid}.bin")
+    mapa = f"0:i:{el_pid}" if el_pid is not None else "0:v:1"
 
     try:
         # Paso 1: Extraer 30s del Enhancement Layer
         proc = await asyncio.create_subprocess_exec(
             FFMPEG_BIN, "-y", "-i", m2ts_path,
-            "-map", "0:v:1", "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
+            "-map", mapa, "-c:v", "copy", "-bsf:v", "hevc_mp4toannexb",
             "-t", "30", "-f", "hevc", tmp_el,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -2835,7 +2934,9 @@ def enrich_tracks_with_mediainfo(bdinfo: BDInfoResult, mi: MediaInfoResult) -> N
     # con el mismo «FEL asumido» que el hueco: lo que dice qué capa es, FEL o
     # MEL, es `dovi_tool`, y esto es lo que hace que llegue a correr.
     if (not bdinfo.has_fel and not any(v.is_el for v in bdinfo.video_tracks)
-            and capa_de_mejora_en_mediainfo(mi)):
+            and capa_de_mejora_en_mediainfo(
+                mi, pids_listados=pids_de_mkvmerge(bdinfo),
+                hevc_listados=sum(1 for v in bdinfo.video_tracks if "HEVC" in v.codec))):
         bdinfo.has_fel = True
         bdinfo.fel_reason = tr('phase_a.dolby_vision_dual_layer_mediainfo')
 
@@ -3010,7 +3111,7 @@ async def run_full_analysis(
                 if log_callback:
                     analysis_progress.fijar(step='dovi', done=False)
                     await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision_2'))
-                dovi = await run_dovi_analysis(m2ts_path)
+                dovi = await run_dovi_analysis(m2ts_path, el_pid=pid_de_la_capa_de_mejora(bdinfo))
                 if dovi:
                     enrich_dovi(bdinfo, dovi)
                     if log_callback:
@@ -3226,7 +3327,7 @@ async def run_full_analysis_for_mpls(
                 if log_callback:
                     analysis_progress.fijar(step='dovi', done=False)
                     await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision_3'))
-                dovi = await run_dovi_analysis(m2ts_path)
+                dovi = await run_dovi_analysis(m2ts_path, el_pid=pid_de_la_capa_de_mejora(bdinfo))
                 if dovi:
                     enrich_dovi(bdinfo, dovi)
                     if log_callback:
@@ -3376,7 +3477,7 @@ async def run_full_analysis_for_m2ts(
             if log_callback:
                 analysis_progress.fijar(step='dovi', done=False)
                 await log_callback('[Fase A] └─ ' + tr('phase_a.paso_4_4_analizando_dolby_vision'))
-            dovi = await run_dovi_analysis(m2ts_path)
+            dovi = await run_dovi_analysis(m2ts_path, el_pid=pid_de_la_capa_de_mejora(bdinfo))
             if dovi:
                 enrich_dovi(bdinfo, dovi)
                 if log_callback:

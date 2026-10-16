@@ -685,6 +685,10 @@ DEFAULT_PROPS = {
     # title=` tiene que verse después en `mkvmerge -J`, y sin eso ningún test
     # puede comprobar qué sobrevive a una edición de metadatos.
     "title": None,
+    # Un stream SIN RPU: lo que sale de sacar con ffmpeg un vídeo de un m2ts
+    # que no es la Enhancement Layer. `extract-rpu` falla sobre él igual que
+    # el real (ver `dovi_tool`), y es lo que deja ver qué stream se muestreó.
+    "sin_rpu": False,
 }
 
 
@@ -1028,9 +1032,15 @@ def dovi_tool(sc, sub, json_args):
                 datos = sys.stdin.buffer.read()
             except Exception:
                 pass
-            produce(out, props_from_stream(datos, sc))
-            return 0
-        produce(out, read_props(src, sc))
+            props = props_from_stream(datos, sc)
+        else:
+            props = read_props(src, sc)
+        if props.get("sin_rpu"):
+            # dovi_tool 2.3.3 sobre un HEVC sin RPU, comprobado en el NAS:
+            # código 1, ningún fichero de salida y esta línea.
+            sys.stderr.write("Error: No RPU was found in input file\n")
+            return 1
+        produce(out, props)
         return 0
 
     if sub == "export":
@@ -1194,19 +1204,31 @@ def mediainfo(sc):
             "Format": v.get("format", "HEVC"),
             "Width": str(v.get("width", 3840)),
             "Height": str(v.get("height", 2160)),
+            # El PID en decimal: 4113 (0x1011) en la BL de los 81 discos del
+            # NAS con MediaInfo. Es lo que se cruza con el `number` de mkvmerge.
+            "ID": str(v.get("id", 4113)),
         })
+        # Otros vídeos del m2ts: un picture-in-picture, o el «AVC 1920x1080»
+        # que MediaInfo lista con el MISMO ID que la BL en 7 discos del NAS
+        # (Juego de Tronos, La Momia) y que para ffmpeg no es otro stream.
+        for x in v.get("extra", []):
+            tracks.append({
+                "@type": "Video",
+                "StreamOrder": str(x.get("stream_order", "0-1")),
+                "ID": str(x["id"]),
+                "Format": x.get("format", "HEVC"),
+                "Width": str(x.get("width", 1920)),
+                "Height": str(x.get("height", 1080)),
+            })
         # La Enhancement Layer de un Dolby Vision dual-layer: el MediaInfo real
         # la lista como un segundo vídeo HEVC a la mitad de resolución —en los
         # 39 discos dual-layer del NAS, siempre 1920x1080— y con el mismo
         # `HDR_Format` que la BL, así que ese campo no la distingue.
         if v.get("el"):
-            # Con dos pistas del mismo tipo, MediaInfo numera cada una.
-            tracks[-1]["@typeorder"] = "1"
             tracks.append({
                 "@type": "Video",
-                "@typeorder": "2",
                 "StreamOrder": str(v.get("el_stream_order", "0-1")),
-                "ID": "4117",
+                "ID": str(v.get("el_id", 4117)),
                 "Format": "HEVC",
                 "Width": "1920",
                 "Height": "1080",
@@ -1214,6 +1236,11 @@ def mediainfo(sc):
                 "colour_primaries": "BT.2020",
                 "transfer_characteristics": "PQ",
             })
+        # Con varias pistas del mismo tipo, MediaInfo numera cada una.
+        vids = [t for t in tracks if t["@type"] == "Video"]
+        if len(vids) > 1:
+            for n, t in enumerate(vids, 1):
+                t["@typeorder"] = str(n)
     for i, a in enumerate(spec["audio"]):
         tracks.append({
             "@type": "Audio",
@@ -1323,6 +1350,26 @@ def props_from_stream(datos, sc):
 
 def ffmpeg(sc):
     props = read_props(opt("-i"), sc)
+    # `-map` sobre un m2ts con sus vídeos declarados. El fake lo ignoraba y
+    # devolvía la EL saliera el stream que saliera, así que ningún test podía
+    # ver que se muestreaba el vídeo equivocado. Los dos errores son los del
+    # ffmpeg de producción (n7.1.5), copiados de un TS sintético en el NAS.
+    mapa = opt("-map")
+    videos = _videos_del_ts(sc, Path(opt("-i") or "").name) if mapa else None
+    if videos is not None:
+        elegido = _resolver_map(videos, mapa)
+        if elegido is None:
+            sys.stderr.write("Stream map '' matches no streams.\nTo ignore this, "
+                             "add a trailing '?' to the map.\n")
+            return 234
+        if elegido["format"] != "HEVC" and opt("-bsf:v") == "hevc_mp4toannexb":
+            sys.stderr.write(
+                "[hevc_mp4toannexb @ 0x557b15fb4d40] Codec 'h264' (27) is not "
+                "supported by the bitstream filter 'hevc_mp4toannexb'. "
+                "Supported codecs are: hevc (173)\n")
+            return 234
+        if not elegido["el"]:
+            props = dict(props, sin_rpu=True)
     positional = [a for a in ARGV if not a.startswith("-")]
     salidas = []
     if opt("-f") == "tee" and positional:
@@ -1370,6 +1417,64 @@ def ffmpeg(sc):
             ))
         sys.stderr.flush()
     return 0
+
+
+def _number_por_defecto(name, tracks, i):
+    """El `number` de `mkvmerge -J` cuando el escenario no lo da.
+
+    En un MPEG-TS (`.mpls`, `.m2ts`) es el PID, con la numeración de un UHD
+    Blu-ray: vídeo 0x1011 (y 0x1015 el segundo, que es el de la EL), audio
+    desde 0x1100 y PGS desde 0x1200. En un MKV, el número de pista.
+    """
+    if Path(name).suffix.lower() not in (".mpls", ".m2ts", ".ts"):
+        return i + 1
+    tipo = tracks[i]["type"]
+    k = sum(1 for t in tracks[:i] if t["type"] == tipo)
+    base = {"video": 0x1011, "audio": 0x1100}.get(tipo, 0x1200)
+    return base + (4 * k if tipo == "video" else k)
+
+
+def _videos_del_ts(sc, name):
+    """Los vídeos de un m2ts tal como los ve ffmpeg: uno por PID, en el orden
+    del PMT. Salen de lo declarado con `define_mediainfo`, que es la
+    descripción del fichero. `None` si el escenario no los detalló (sin `el`
+    ni `extra`): entonces el ffmpeg falso no resuelve el `-map`, como antes."""
+    if Path(name).suffix.lower() not in (".m2ts", ".ts"):
+        return None
+    v = (sc.get("mediainfo", {}).get(name) or {}).get("video")
+    if not isinstance(v, dict) or not ("el" in v or "extra" in v):
+        return None
+
+    def orden(so):
+        return int(str(so).split("-")[-1] or 0)
+
+    videos = [{"pid": int(v.get("id", 4113)), "format": v.get("format", "HEVC"),
+               "el": False, "orden": 0}]
+    for x in v.get("extra", []):
+        videos.append({"pid": int(x["id"]), "format": x.get("format", "HEVC"),
+                       "el": False, "orden": orden(x.get("stream_order", "0-1"))})
+    if v.get("el"):
+        videos.append({"pid": int(v.get("el_id", 4117)), "format": "HEVC",
+                       "el": True, "orden": orden(v.get("el_stream_order", "0-1"))})
+    unicos = {}
+    for x in sorted(videos, key=lambda x: x["orden"]):
+        unicos.setdefault(x["pid"], x)
+    return list(unicos.values())
+
+
+def _resolver_map(videos, mapa):
+    """El vídeo que selecciona `-map`, o None si no casa con ninguno.
+
+    Las dos formas que usa la app: `0:v:N` (el N-ésimo vídeo) y `0:i:PID`
+    (por PID, en decimal o `0x…`; ffmpeg acepta también `0:#PID`)."""
+    if mapa.startswith("0:v:"):
+        n = int(mapa[4:])
+        return videos[n] if n < len(videos) else None
+    for pre in ("0:i:", "0:#"):
+        if mapa.startswith(pre):
+            pid = int(mapa[len(pre):], 0)
+            return next((x for x in videos if x["pid"] == pid), None)
+    return None
 
 
 def ficheros_de_playlist(mpls):
@@ -1436,6 +1541,11 @@ def mkvmerge(sc):
                 props["audio_sampling_frequency"] = t["sample_rate"]
             if t.get("multiplexed_tracks"):
                 props["multiplexed_tracks"] = t["multiplexed_tracks"]
+            # `number`: el mkvmerge real lo emite siempre. En un MPEG-TS es el
+            # PID —4113 la BL de todos los discos del NAS— y en un MKV, el
+            # número de pista. Es lo que deja ver qué pista OCULTÓ mkvmerge:
+            # la EL que empareja con su BL no sale en la lista.
+            props["number"] = t.get("number", _number_por_defecto(name, spec["tracks"], i))
             out.append({"id": t.get("id", i), "type": t["type"],
                         "codec": t.get("codec", ""), "properties": props})
         # El `SegmentUID`. mkvmerge lo emite SIEMPRE, así que sin firma no
