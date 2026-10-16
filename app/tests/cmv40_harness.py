@@ -1236,6 +1236,9 @@ def mediainfo(sc):
                 "colour_primaries": "BT.2020",
                 "transfer_characteristics": "PQ",
             })
+            if v.get("el_id", 4117) is None:
+                # `el_id=None`: MediaInfo no da el PID de la EL.
+                del tracks[-1]["ID"]
         # Con varias pistas del mismo tipo, MediaInfo numera cada una.
         vids = [t for t in tracks if t["@type"] == "Video"]
         if len(vids) > 1:
@@ -1362,13 +1365,19 @@ def ffmpeg(sc):
             sys.stderr.write("Stream map '' matches no streams.\nTo ignore this, "
                              "add a trailing '?' to the map.\n")
             return 234
-        if elegido["format"] != "HEVC" and opt("-bsf:v") == "hevc_mp4toannexb":
+        # Lo que llega al filtro es la SALIDA: con `-c:v copy`, el códec del
+        # stream; recodificando, el del codificador. Y recodificar con libx265
+        # no conserva los NAL del RPU: sale un HEVC sin Dolby Vision.
+        codificador = opt("-c:v") or "copy"
+        salida = (elegido["format"] if codificador == "copy" else
+                  {"libx265": "HEVC", "libx264": "AVC"}.get(codificador, codificador))
+        if salida != "HEVC" and opt("-bsf:v") == "hevc_mp4toannexb":
             sys.stderr.write(
                 "[hevc_mp4toannexb @ 0x557b15fb4d40] Codec 'h264' (27) is not "
                 "supported by the bitstream filter 'hevc_mp4toannexb'. "
                 "Supported codecs are: hevc (173)\n")
             return 234
-        if not elegido["el"]:
+        if not elegido["el"] or codificador != "copy":
             props = dict(props, sin_rpu=True)
     positional = [a for a in ARGV if not a.startswith("-")]
     salidas = []
@@ -1454,11 +1463,14 @@ def _videos_del_ts(sc, name):
         videos.append({"pid": int(x["id"]), "format": x.get("format", "HEVC"),
                        "el": False, "orden": orden(x.get("stream_order", "0-1"))})
     if v.get("el"):
-        videos.append({"pid": int(v.get("el_id", 4117)), "format": "HEVC",
+        el_id = v.get("el_id", 4117)
+        # Sin `ID` en MediaInfo el stream sigue existiendo y tiene su PID; lo
+        # que no hay es forma de pedirlo por PID desde el test.
+        videos.append({"pid": int(el_id) if el_id is not None else None, "format": "HEVC",
                        "el": True, "orden": orden(v.get("el_stream_order", "0-1"))})
     unicos = {}
     for x in sorted(videos, key=lambda x: x["orden"]):
-        unicos.setdefault(x["pid"], x)
+        unicos.setdefault(x["pid"] if x["pid"] is not None else id(x), x)
     return list(unicos.values())
 
 

@@ -189,6 +189,14 @@ class TestElPidDeLaMuestra(unittest.TestCase):
         self.assertEqual(
             phase_a.pid_de_la_capa_de_mejora(self._bd(mi, (4113, 6912, 4117))), 4117)
 
+    def test_entre_dos_candidatas_manda_la_oculta(self):
+        """Un HEVC 1080p que mkvmerge lista y la EL que oculta, los dos a mitad
+        de resolución: la muestra sale de la oculta. Quedarse con la primera
+        sobrevivía a todos los tests — lo encontró la tercera pasada de Codex."""
+        mi = _mi(("HEVC", 3840, 2160, 4113), ("HEVC", 1920, 1080, 6912),
+                 ("HEVC", 1920, 1080, 4117))
+        self.assertEqual(phase_a.pid_de_la_capa_de_mejora(self._bd(mi, (4113, 6912))), 4117)
+
     def test_los_pids_de_audio_no_cuentan(self):
         """Solo se comparan los vídeos de mkvmerge."""
         mi = _mi(("HEVC", 3840, 2160, 4113), ("HEVC", 1920, 1080, 4117))
@@ -343,6 +351,33 @@ class TestLaMuestraSaleDeLaEl(_ConDisco):
             str(self._apocalypse(pistas=pistas, video=self.VIDEO)), self.log)
         self.assertEqual(self._muestras(), ["0:i:4117"])
         self.assertEqual(bd.video_tracks[0].dovi.el_type, "FEL")
+
+    async def test_con_otro_pid_la_muestra_lo_sigue(self):
+        """Los 81 discos del NAS llevan la EL en el 4117, pero el PID sale del
+        MediaInfo: no se supone. Fijarlo a 4117 pasaba en verde."""
+        video = {"el": True, "el_stream_order": "0-6", "el_id": 4118}
+        bd, _, _ = await phase_a.run_full_analysis(str(self._apocalypse(video=video)), self.log)
+        self.assertEqual(self._muestras(), ["0:i:4118"])
+        self.assertEqual(bd.video_tracks[0].dovi.el_type, "FEL")
+
+    async def test_sin_id_en_mediainfo_la_muestra_es_el_segundo_video(self):
+        video = {"el": True, "el_stream_order": "0-6", "el_id": None}
+        bd, _, _ = await phase_a.run_full_analysis(str(self._apocalypse(video=video)), self.log)
+        self.assertEqual(self._muestras(), ["0:v:1"])
+        self.assertEqual(bd.video_tracks[0].dovi.el_type, "FEL")
+
+    async def test_sin_id_se_cuentan_solo_los_hevc(self):
+        """Sin PID se cuentan HEVC, y el AVC que mkvmerge lista no es uno:
+        contando todos los vídeos salía 2 contra 2 y la EL se perdía."""
+        video = {**self.VIDEO, "el_id": None}
+        bd, _, _ = await phase_a.run_full_analysis(
+            str(self._apocalypse(pistas=self.PISTAS, video=video)), self.log)
+        self.assertTrue(bd.has_fel)
+        self.assertEqual(bd.fel_reason, tr('phase_a.dolby_vision_dual_layer_mediainfo'))
+        # Sin PID la muestra va al segundo vídeo, que aquí es el AVC: el disco
+        # queda «dual-layer sin confirmar», que es lo que se sabe.
+        self.assertEqual(self._muestras(), ["0:v:1"])
+        self.assertIsNone(bd.video_tracks[0].dovi)
 
     async def test_tambien_con_la_el_detectada_por_el_hueco(self):
         """La pista es la misma la vea quien la vea: un disco de estudio
