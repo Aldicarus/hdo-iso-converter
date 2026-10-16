@@ -2796,11 +2796,19 @@ input file`, comprobado en el NAS). El MediaInfo falso da `ID` a cada vídeo
 (4113 la BL, 4117 la EL), admite vídeos extra (`video={"extra": [...]}`) y
 numera los `@typeorder`; el mkvmerge falso emite `properties.number` —el PID en
 un `.mpls`/`.m2ts`, con la numeración de un UHD Blu-ray, y el número de pista
-en un MKV—, como el real. `test_capa_de_mejora_dv.py` (32 tests, 5
-mutaciones del código). Y dos sobre el arnés que enseñan para qué sirve: con
-el bug de `0:v:1` y sin mirar el argv, los tests de «otro vídeo delante»
-fallan porque dovi_tool no confirma; con el ffmpeg falso ignorando `-map`
-pasan los tres, y sin el «No RPU» del dovi_tool falso pasa el de dos HEVC.
+en un MKV—, como el real. Y mira el códec de SALIDA, no el de entrada:
+recodificar en vez de `-c:v copy` no conserva el RPU, y un AVC no pasa el
+`hevc_mp4toannexb`. Con `el_id=None` la EL sale sin `ID`, que es como se
+ejercita la vuelta a `0:v:1` y el respaldo por recuento.
+
+`test_capa_de_mejora_dv.py` (36 tests, 10 mutaciones del código). Cuatro de
+esas mutaciones sobrevivían a la primera tanda de tests y las propuso la
+revisión de los tests (Codex): quedarse con la primera de dos candidatas a
+1080p, fijar el PID a 4117, contar todos los vídeos en el respaldo y
+recodificar. Y dos mutaciones sobre el arnés enseñan para qué sirve: con el
+bug de `0:v:1` y sin mirar el argv, los tests de «otro vídeo delante» fallan
+porque dovi_tool no confirma; con el ffmpeg falso ignorando `-map` pasan, y
+sin el «No RPU» del dovi_tool falso pasa el de dos HEVC.
 
 ### El título principal: lo que dura, no lo que pesa el .mpls
 
