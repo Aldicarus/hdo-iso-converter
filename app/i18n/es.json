@@ -673,6 +673,7 @@
   "phase_a.dolby_vision_detectado_profile_cm": "✓ Dolby Vision detectado: Profile {profile} ({el_type}), CM {cm_version}",
   "phase_a.dolby_vision_dual_layer_enhancement_layer_hevc": "Dolby Vision dual-layer: Enhancement Layer HEVC 1080p presente como track separado. FEL asumido — pendiente de confirmar con dovi_tool.",
   "phase_a.dolby_vision_dual_layer_gap_en_ids": "Dolby Vision dual-layer: gap en IDs de tracks (video id=0, siguiente id={first_non_video}) — mkvmerge v81+ combinó BL+EL en un solo track. FEL asumido — pendiente de confirmar con dovi_tool.",
+  "phase_a.dolby_vision_dual_layer_mediainfo": "Dolby Vision dual-layer: MediaInfo ve la Enhancement Layer (un HEVC 1080p junto al de 2160p) y mkvmerge la combina con la BL sin dejar hueco en los IDs. FEL asumido — pendiente de confirmar con dovi_tool.",
   "phase_a.dolby_vision_profile_cm": "✓ Dolby Vision: Profile {profile} ({el_type}), CM {cm_version}",
   "phase_a.dovi_tool_fallo_no_bloquea": "⚠️ dovi_tool falló (no bloquea): {e}",
   "phase_a.ejecutando_mediainfo_sobre_el_m2ts": "Ejecutando MediaInfo sobre el m2ts…",

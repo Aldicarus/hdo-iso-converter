@@ -1192,7 +1192,28 @@ def mediainfo(sc):
             "MaxCLL": str(v.get("maxcll", 1000)) + " cd/m2",
             "MaxFALL": str(v.get("maxfall", 400)) + " cd/m2",
             "Format": v.get("format", "HEVC"),
+            "Width": str(v.get("width", 3840)),
+            "Height": str(v.get("height", 2160)),
         })
+        # La Enhancement Layer de un Dolby Vision dual-layer: el MediaInfo real
+        # la lista como un segundo vídeo HEVC a la mitad de resolución —en los
+        # 39 discos dual-layer del NAS, siempre 1920x1080— y con el mismo
+        # `HDR_Format` que la BL, así que ese campo no la distingue.
+        if v.get("el"):
+            # Con dos pistas del mismo tipo, MediaInfo numera cada una.
+            tracks[-1]["@typeorder"] = "1"
+            tracks.append({
+                "@type": "Video",
+                "@typeorder": "2",
+                "StreamOrder": str(v.get("el_stream_order", "0-1")),
+                "ID": "4117",
+                "Format": "HEVC",
+                "Width": "1920",
+                "Height": "1080",
+                "BitDepth": "10",
+                "colour_primaries": "BT.2020",
+                "transfer_characteristics": "PQ",
+            })
     for i, a in enumerate(spec["audio"]):
         tracks.append({
             "@type": "Audio",

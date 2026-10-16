@@ -1372,6 +1372,12 @@ def _detect_fel(
        id ≥ 2 pero solo hay 1 track de vídeo (id=0), entonces id=1 fue
        absorbido como EL → hay Dolby Vision dual-layer.
 
+    El método 2 solo ve la EL cuando es la SEGUNDA entrada del PMT: en un
+    disco re-autorado va la última y el hueco cae detrás de todas las pistas,
+    donde no se distingue de nada. Para eso hay una tercera vía, que vive en
+    ``enrich_tracks_with_mediainfo`` porque necesita a MediaInfo, que corre
+    después: ``capa_de_mejora_en_mediainfo``.
+
     Esta función solo sabe si HAY capa de mejora, no de qué tipo es: asume
     FEL porque los discos MEL prácticamente no existen en el catálogo actual
     de UHD Blu-ray. Quien distingue FEL de MEL es ``dovi_tool`` en
@@ -2518,6 +2524,67 @@ async def run_mediainfo(file_path: str) -> MediaInfoResult:
     )
 
 
+# `MaxCLL`/`MaxFALL` de MediaInfo llegan como "300 cd/m2".
+_RE_PRIMER_ENTERO = re.compile(r"\s*(\d+)")
+
+
+def nits_de_mediainfo(valor) -> int | None:
+    """Extrae el número de un campo de luminancia de MediaInfo.
+
+    MediaInfo devuelve `MaxCLL` y `MaxFALL` **con unidad**: `'300 cd/m2'`, no
+    `'300'`. El código hacía `int(valor)` directamente, así que lanzaba
+    ValueError y un `except: pass` lo dejaba en None — verificado sobre los 20
+    MKVs cacheados del NAS (Tab 2) y sobre 19 sesiones de Tab 1 con el dato en
+    el JSON crudo de MediaInfo: ninguna lo tenía guardado.
+
+    Se acepta también el número puro, por si alguna versión de MediaInfo lo
+    diera así. Es el único parser de esos dos campos en el repo.
+    """
+    if valor is None:
+        return None
+    texto = str(valor).strip()
+    if not texto:
+        return None
+    m = _RE_PRIMER_ENTERO.match(texto)
+    return int(m.group(1)) if m else None
+
+
+def capa_de_mejora_en_mediainfo(mi: MediaInfoResult | None) -> bool:
+    """¿Ve MediaInfo la Enhancement Layer de un Dolby Vision dual-layer?
+
+    Es la regla con la que el propio mkvmerge empareja las dos capas
+    (`contains_dovi_base_layer_for_enhancement_layer`, en su lector MPEG-TS):
+    un HEVC cuyo ancho y alto son la MITAD de los de otro HEVC del mismo
+    fichero — en un UHD Blu-ray, la BL a 3840x2160 y la EL a 1920x1080.
+
+    Hace falta porque `_detect_fel` no lo ve todo. mkvmerge combina la EL con
+    la BL y la oculta, pero le deja su ID, y los IDs van en el orden del PMT.
+    En un disco de estudio la EL es la segunda entrada (`StreamOrder 0-1`) y
+    deja el hueco en el id 1; en uno re-autorado —caso real: Pulp Fiction y
+    Apocalypse Now, de HDO— va la ÚLTIMA (`0-18`), el hueco cae al final y no
+    se ve. Medido sobre las 84 sesiones del NAS: las dos únicas con la EL en
+    MediaInfo y sin hueco en mkvmerge son esa.
+
+    MediaInfo no sirve para decir QUÉ es la capa: su `HDR_Format` da «SMPTE
+    ST 2086» en las dos pistas de los 39 discos dual-layer del corpus. Eso lo
+    sigue diciendo `dovi_tool`, que corre en cuanto esto da True.
+    """
+    if mi is None or not mi.raw_json:
+        return False
+    tamanos = []
+    for t in mi.raw_json.get("media", {}).get("track", []):
+        if t.get("@type") != "Video" or str(t.get("Format", "")).upper() != "HEVC":
+            continue
+        try:
+            tamanos.append((int(t.get("Width")), int(t.get("Height"))))
+        except (TypeError, ValueError):
+            continue
+    return any(
+        (an * 2, al * 2) in tamanos
+        for an, al in tamanos
+    )
+
+
 async def run_dovi_analysis(m2ts_path: str) -> DoviInfo | None:
     """
     Pipeline dovi_tool: ffmpeg extrae 30s del EL → extract-rpu → info --summary.
@@ -2743,14 +2810,8 @@ def enrich_tracks_with_mediainfo(bdinfo: BDInfoResult, mi: MediaInfoResult) -> N
         if mi.raw_json:
             for t in mi.raw_json.get("media", {}).get("track", []):
                 if t.get("@type") == "Video" and t.get("@typeorder", "1") == "1":
-                    try:
-                        bl.hdr.max_cll = int(t["MaxCLL"]) if t.get("MaxCLL") else None
-                    except (ValueError, TypeError):
-                        pass
-                    try:
-                        bl.hdr.max_fall = int(t["MaxFALL"]) if t.get("MaxFALL") else None
-                    except (ValueError, TypeError):
-                        pass
+                    bl.hdr.max_cll = nits_de_mediainfo(t.get("MaxCLL"))
+                    bl.hdr.max_fall = nits_de_mediainfo(t.get("MaxFALL"))
                     bl.hdr.mastering_display_luminance = t.get("MasteringDisplay_Luminance", "")
                     break
 
@@ -2768,6 +2829,15 @@ def enrich_tracks_with_mediainfo(bdinfo: BDInfoResult, mi: MediaInfoResult) -> N
     for i, st in enumerate(bdinfo.subtitle_tracks):
         if i < len(mi_subs):
             st.resolution = mi_subs[i].resolution
+
+    # Dolby Vision: la capa de mejora que mkvmerge oculta sin dejar hueco en
+    # los IDs. Solo si `_detect_fel` no la vio — su razón es más precisa — y
+    # con el mismo «FEL asumido» que el hueco: lo que dice qué capa es, FEL o
+    # MEL, es `dovi_tool`, y esto es lo que hace que llegue a correr.
+    if (not bdinfo.has_fel and not any(v.is_el for v in bdinfo.video_tracks)
+            and capa_de_mejora_en_mediainfo(mi)):
+        bdinfo.has_fel = True
+        bdinfo.fel_reason = tr('phase_a.dolby_vision_dual_layer_mediainfo')
 
 
 def _filter_mediainfo_audio_cores(mi_audio: list[MediaInfoTrack], mi: MediaInfoResult) -> list[MediaInfoTrack]:
