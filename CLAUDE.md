@@ -2696,6 +2696,59 @@ Fase A ejecuta un pipeline de 4 herramientas mientras el ISO está montado:
 - **Datos raw**: mkvmerge -J raw + MediaInfo raw guardados en `bdinfo_result` para diagnóstico
 - **Atmos**: detección definitiva via `format_commercial` de MediaInfo; fallback heurístico por canales ≥8 si MediaInfo no disponible
 
+### La capa de mejora: el hueco en los IDs no siempre se ve
+
+Caso real (octubre de 2026): **Apocalypse Now The Final Cut**, ISO de HDO. El
+log decía «FEL: false · Sin capa de mejora Dolby Vision detectada» y «Formato:
+HDR10» con MediaInfo listando **dos** vídeos en el m2ts, y el paso de
+dovi_tool ni corrió — se lanza solo si ya se cree que hay EL. «HDR10» no era
+una pista: la app lo escribe siempre que la curva es PQ y deja el DV para
+dovi_tool.
+
+`mkvmerge -J` no lista la EL: la combina con la BL y la **oculta, pero le deja
+su ID**, y los IDs van en el **orden del PMT** (se comprueba en su
+`r_mpeg_ts.cpp`: `m_id = track_id++` sobre todo lo sondeado, y `identify()`
+se salta lo oculto). `_detect_fel` busca ese hueco en el id 1, que es donde cae
+en un disco de estudio: la EL es la segunda entrada (`StreamOrder 0-1` en
+MediaInfo). En un disco **re-autorado** va **la última** —`0-18` en Pulp
+Fiction, detrás de 17 audios y subtítulos— y el hueco cae al final, donde no
+se distingue de nada. Medido sobre las 84 sesiones del NAS: las dos únicas con
+la EL en MediaInfo y sin hueco en mkvmerge son Pulp Fiction y esta, las dos de
+HDO.
+
+La tercera vía es **`capa_de_mejora_en_mediainfo`**, y su regla es la de
+mkvmerge para emparejar las capas (`contains_dovi_base_layer_for_enhancement_layer`):
+**un HEVC a la mitad de ancho y alto que otro HEVC** del mismo fichero.
+
+- **Va en `enrich_tracks_with_mediainfo`**, no en `_detect_fel`, porque
+  MediaInfo corre después de mkvmerge; y así la ven los tres puntos de entrada
+  del análisis (película, episodio y m2ts suelto) sin tocarlos.
+- **Solo actúa si `_detect_fel` no vio nada**: su razón es más precisa, y un
+  disco de estudio sale con el mismo texto que antes.
+- **Deja el mismo «FEL asumido» que el hueco.** MediaInfo no sabe qué capa es
+  —su `HDR_Format` dice «SMPTE ST 2086» en las DOS pistas de los 39 discos
+  dual-layer del corpus—, así que FEL o MEL lo sigue diciendo dovi_tool, y si
+  falla la tarjeta enseña «dual-layer sin confirmar», que es la verdad.
+- **Contar vídeos no basta**: los E10 de Juego de Tronos listan la BL dos veces
+  en MediaInfo. Lo que separa es la mitad de resolución, y tiene su test.
+
+**Lo que esto no garantiza** es que el MKV lleve la EL. Que mkvmerge la oculte
+dice que la emparejó, y emparejada la combina al muxear — pero una pista que no
+llega a sondearse **tampoco tiene ID**, y desde el `-J` los dos casos se ven
+igual. Ningún disco con la EL al final se ha ripeado todavía en el NAS (la
+sesión de Pulp Fiction está sin ejecutar), y `_validate_final_mkv` no mira el
+DV. Para confirmarlo, la radiografía de Tab 2 sobre el MKV resultante: Profile 7
+y su tipo de capa.
+
+**Y el MaxCLL/MaxFALL de Tab 1 se perdía igual que el de Tab 2**: el `int()`
+sobre `'300 cd/m2'` lo dejaba en `None`, y 19 sesiones del NAS lo traían en el
+JSON crudo de MediaInfo. El parser es uno, `phase_a.nits_de_mediainfo`, y
+`mkv_analyze` lo importa.
+
+El MediaInfo falso emite ahora `Width`/`Height` en el vídeo y, con
+`video={"el": True}`, la segunda pista HEVC a 1920x1080 con su `@typeorder`,
+como el real. `test_capa_de_mejora_dv.py` (17 tests, 5 mutaciones).
+
 ### El título principal: lo que dura, no lo que pesa el .mpls
 
 Caso real (octubre de 2026): **Divergente (2014)**, de un disco «Custom U-HD».
