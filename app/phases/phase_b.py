@@ -928,51 +928,6 @@ def _select_subtitle_tracks(
     """
     vo_norm = vo_language.lower()
 
-    # ── Modo "keep_all": incluir TODAS las pistas con labels generados ──
-    if mode == "keep_all":
-        included_all: list[IncludedSubtitleTrack] = []
-        first_spanish_forced_seen = False
-        for t in tracks:
-            if t.language.lower() == "qad":
-                continue  # Audio Description siempre descartada
-            lang_norm = t.language.lower()
-            lang_lit = nombre_de_idioma(lang_norm)
-            is_castellano = lang_norm == "spanish"
-            # Clasificar tipo por packets (si hay) o bitrate sintético
-            if t.packet_count > 0:
-                if t.packet_count < 500:
-                    sub_type, type_lit = "forced", tr('phase_b.forzados')
-                else:
-                    sub_type, type_lit = "complete", tr('phase_b.completos')
-            else:
-                if t.bitrate_kbps < 3.0:
-                    sub_type, type_lit = "forced", tr('phase_b.forzados')
-                else:
-                    sub_type, type_lit = "complete", tr('phase_b.completos')
-            label = f"{lang_lit} {type_lit} (PGS)"
-            flag_forced = sub_type == "forced"
-            flag_default = False
-            # Default=True solo para la primera pista Castellano forzada
-            if is_castellano and flag_forced and not first_spanish_forced_seen:
-                flag_default = True
-                first_spanish_forced_seen = True
-            included_all.append(IncludedSubtitleTrack(
-                position=0,
-                raw=t,
-                language_literal=lang_lit,
-                subtitle_type=sub_type,
-                label=label,
-                flag_default=flag_default,
-                flag_forced=flag_forced,
-                selection_reason=(
-                    tr('phase_b.motivo_mantener_todas_paquetes',
-                       label=label, paquetes=t.packet_count)
-                    if t.packet_count > 0
-                    else tr('phase_b.motivo_mantener_todas', label=label)
-                ),
-            ))
-        return included_all, []
-
     included: list[IncludedSubtitleTrack] = []
     discarded: list[DiscardedTrack] = []
 
@@ -1180,19 +1135,22 @@ def _select_subtitle_tracks(
             return forced, complete, [], ambiguous_alts, leftover
 
         # ── Fallback: bitrate sintético (cuando ffprobe no pudo medir) ──
+        # Lo que sobra se reparte por su señal: las de bitrate bajo son
+        # forzados extra (`leftover`) y las demás, completas que no se
+        # eligieron (`ambiguous_alts`). Iban TODAS a `leftover`, que abajo se
+        # da por forzado: con normal + SDH + forzado y el conteo PGS fallido,
+        # la SDH se ofrecía para recuperar como «Forzados» (auditoría con
+        # Codex del 2026-10-17).
         if len(lang_tracks) >= 2:
             low = [t for t in lang_tracks if t.bitrate_kbps < 3.0]
             high = [t for t in lang_tracks if t.bitrate_kbps >= 3.0]
             if low:
                 forced = low[0]
                 complete = max(high, key=lambda t: t.bitrate_kbps) if high else None
-                used = {id(forced)}
-                if complete:
-                    used.add(id(complete))
-                leftover = [t for t in lang_tracks if id(t) not in used]
-                return forced, complete, [], [], leftover
+                otras_completas = [t for t in high if t is not complete]
+                return forced, complete, [], otras_completas, low[1:]
         if lang_tracks:
-            return None, lang_tracks[0], [], [], lang_tracks[1:]
+            return None, lang_tracks[0], [], lang_tracks[1:], []
         return None, None, [], [], []
 
     # Clasificar TODOS los idiomas (target y no-target) con la misma
@@ -1234,6 +1192,46 @@ def _select_subtitle_tracks(
             if t is track:
                 return "forced"
         return ""
+
+    # ── Modo "keep_all": incluir TODAS las pistas con labels generados ──
+    # Con la MISMA clasificación que el perfil filtrado: decidía por su
+    # cuenta con el umbral de 500 paquetes pista a pista, así que un forzado
+    # de 1500 junto a una completa de 6000 salía «Completos», y todos los
+    # forzados de todos los idiomas llevaban la marca de forzado del
+    # contenedor —la regla es que solo la lleve el del idioma principal, o
+    # el reproductor los solapa al cambiar de audio— (auditoría con Codex
+    # del 2026-10-17). La AD (`qad`) ya se descartó arriba.
+    if mode == "keep_all":
+        principal = idiomas_preferidos()[0]
+        included_all: list[IncludedSubtitleTrack] = []
+        default_puesto = False
+        for t in valid_tracks:
+            lang_norm = t.language.lower()
+            lang_lit = nombre_de_idioma(lang_norm)
+            sub_type = _infer_sub_type(lang_norm, t) or "complete"
+            type_lit = tr('phase_b.forzados' if sub_type == "forced" else 'phase_b.completos')
+            label = f"{lang_lit} {type_lit} (PGS)"
+            del_principal = lang_norm == principal
+            flag_forced = sub_type == "forced" and del_principal
+            # Por defecto, el primer forzado del idioma principal.
+            flag_default = flag_forced and not default_puesto
+            default_puesto = default_puesto or flag_default
+            included_all.append(IncludedSubtitleTrack(
+                position=0,
+                raw=t,
+                language_literal=lang_lit,
+                subtitle_type=sub_type,
+                label=label,
+                flag_default=flag_default,
+                flag_forced=flag_forced,
+                selection_reason=(
+                    tr('phase_b.motivo_mantener_todas_paquetes',
+                       label=label, paquetes=t.packet_count)
+                    if t.packet_count > 0
+                    else tr('phase_b.motivo_mantener_todas', label=label)
+                ),
+            ))
+        return included_all, []
 
     # Para downstream: dict simplificado (forced, complete, ambiguous_alts)
     # solo para los idiomas target — el resto se descartan con tipo

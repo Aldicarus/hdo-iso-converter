@@ -215,6 +215,66 @@ class TestSubtitleClassification(unittest.TestCase):
         self.assertIsNone(_forced_packets(included, "Spanish"))
 
 
+class TestSinConteoDePaquetes(unittest.TestCase):
+    """El respaldo por bitrate sintético, cuando el conteo PGS falla.
+
+    Lo que sobraba iba entero a `leftover`, que la recuperación da por
+    forzado: con normal + SDH + forzado, la SDH se ofrecía para recuperar
+    como «Forzados» (auditoría con Codex del 2026-10-17)."""
+
+    @staticmethod
+    def _b(language, kbps):
+        return RawSubtitleTrack(language=language, bitrate_kbps=kbps, description="",
+                                packet_count=0)
+
+    def test_una_completa_sobrante_se_recupera_como_completa(self):
+        incl, desc = _select_subtitle_tracks(
+            [self._b("Spanish", 30), self._b("Spanish", 30), self._b("Spanish", 1)],
+            vo_language="English")
+        tipos = sorted(d.inferred_subtitle_type for d in desc
+                       if d.raw.language == "Spanish")
+        self.assertEqual(tipos, ["complete"])
+
+    def test_un_forzado_sobrante_sigue_siendo_forzado(self):
+        _incl, desc = _select_subtitle_tracks(
+            [self._b("Spanish", 30), self._b("Spanish", 1), self._b("Spanish", 1)],
+            vo_language="English")
+        self.assertEqual([d.inferred_subtitle_type for d in desc
+                          if d.raw.language == "Spanish"], ["forced"])
+
+    def test_sin_ningun_forzado_las_sobrantes_son_completas(self):
+        _incl, desc = _select_subtitle_tracks(
+            [self._b("Spanish", 30), self._b("Spanish", 25)], vo_language="English")
+        self.assertEqual([d.inferred_subtitle_type for d in desc
+                          if d.raw.language == "Spanish"], ["complete"])
+
+
+class TestMantenerTodas(unittest.TestCase):
+    """«Mantener todas» clasificaba por su cuenta, pista a pista con el
+    umbral de 500 paquetes, y marcaba de forzado a TODOS los forzados."""
+
+    def test_un_forzado_grande_junto_a_su_completa_es_forzado(self):
+        incl, _ = _select_subtitle_tracks(
+            [_sub("Spanish", 6000), _sub("Spanish", 1500)],
+            vo_language="English", mode="keep_all")
+        self.assertEqual([t.subtitle_type for t in incl], ["complete", "forced"])
+
+    def test_solo_el_forzado_del_idioma_principal_lleva_la_marca(self):
+        incl, _ = _select_subtitle_tracks(
+            [_sub("English", 9000), _sub("English", 250),
+             _sub("Spanish", 8000), _sub("Spanish", 250)],
+            vo_language="English", mode="keep_all")
+        marcadas = [(t.raw.language, t.flag_forced, t.flag_default) for t in incl
+                    if t.subtitle_type == "forced"]
+        self.assertEqual(marcadas, [("English", False, False), ("Spanish", True, True)])
+
+    def test_la_ad_no_entra(self):
+        incl, _ = _select_subtitle_tracks(
+            [_sub("Spanish", 8000), _sub("qad", 8000)], vo_language="English",
+            mode="keep_all")
+        self.assertEqual([t.raw.language for t in incl], ["Spanish"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
