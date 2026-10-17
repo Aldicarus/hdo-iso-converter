@@ -131,7 +131,7 @@ class ApiTestCase(unittest.TestCase):
             (_r_tab2, "_MKV_APPLY_STATE_FILE", self.config_dir / "mkv_apply_state.json"),
             (_tmdb, "CACHE_PATH", self.config_dir / "tmdb_cache.json"),
             (_drive, "CACHE_PATH", self.config_dir / "rec999_drive_cache.json"),
-            (_sheet, "CACHE_PATH", self.config_dir / "rec999_sheet_cache.csv"),
+            (_sheet, "CACHE_PATH", self.config_dir / "rec999_sheet_cache.json"),
             # Y las trece que la sonda de rutas encontró sin redirigir el
             # 2026-10-17 (`test_aislamiento_de_la_suite::TestTrasElArnes…`
             # recorre los módulos cargados y falla con la siguiente). Entre

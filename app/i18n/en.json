@@ -1230,5 +1230,6 @@
   "cmv40_pipeline.longitud_no_comparable": "└─ MKV length: no exact count in one of the two files, not compared",
   "rec999_drive.descarga_incompleta": "The bin download was cut short ({bytes} of {total} bytes): what was downloaded has been deleted. Try again.",
   "main.ya_no_es_huerfano": "It's no longer listed as an orphan: it hasn't been deleted. Scan again.",
-  "tab2.mkv_en_descargados_read_only_confirma": "The MKV is in Downloaded, which is read-only — confirm `copy_to_output=true` to copy it to /mnt/output before editing."
+  "tab2.mkv_en_descargados_read_only_confirma": "The MKV is in Downloaded, which is read-only — confirm `copy_to_output=true` to copy it to /mnt/output before editing.",
+  "main.github_limite_de_consultas": "GitHub has rate-limited the check (60 an hour without an account): it'll try again later."
 }

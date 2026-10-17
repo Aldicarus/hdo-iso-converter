@@ -334,6 +334,13 @@ def parse_series_filename(filename: str):
     return serie, anio, temporada, episodio, titulo_ep
 
 
+def _identidad(slug: str) -> frozenset:
+    """Las palabras significativas de un título, con los romanos en cifra:
+    `the matrix reloaded` y `matrix reloaded` son lo mismo; `night` y
+    `night ii`, no."""
+    return frozenset(t for t in _tokens(slug) if t not in _STOP_WORDS)
+
+
 def _token_set_ratio(a: str, b: str) -> float:
     """Jaccard sobre tokens normalizados sin stop-words. Insensible al
     orden y a palabras comodín (The/A/El/La…)."""
@@ -427,15 +434,28 @@ def _best_match(title_slug: str, year: int | None,
 def _matching_rows(title_slug: str, year: int | None,
                    rows: list[RecommendationRow],
                    threshold: float) -> list[tuple[RecommendationRow, float]]:
-    """TODAS las filas que superan el umbral para este slug+año.
+    """TODAS las filas del MISMO título que `title_slug` (el de la fila ya
+    identificada) y su año.
 
     Un título puede estar en la sección "no factible" (no convertible a
     P8.1) y a la vez en la "factible" (bloque CMv4.0 restaurable sobre el
     RPU P7). Quedarse con una sola fila pierde la mitad de la información.
+
+    **Pero "el mismo título" no es "un título parecido".** Repetir aquí el
+    fuzzy del match juntaba secuelas: `night` contra `night ii` puntúa 0,77,
+    por encima del 0,72, así que el rechazo de «Night (2024)» salía con el
+    veredicto y el offset de «Night II (2025)»; y Kill Bill 1/2 o Matrix
+    Reloaded/Revolutions igual (auditoría con Codex del 2026-10-17,
+    reproducido). La identidad ya está resuelta cuando se llama a esto: lo
+    que se agrega son las filas con las MISMAS palabras significativas, que
+    es lo que distingue dos secciones del mismo título de dos películas.
     """
+    identidad = _identidad(title_slug)
     out: list[tuple[RecommendationRow, float]] = []
     for r in rows:
         if year and r.year and abs(r.year - year) > 1:
+            continue
+        if _identidad(r.title_normalized) != identidad:
             continue
         sim = _similarity(title_slug, r.title_normalized)
         if sim >= threshold:
@@ -658,7 +678,10 @@ async def recommend(input_title: str,
     # catalogado en dos secciones). Recogemos todas con el mismo umbral y
     # construimos el veredicto sobre el conjunto, no sobre una fila.
     slug_win = _normalize_title(best_row.title_raw)
-    matches = _matching_rows(slug_win, best_year_for_threshold, rows, threshold)
+    # El año de la FILA identificada, no el del candidato: las dos secciones
+    # del mismo título llevan el mismo año de la hoja.
+    matches = _matching_rows(slug_win, best_row.year or best_year_for_threshold,
+                             rows, threshold)
     if not matches:                      # defensivo: al menos la fila ganadora
         matches = [(best_row, best_score)]
     # El veredicto y los contadores se calculan sobre TODAS las filas

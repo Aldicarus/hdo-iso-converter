@@ -16,8 +16,10 @@ fallback.
 """
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
+import json
 import logging
 import os
 import re
@@ -65,7 +67,10 @@ def _sheet_xlsx_url() -> str:
             f"/export?format=xlsx&gid={gid}")
 
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/config"))
-CACHE_PATH = CONFIG_DIR / "rec999_sheet_cache.csv"
+# La última copia BUENA de la hoja: las filas ya parseadas, con la identidad
+# de la hoja de la que salieron. Era el CSV crudo, sin identidad y escrito
+# ANTES de parsearlo — ver `get_recommendations`.
+CACHE_PATH = CONFIG_DIR / "rec999_sheet_cache.json"
 CACHE_TTL_SECONDS = 3600  # 1h
 
 # Año entre 1950 y 2099 — elimina falsos positivos con números random
@@ -115,11 +120,43 @@ class RecommendationRow(BaseModel):
     notes_link: str = ""
 
 
-# Caché en memoria
+# Caché en memoria, con la hoja de la que salió.
 _cache_rows: list[RecommendationRow] | None = None
 _cache_fetched_at: float = 0.0
 _cache_source: str = "none"          # 'api' | 'csv' | 'disk' | 'none'
+_cache_sheet: tuple[str, str] = ("", "")
 _sheets_api_error: str = ""          # último error de Sheets API (para UI)
+
+
+def _guardar_copia(hoja: tuple[str, str], fuente: str,
+                   filas: list[RecommendationRow]) -> None:
+    """Escribe la última copia buena, con atomicidad. No lanza: es la red
+    para cuando falle la red, no puede tumbar una lectura que sí funcionó."""
+    tmp = CACHE_PATH.with_suffix(CACHE_PATH.suffix + ".tmp")
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps({
+            "sheet_id": hoja[0], "gid": hoja[1], "fuente": fuente,
+            "guardada": time.time(),
+            "filas": [f.model_dump() for f in filas],
+        }, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, CACHE_PATH)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        _logger.warning("No pude persistir la copia del sheet: %s", e)
+
+
+def _leer_copia(hoja: tuple[str, str]) -> list[RecommendationRow]:
+    """La última copia buena, solo si es de ESTA hoja."""
+    try:
+        datos = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        if (datos.get("sheet_id"), datos.get("gid")) != tuple(hoja):
+            return []
+        return [RecommendationRow(**f) for f in datos.get("filas") or []]
+    except (OSError, ValueError, TypeError) as e:
+        if CACHE_PATH.exists():
+            _logger.warning("La copia del sheet no se puede leer: %s", e)
+        return []
 
 
 def get_cache_status() -> dict:
@@ -585,15 +622,36 @@ async def get_recommendations(force_refresh: bool = False) -> list[Recommendatio
 
     Prioridad de fetch:
       1. Sheets API v4 (si hay Google API key) — preserva hyperlinks
-      2. CSV export (público, sin auth) — solo texto
-      3. Caché en disco (última copia buena)
-    """
-    global _cache_rows, _cache_fetched_at, _cache_source
+      2. XLSX + openpyxl — hyperlinks rich-text
+      3. HTML (gviz)
+      4. CSV export (público, sin auth) — solo texto
+      5. La última copia buena en disco, si es de ESTA hoja
 
+    **La copia en disco se escribe tras PARSEAR, por cualquiera de las
+    cuatro vías.** Antes solo la escribía el CSV, y ANTES de parsearlo: una
+    instalación que siempre leía por XLSX no tenía copia que usar cuando
+    fallase la red, y un 200 con una página de error en vez del CSV
+    sustituía la copia buena por una que daba cero filas. Y va con la
+    identidad de la hoja (id + gid): al cambiar de hoja en ⚙︎ con la red
+    caída se servían las recomendaciones de la anterior (auditoría con Codex
+    del 2026-10-17).
+    """
+    global _cache_rows, _cache_fetched_at, _cache_source, _cache_sheet
+
+    hoja = tuple(_sheet_ids())
     now = time.time()
-    if (not force_refresh and _cache_rows is not None
+    if (not force_refresh and _cache_rows is not None and _cache_sheet == hoja
             and now - _cache_fetched_at < CACHE_TTL_SECONDS):
         return _cache_rows
+
+    async def _aceptar(filas: list[RecommendationRow], fuente: str,
+                       guardar: bool = True) -> list[RecommendationRow]:
+        global _cache_rows, _cache_fetched_at, _cache_source, _cache_sheet
+        _cache_rows, _cache_fetched_at = filas, now
+        _cache_source, _cache_sheet = fuente, hoja
+        if guardar:
+            await asyncio.to_thread(_guardar_copia, hoja, fuente, filas)
+        return filas
 
     # Intento 1: Sheets API v4 con hyperlinks (solo funciona en sheets
     # nativos, no en XLSX importados; requiere Google key)
@@ -603,12 +661,9 @@ async def get_recommendations(force_refresh: bool = False) -> list[Recommendatio
         if api_rows:
             parsed = parse_api_rows(api_rows)
             if parsed:
-                _cache_rows = parsed
-                _cache_fetched_at = now
-                _cache_source = "api"
                 _logger.info("REC_9999 sheet: %d filas via Sheets API v4 "
                              "(con hyperlinks)", len(parsed))
-                return parsed
+                return await _aceptar(parsed, "api")
 
     # Intento 2: export XLSX + openpyxl — la única vía que preserva
     # hyperlinks rich-text (los que REC_9999 crea seleccionando texto +
@@ -618,12 +673,9 @@ async def get_recommendations(force_refresh: bool = False) -> list[Recommendatio
     if xlsx_rows:
         parsed = parse_api_rows(xlsx_rows)
         if parsed:
-            _cache_rows = parsed
-            _cache_fetched_at = now
-            _cache_source = "xlsx"
             _logger.info("REC_9999 sheet: %d filas via XLSX export "
                          "(con hyperlinks rich-text)", len(parsed))
-            return parsed
+            return await _aceptar(parsed, "xlsx")
 
     # Intento 3: export HTML (gviz) — preserva =HYPERLINK() pero no
     # rich-text links. Útil si openpyxl no está instalado.
@@ -631,46 +683,25 @@ async def get_recommendations(force_refresh: bool = False) -> list[Recommendatio
     if html_rows:
         parsed = parse_api_rows(html_rows)
         if parsed:
-            _cache_rows = parsed
-            _cache_fetched_at = now
-            _cache_source = "html"
             _logger.info("REC_9999 sheet: %d filas via HTML export "
                          "(solo hyperlinks formales)", len(parsed))
-            return parsed
+            return await _aceptar(parsed, "html")
 
     # Intento 4: CSV export público
-    csv_text: str | None = None
-    live_csv_ok = False
     try:
-        csv_text = await _fetch_csv()
-        live_csv_ok = True
-        try:
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            CACHE_PATH.write_text(csv_text, encoding="utf-8")
-        except OSError as e:
-            _logger.warning("No pude persistir cache del sheet: %s", e)
+        parsed = parse_csv_text(await _fetch_csv())
+        if parsed:
+            _logger.info("REC_9999 sheet: %d filas via CSV (sin hyperlinks)", len(parsed))
+            return await _aceptar(parsed, "csv")
+        _logger.warning("El CSV del sheet REC_9999 no trae ninguna fila: no se usa")
     except Exception as e:
         _logger.warning("Fetch CSV del sheet REC_9999 falló: %s", redactar_claves(e))
 
-    # Intento 3: último CSV bueno en disco
-    source = "csv" if live_csv_ok else "disk"
-    if csv_text is None and CACHE_PATH.exists():
-        try:
-            csv_text = CACHE_PATH.read_text(encoding="utf-8")
-            source = "disk"
-        except OSError:
-            csv_text = None
+    # Intento 5: la última copia buena de ESTA hoja
+    copia = await asyncio.to_thread(_leer_copia, hoja)
+    if copia:
+        _logger.info("REC_9999 sheet: %d filas de la copia en disco", len(copia))
+        return await _aceptar(copia, "disk", guardar=False)
 
-    if not csv_text:
-        _logger.error("Sin datos del sheet REC_9999 (ni API, ni CSV, ni cache)")
-        _cache_rows = []
-        _cache_fetched_at = now
-        _cache_source = "none"
-        return []
-
-    _cache_rows = parse_csv_text(csv_text)
-    _cache_fetched_at = now
-    _cache_source = source
-    _logger.info("REC_9999 sheet: %d filas via %s (sin hyperlinks)",
-                 len(_cache_rows), source.upper())
-    return _cache_rows
+    _logger.error("Sin datos del sheet REC_9999 (ni API, ni CSV, ni copia)")
+    return await _aceptar([], "none", guardar=False)
