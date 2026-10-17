@@ -192,6 +192,17 @@ class TestMkvpropedit(ConFakes):
         self.correr("mkvpropedit", self.ruta, "--edit", "track:2", "--set", "name=X")
         self.assertIn("CHAPTER02NAME=Dos", self._capitulos())
 
+    def test_y_siguen_ahi_tras_renombrar_el_fichero(self):
+        """Los capítulos son del FICHERO: la Fase E edita el intermedio y lo
+        renombra al nombre definitivo. Si el fake los dejaba en el escenario
+        (indexado por nombre), un propedit que no los borrara parecía
+        haberlos borrado."""
+        self.correr("mkvpropedit", self.ruta, "--edit", "info", "--set", "title=X")
+        nuevo = self.ruta.with_name("definitivo.mkv")
+        self.ruta.rename(nuevo)
+        self.ruta = nuevo
+        self.assertIn("CHAPTER02NAME=Dos", self._capitulos())
+
 
 class TestElEditorRespetaLosNiveles(ConFakes):
 
