@@ -1612,6 +1612,12 @@ def mkvpropedit(sc):
         sys.stderr.write("Error: The file '%s' does not exist.\n" % (destino,))
         return 2
     props = read_props(destino, sc)
+    # Los capítulos que el escenario declara para este nombre son del
+    # FICHERO: al escribir la cabecera tienen que ir dentro, o el rename de
+    # la Fase E (intermedio → nombre definitivo) los perdería y un propedit
+    # que no los borra parecería haberlos borrado.
+    if props.get("chapters") is None and destino.name in sc.get("chapters", {}):
+        props["chapters"] = [list(c) for c in sc["chapters"][destino.name]]
     pistas = _pistas_conocidas(destino, sc)
     editadas = dict(props.get("pistas_editadas") or {})
     cambios = {}
