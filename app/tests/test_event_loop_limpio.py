@@ -202,7 +202,10 @@ class TestLosSitiosArregladosSiguenEnUnThread(unittest.TestCase):
 
     def test_el_borrado_de_los_workdirs(self):
         src = self._fuente("routers/cmv40.py")
-        self.assertIn("await asyncio.to_thread(_medir_y_borrar, wd)", src)
+        # La limpieza individual y la masiva comparten el mismo helper (el
+        # recuento + `rmtree` del workdir), y las dos lo mandan a un thread.
+        self.assertEqual(
+            src.count("await asyncio.to_thread(_cmv40_limpiar_artefactos, session)"), 2)
         self.assertIn("await asyncio.to_thread(_cmv40_shutil.rmtree, wd", src)
 
 

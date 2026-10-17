@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -1949,6 +1950,19 @@ class CMv40Session(BaseModel):
             avisa(f"phase=done con running_phase={self.running_phase!r}",
                   "se limpia (el job ya terminó)")
             self.running_phase = None
+
+        # El nombre del MKV de salida acaba en rutas de /mnt/output —el
+        # `.mkv.tmp` de la Fase G, el `os.rename` de la H, los borrados al
+        # limpiar—: con una ruta dentro, todo eso actuaba fuera. La creación
+        # no lo validaba hasta el 2026-10-17 y un JSON se puede editar a
+        # mano, así que se deja en el nombre del fichero al cargar.
+        nombre = self.output_mkv_name or ""
+        if nombre:
+            plano = Path(nombre.replace("\\", "/")).name.lstrip(".")
+            if plano != nombre:
+                avisa(f"output_mkv_name con ruta: {nombre!r}",
+                      "se queda el nombre del fichero")
+                self.output_mkv_name = plano or f"{self.id}.mkv"
 
         return self
 

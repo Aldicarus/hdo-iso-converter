@@ -72,7 +72,6 @@ from phases.cmv40_pipeline import (
     detect_sync_offset, compute_sync_confidence, sheet_sync_hint,
     evaluate_sync_gate,
     validate_artifacts as _validate_cmv40_artifacts,
-    cleanup_orphan_tmp as _cmv40_cleanup_orphan_tmp,
     CMV40_WORK_BASE,
 )
 
@@ -224,7 +223,7 @@ def recuperar_sesiones_interrumpidas() -> None:
                 # Un remux cortado por el reinicio deja su `.mkv.tmp` a medias
                 # con el nombre que la Fase H va a validar.
                 if getattr(last, "phase", "") == "remux":
-                    _cmv40_cleanup_orphan_tmp(s)
+                    _cmv40_borrar_tmp_del_remux(s)
         save_cmv40_session(s)
         count += 1
     if count:
@@ -995,7 +994,7 @@ async def _run_cmv40_phase_locked(
             # validaba y, por la rama merge, se entregaba truncado (auditoría
             # con Codex del 2026-10-17).
             if phase_name == "remux":
-                _cmv40_cleanup_orphan_tmp(session)
+                _cmv40_borrar_tmp_del_remux(session)
             await _cmv40_log(
                 session,
                 '🛑 Cancelado: ' + tr(
@@ -1019,7 +1018,7 @@ async def _run_cmv40_phase_locked(
             session.phase = previous_phase
             session.error_message = msg
             if phase_name == "remux":
-                _cmv40_cleanup_orphan_tmp(session)
+                _cmv40_borrar_tmp_del_remux(session)
             raise
         except Exception as e:
             record.status = "error"
@@ -1035,7 +1034,7 @@ async def _run_cmv40_phase_locked(
             # check. Preservamos el .mkv.tmp para que el usuario pueda
             # inspeccionarlo o renombrarlo manualmente sin perder 40+ GB.
             if phase_name == "remux":
-                freed = _cmv40_cleanup_orphan_tmp(session)
+                freed = _cmv40_borrar_tmp_del_remux(session)
                 if freed > 0:
                     await _cmv40_log(
                         session,
@@ -1337,6 +1336,16 @@ def _cmv40_construir_fase(session: CMv40Session, fase: str, datos: dict):
         runner = getattr(pipeline, runner_name)
 
         async def _coro(log_cb, proc_cb):
+            # La G borra el `.mkv.tmp` de su nombre al arrancar y la H lo
+            # publica: con otro proyecto vivo del MISMO nombre de salida, ese
+            # temporal es del otro (ver `_cmv40_otro_dueno_del_tmp`).
+            if fase in _CMV40_FASES_QUE_LO_ESCRIBEN:
+                otro = await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session)
+                if otro is not None:
+                    raise RuntimeError(tr(
+                        'cmv40.otro_proyecto_tiene_el_remux',
+                        nombre=session.output_mkv_name,
+                        otro=otro.get("source_mkv_name") or otro.get("id")))
             # El valor de retorno de la fase **no se vuelca al log**. Se hacía,
             # y producía dos líneas sin hora y sin fase —una con una ruta y
             # otra con el `repr` de un diccionario de Python— porque se metían
@@ -2705,10 +2714,24 @@ async def cmv40_create(body: CMv40CreateRequest):
     if not DEV_MODE and not Path(mkv_path).exists():
         raise HTTPException(status_code=400, detail=tr('mkv_analyze.mkv_no_encontrado', mkv_path=mkv_path))
     mkv_name = Path(mkv_path).name
+    # Nombre sugerido: reemplazar [DV FEL] por [DV FEL CMv4.0] o añadirlo.
+    # Validado como en el renombrado: con una ruta dentro, borrar o renombrar
+    # el proyecto actuaba fuera de /mnt/output.
+    default_name = _cmv40_nombre_de_salida(
+        body.output_mkv_name or mkv_name.replace(".mkv", " [CMv4.0].mkv"))
+    # Un doble clic repite la MISMA petición en el mismo segundo: se devuelve
+    # el proyecto que acaba de crearse en vez de un segundo con el mismo
+    # nombre de salida y su propio pipeline. Otro MKV con el mismo título y
+    # año (otra edición) sí es otro proyecto: `make_cmv40_session_id` le da
+    # un id propio en vez de sobrescribir el primero.
+    from storage import cmv40_session_id_base
+    previo = load_cmv40_session(cmv40_session_id_base(mkv_path))
+    if previo is not None and previo.source_mkv_path == mkv_path:
+        return previo.model_dump()
     sid = make_cmv40_session_id(mkv_path)
-    artifacts_dir = CMV40_WORK_BASE / sid
-    # Nombre sugerido: reemplazar [DV FEL] por [DV FEL CMv4.0] o añadirlo
-    default_name = body.output_mkv_name or mkv_name.replace(".mkv", " [CMv4.0].mkv")
+    # `_cmv40_pipeline_mod` y no el alias importado: el arnés de los tests
+    # parchea el módulo, y con el alias el workdir nacía en la base de verdad.
+    artifacts_dir = Path(_cmv40_pipeline_mod.CMV40_WORK_BASE) / sid
 
     # Tamaño del MKV → ETA fallback escalado al tamaño real. Best-effort:
     # si falla (DEV_MODE con rutas fake, permisos) se queda en 0 y el ETA
@@ -3072,7 +3095,11 @@ async def cmv40_get(session_id: str, include_log: bool = True,
         # —a medias— y bastaba con el de ayer para darlo por terminado.
         remuxes = [rec for rec in (session.phase_history or []) if rec.phase == "remux"]
         had_successful_remux = bool(remuxes) and remuxes[-1].status == "done"
-        if tmp_path.exists() and had_successful_remux and not session.running_phase:
+        # Y que no sea de OTRO proyecto con el mismo nombre de salida: con un
+        # remux propio ya rebobinado y el del otro en disco, adelantaba este
+        # a `remuxed` y su Fase H publicaba el MKV del otro.
+        if (tmp_path.exists() and had_successful_remux and not session.running_phase
+                and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):
             _logger.info(
                 "Forward-roll de sesión %s: phase=%s pero .mkv.tmp existe + remux done en historial → remuxed",
                 session.id, session.phase,
@@ -3176,9 +3203,9 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     # huérfano escribiendo en un workdir que ya no tiene dueño; con una fase
     # en cola, el save final de esa fase lo resucitaba. El guard mira las dos.
     _cmv40_guard_not_running(session, tr('cmv40.borrar_el_proyecto'))
-    if clean_artifacts and session.artifacts_dir:
-        wd = Path(session.artifacts_dir)
-        if wd.exists():
+    if clean_artifacts:
+        wd = _cmv40_workdir_propio(session)
+        if wd is not None and wd.exists():
             # A un thread: el workdir de un UHD son cientos de GB y borrarlos
             # sobre ZFS tarda segundos. En el bucle, eso congela la app entera
             # (incluido el healthcheck del contenedor).
@@ -3186,7 +3213,7 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
         # Y el remux que la Fase G dejó en /mnt/output: es del proyecto, y sin
         # él quedaban decenas de GB huérfanos en el directorio del usuario. La
         # limpieza normal y la masiva ya lo borraban; esta no.
-        _cmv40_borrar_tmp_del_remux(session)
+        await asyncio.to_thread(_cmv40_borrar_tmp_del_remux, session)
     delete_cmv40_session(session_id)
     return {"ok": True}
 
@@ -3195,22 +3222,181 @@ class CMv40RenameRequest(BaseModel):
     output_mkv_name: str
 
 
-def _cmv40_tmp_del_remux(session: CMv40Session) -> Path:
-    """El `.mkv.tmp` que la Fase G deja en /mnt/output para la H."""
+def _cmv40_nombre_de_salida(nombre: str) -> str:
+    """El nombre del MKV de salida, normalizado y validado — o 400.
+
+    Lo usan la creación y el renombrado. Antes solo lo validaba el
+    renombrado, así que crear con `../ajeno.mkv` o con una ruta absoluta
+    dejaba en la sesión un nombre que borrar el proyecto o renombrarlo
+    convertían en una ruta fuera de /mnt/output (auditoría con Codex del
+    2026-10-17, reproducido).
+    """
+    nombre = (nombre or "").strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_vacio'))
+    if not nombre.lower().endswith(".mkv"):
+        nombre += ".mkv"
+    # El nombre acaba en el `os.rename` de la Fase H hacia /mnt/output: con
+    # una ruta dentro, el MKV saldría del directorio de salida.
+    if not _cmv40_nombre_de_salida_es_plano(nombre):
+        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_con_ruta'))
+    return nombre
+
+
+def _cmv40_nombre_de_salida_es_plano(nombre: str) -> bool:
+    """¿Es un nombre de fichero sin ruta, que no puede salir de /mnt/output?"""
+    return bool(nombre) and (Path(nombre).name == nombre and "\\" not in nombre
+                             and not nombre.startswith("."))
+
+
+def _cmv40_tmp_del_remux(session: CMv40Session) -> Path | None:
+    """El `.mkv.tmp` que la Fase G deja en /mnt/output para la H.
+
+    None si el nombre persistido lleva una ruta (una sesión creada antes de
+    validarlo, o un JSON editado a mano): ahí no hay nada que tocar.
+    """
+    if not _cmv40_nombre_de_salida_es_plano(session.output_mkv_name or ""):
+        return None
     return _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
 
 
+# Las fases en las que un proyecto tiene —o está escribiendo— el `.mkv.tmp`
+# de su nombre de salida.
+_CMV40_FASES_CON_TMP = ("remuxed", "validated")
+_CMV40_FASES_QUE_LO_ESCRIBEN = ("remux", "validate")
+
+
+def _cmv40_otro_dueno_del_tmp(session: CMv40Session) -> dict | None:
+    """El OTRO proyecto vivo que tiene el `.mkv.tmp` de este nombre, o None.
+
+    El temporal se llama como el MKV de salida, así que dos proyectos con el
+    mismo nombre comparten ruta: la Fase G de uno borraba el remux del otro
+    al arrancar, y limpiar, borrar o renombrar el proyecto que todavía no
+    había llegado al remux se llevaba el del otro, que sí (auditoría con
+    Codex del 2026-10-17, reproducido). Es del proyecto que lo escribió — el
+    que está en `remuxed`/`validated` o corriendo la G o la H.
+
+    Lee el summary cacheado (un `stat` por sesión): va a un thread desde una
+    corrutina.
+    """
+    nombre = session.output_mkv_name or ""
+    if not nombre:
+        return None
+    from storage import list_cmv40_sessions_summary
+    for s in list_cmv40_sessions_summary():
+        sid = s.get("id")
+        if (not sid or sid == session.id or s.get("output_mkv_name") != nombre
+                or s.get("archived") or s.get("phase") == CMv40Phase.DONE):
+            continue
+        if (s.get("phase") in _CMV40_FASES_CON_TMP
+                or s.get("running_phase") in _CMV40_FASES_QUE_LO_ESCRIBEN
+                or _cmv40_activas.get(sid) in _CMV40_FASES_QUE_LO_ESCRIBEN):
+            return s
+    return None
+
+
+def _cmv40_otro_proyecto_con_el_nombre(session: CMv40Session,
+                                       nombre: str) -> dict | None:
+    """Otro proyecto sin terminar ni archivar que ya usa ese nombre, o None."""
+    from storage import list_cmv40_sessions_summary
+    for s in list_cmv40_sessions_summary():
+        if (s.get("id") and s.get("id") != session.id
+                and s.get("output_mkv_name") == nombre
+                and not s.get("archived") and s.get("phase") != CMv40Phase.DONE):
+            return s
+    return None
+
+
 def _cmv40_borrar_tmp_del_remux(session: CMv40Session) -> int:
-    """Borra el `.mkv.tmp` del proyecto si existe; devuelve los bytes."""
+    """Borra el `.mkv.tmp` del proyecto si existe Y es suyo; devuelve los
+    bytes. Si otro proyecto vivo con el mismo nombre lo tiene, no lo toca."""
     tmp = _cmv40_tmp_del_remux(session)
+    if tmp is None or not tmp.is_file():
+        return 0
+    otro = _cmv40_otro_dueno_del_tmp(session)
+    if otro is not None:
+        _logger.info("%s: el .mkv.tmp «%s» es del proyecto %s — no se toca",
+                     session.id, tmp.name, otro.get("id"))
+        return 0
     try:
-        if tmp.is_file():
-            tam = tmp.stat().st_size
-            tmp.unlink()
-            return tam
+        tam = tmp.stat().st_size
+        tmp.unlink()
+        return tam
     except OSError as e:
         _logger.warning("No se pudo borrar %s: %s", tmp, e)
     return 0
+
+
+def _cmv40_workdir_propio(session: CMv40Session) -> Path | None:
+    """El workdir del proyecto si está donde la app lo crea, o None.
+
+    `artifacts_dir` se persiste y el modelo admite cualquier cadena, así que
+    un JSON importado o editado a mano con `/mnt/output` llegaba tal cual a
+    un `rmtree` (auditoría con Codex del 2026-10-17). Solo se admite el
+    directorio de ESTE proyecto: `{CMV40_WORK_BASE}/{id}`, resuelto.
+    """
+    if not session.artifacts_dir:
+        return None
+    try:
+        base = Path(_cmv40_pipeline_mod.CMV40_WORK_BASE).resolve()
+        wd = Path(session.artifacts_dir).resolve()
+        rel = wd.relative_to(base)
+    except (OSError, ValueError):
+        rel = None
+    if rel is None or rel.parts != (session.id,):
+        _logger.warning("%s: artifacts_dir %r no es el workdir del proyecto "
+                        "— no se borra nada ahí", session.id, session.artifacts_dir)
+        return None
+    return wd
+
+
+class _Cmv40NoSeLimpia(Exception):
+    """La limpieza no se ha podido hacer entera; el mensaje es para el usuario."""
+
+
+def _cmv40_limpiar_artefactos(session: CMv40Session) -> int:
+    """Borra el workdir ENTERO del proyecto y su `.mkv.tmp`; devuelve los
+    bytes liberados de verdad. **Síncrono: va a un thread.**
+
+    Lo comparten la limpieza individual y la masiva. La masiva tenía su
+    propia copia, de antes de que la individual aprendiera tres cosas: borra
+    el directorio entero y no una lista de nombres conocidos (un artefacto
+    nuevo del pipeline sobrevivía para siempre — caso real: la conversión a
+    Profile 8.1 dejó 29 MB en "Te van a matar"); no da por liberado lo que
+    no se pudo borrar (la masiva sumaba ANTES del `unlink`); y no archiva un
+    proyecto cuya limpieza falló (auditoría con Codex del 2026-10-17).
+
+    Lanza `_Cmv40NoSeLimpia` si el workdir no es el del proyecto o si no se
+    pudo borrar: archivar es solo lectura, y un proyecto archivado con los
+    artefactos dentro ya no se puede volver a limpiar desde la interfaz.
+    """
+    freed = 0
+    if session.artifacts_dir:
+        wd = _cmv40_workdir_propio(session)
+        if wd is None:
+            raise _Cmv40NoSeLimpia(tr('cmv40.workdir_fuera_de_sitio',
+                                      ruta=session.artifacts_dir))
+        if wd.exists():
+            # El recuento antes del borrado, pero solo se devuelve si el
+            # borrado termina: si falla, no se ha liberado lo que se contó.
+            total = 0
+            for f in wd.rglob("*"):
+                if f.is_file():
+                    try:
+                        total += f.stat().st_size
+                    except OSError:
+                        pass
+            try:
+                _cmv40_shutil.rmtree(wd)
+            except OSError as e:
+                _logger.warning("No se pudo borrar el workdir %s: %s", wd, e)
+                raise _Cmv40NoSeLimpia(tr('cmv40.no_se_pudo_borrar_el_workdir',
+                                          error=str(e)))
+            freed += total
+    # Y el `.mkv.tmp` de /mnt/output (la Fase G escribió y la H no terminó),
+    # si es suyo — ver `_cmv40_otro_dueno_del_tmp`.
+    freed += _cmv40_borrar_tmp_del_remux(session)
+    return freed
 
 
 def _cmv40_guard_mutable(session: CMv40Session):
@@ -3280,22 +3466,26 @@ async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_mutable(session)
     _cmv40_guard_not_running(session, tr('cmv40.renombrar_el_mkv_de_salida'))
-    new_name = body.output_mkv_name.strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_vacio'))
-    if not new_name.lower().endswith(".mkv"):
-        new_name += ".mkv"
-    # El nombre acaba en el `os.rename` de la Fase H hacia /mnt/output: con
-    # una ruta dentro, el MKV saldría del directorio de salida.
-    if (Path(new_name).name != new_name or "\\" in new_name
-            or new_name.startswith(".")):
-        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_con_ruta'))
+    new_name = _cmv40_nombre_de_salida(body.output_mkv_name)
+    # Otro proyecto vivo con ese nombre compartiría el `.mkv.tmp` de la
+    # Fase G — ver `_cmv40_otro_dueno_del_tmp`. Al renombrar se le puede
+    # decir que no; al crear, el nombre lo propone la app y lo para la G.
+    if new_name != session.output_mkv_name:
+        ocupado = await asyncio.to_thread(
+            _cmv40_otro_proyecto_con_el_nombre, session, new_name)
+        if ocupado is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=tr('cmv40.otro_proyecto_usa_ese_nombre', nombre=new_name))
     # Con el remux ya escrito, el `.mkv.tmp` cambia de nombre con el
     # proyecto. Si no, la Fase H buscaba el nombre nuevo, el auto-rewind
     # mandaba a repetir el remux y el temporal viejo se quedaba huérfano.
+    # Solo si es SUYO: con otro proyecto del mismo nombre, el temporal es
+    # del otro y renombrar este se lo llevaba.
     viejo = _cmv40_tmp_del_remux(session)
     nuevo = _cmv40_pipeline_mod.OUTPUT_DIR / f"{new_name}.tmp"
-    if viejo.is_file() and viejo != nuevo:
+    if (viejo is not None and viejo.is_file() and viejo != nuevo
+            and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):
         if nuevo.exists():
             raise HTTPException(status_code=409,
                                 detail=tr('cmv40.ya_hay_un_remux_con_ese_nombre', nombre=new_name))
@@ -3320,48 +3510,13 @@ async def cmv40_cleanup(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_not_running(session, tr('cmv40.borrar_los_artefactos'))
-    wd = Path(session.artifacts_dir) if session.artifacts_dir else None
-    freed = 0
-    if wd and wd.exists():
-        # Se borra el workdir ENTERO, no una lista de nombres conocidos. El
-        # directorio es exclusivo de esta sesión (/mnt/tmp/cmv40/{id}) y el
-        # session.json vive en /config, así que no hay nada que preservar.
-        #
-        # Antes se recorría `_CMV40_PHASE_ARTIFACTS`, así que cualquier
-        # artefacto nuevo del pipeline sobrevivía a la limpieza para siempre
-        # y el proyecto quedaba archivado (solo lectura) sin forma de volver
-        # a limpiarlo desde la UI. Caso real: los ficheros de la conversión a
-        # Profile 8.1 dejaron 29 MB huérfanos en "Te van a matar".
-        def _medir_y_borrar(directorio: Path) -> int:
-            # Recuento + borrado en un thread: el workdir de un UHD son
-            # 250-400 GB (source.hevc + BL + EL + EL_injected + output.mkv) y
-            # tanto el `rglob` de stats como el unlink sobre ZFS tardan
-            # segundos. En el bucle congelaban la app entera — el log del job
-            # que estuviera corriendo en otro proyecto incluido.
-            total = 0
-            for f in directorio.rglob("*"):
-                if f.is_file():
-                    try:
-                        total += f.stat().st_size
-                    except OSError:
-                        pass
-            _cmv40_shutil.rmtree(directorio)
-            return total
-
-        try:
-            freed = await asyncio.to_thread(_medir_y_borrar, wd)
-        except Exception as e:
-            _logger.warning("No se pudo borrar el workdir %s: %s", wd, e)
-            freed = 0
-    # También borrar .mkv.tmp orfeno en /mnt/output (si Fase G escribió pero
-    # Fase H no completó)
     try:
-        tmp_path = _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
-        if tmp_path.exists() and tmp_path.is_file():
-            freed += tmp_path.stat().st_size
-            tmp_path.unlink()
-    except Exception as e:
-        _logger.warning("No se pudo borrar .mkv.tmp: %s", e)
+        freed = await asyncio.to_thread(_cmv40_limpiar_artefactos, session)
+    except _Cmv40NoSeLimpia as e:
+        # Sin archivar: archivado es solo lectura, y un proyecto que se
+        # archiva con los artefactos dentro ya no se puede volver a limpiar
+        # desde la interfaz.
+        raise HTTPException(status_code=409, detail=str(e))
     session.archived = True
     save_cmv40_session(session)
     await _cmv40_log(session, tr('cmv40.artefactos_borrados_p1_gb_liberados_proyecto_archivado', p1=format(freed / 1e9, '.2f')))
@@ -3688,41 +3843,24 @@ async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
             failed.append({"id": sid,
                            "error": tr('cmv40.proyecto_no_encontrado')})
             continue
-        if session.running_phase:
+        # El mismo criterio que la limpieza individual: una fase en marcha,
+        # una que todavía termina tras Cancelar y una que espera en la cola
+        # cuentan igual. Mirando solo `running_phase`, la fase encolada corría
+        # después sobre los artefactos borrados.
+        en_vuelo = _cmv40_fase_en_vuelo(session)
+        en_cola = _cmv40_posicion_en_cola(session.id)
+        if en_vuelo or en_cola:
             skipped.append({
                 "id": sid,
                 "reason": tr('cmv40.limpieza_fase_en_curso_corto',
-                             fase=session.running_phase),
+                             fase=en_vuelo or (en_cola or {}).get("fase") or "?"),
             })
             continue
-        wd = Path(session.artifacts_dir) if session.artifacts_dir else None
-        freed = 0
-        if wd and wd.exists():
-            for arts in _CMV40_PHASE_ARTIFACTS.values():
-                for name in arts:
-                    f = wd / name
-                    if f.exists() and f.is_file():
-                        try:
-                            freed += f.stat().st_size
-                            f.unlink()
-                        except Exception as e:
-                            _logger.warning("[Bulk cleanup] %s: %s", f, e)
-            for extra in ["RPU_synced.bin", "RPU_synced.tmp.bin", "editor_config.json"]:
-                f = wd / extra
-                if f.exists() and f.is_file():
-                    try:
-                        freed += f.stat().st_size
-                        f.unlink()
-                    except Exception:
-                        pass
-        # .mkv.tmp en /mnt/output
         try:
-            tmp_path = _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
-            if tmp_path.exists() and tmp_path.is_file():
-                freed += tmp_path.stat().st_size
-                tmp_path.unlink()
-        except Exception as e:
-            _logger.warning("[Bulk cleanup] .mkv.tmp %s: %s", sid, e)
+            freed = await asyncio.to_thread(_cmv40_limpiar_artefactos, session)
+        except _Cmv40NoSeLimpia as e:
+            failed.append({"id": sid, "error": str(e)})
+            continue
         session.archived = True
         save_cmv40_session(session)
         await _cmv40_log(session,
@@ -3838,7 +3976,7 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
         _cmv40_borrar_tmp_del_remux(session)
 
     # Borrar artefactos aguas abajo
-    wd = Path(session.artifacts_dir) if session.artifacts_dir else None
+    wd = _cmv40_workdir_propio(session)
     if wd and wd.exists():
         for name in _cmv40_artifacts_to_delete(target_phase):
             p = wd / name

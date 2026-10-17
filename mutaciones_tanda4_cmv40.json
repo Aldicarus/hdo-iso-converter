@@ -4,104 +4,242 @@
   "fichero": "app/phases/cmv40_pipeline.py",
   "viejo": "        # acababa en «Fase extract FALLÓ … código -15», con su banner rojo y\n        # el 409 del error pendiente al reintentar (reproducido en la\n        # auditoría con Codex del 2026-10-17).\n        if proc.returncode not in (0, 1):\n            raise_if_cancelled()\n",
   "nuevo": "        # acababa en «Fase extract FALLÓ … código -15», con su banner rojo y\n        # el 409 del error pendiente al reintentar (reproducido en la\n        # auditoría con Codex del 2026-10-17).\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-2 _run_with_time_estimate no mata su proceso al cancelar la tarea",
   "fichero": "app/phases/cmv40_pipeline.py",
   "viejo": "            # el demux de la Fase C, que seguía escribiendo BL/EL mientras la\n            # fase ya había borrado los parciales.\n            _matar_proceso(proc)\n            raise\n",
   "nuevo": "            # el demux de la Fase C, que seguía escribiendo BL/EL mientras la\n            # fase ya había borrado los parciales.\n            raise\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-3 el pipe de la Fase A deja vivos sus dos extremos al cancelar la tarea",
   "fichero": "app/phases/cmv40_pipeline.py",
   "viejo": "        fin.set()\n        _matar_proceso(ff)\n        _matar_proceso(dv)\n        raise\n",
   "nuevo": "        fin.set()\n        raise\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-4 el pipe arranca aunque ya esté cancelado",
   "fichero": "app/phases/cmv40_pipeline.py",
   "viejo": "    # después de haber arrancado (y matado) este pipeline para nada.\n    raise_if_cancelled()\n",
   "nuevo": "    # después de haber arrancado (y matado) este pipeline para nada.\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-5 el SIGTERM de cancelar el pipe se toma por un fallo",
   "fichero": "app/phases/cmv40_pipeline.py",
   "viejo": "        if ff_rc not in (0, 1) or dv_rc not in (0, 1):\n            raise_if_cancelled()\n",
   "nuevo": "        pass\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-6 el export de rpu_analyze sobrevive a la tarea",
   "fichero": "app/phases/rpu_analyze.py",
   "viejo": "        if proc.returncode is None:\n            try:\n                proc.kill()\n            except ProcessLookupError:\n                pass\n        reader_task.cancel()\n        raise\n",
   "nuevo": "        reader_task.cancel()\n        raise\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-7 el ticker de _run_streaming sobrevive a la tarea",
   "fichero": "app/phases/cmv40_pipeline.py",
   "viejo": "    except BaseException:\n        stop_ticker.set()\n        if tick_task:\n            tick_task.cancel()\n        raise\n",
   "nuevo": "    except BaseException:\n        raise\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-8 una parada ordenada deja la fase en running",
   "fichero": "app/routers/cmv40.py",
   "viejo": "            msg = tr('cmv40.sesion_interrumpida_por_reinicio')\n            record.status = \"error\"\n            record.finished_at = datetime.now(timezone.utc)\n            record.elapsed_seconds = (record.finished_at - started).total_seconds()\n            record.error_message = msg\n            session.phase = previous_phase\n            session.error_message = msg\n",
   "nuevo": "            pass\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-9 una fase fallida no apunta lo que duró",
   "fichero": "app/routers/cmv40.py",
   "viejo": "        except Exception as e:\n            record.status = \"error\"\n            record.finished_at = datetime.now(timezone.utc)\n            record.elapsed_seconds = (record.finished_at - started).total_seconds()\n            record.error_message = str(e)\n",
   "nuevo": "        except Exception as e:\n            record.status = \"error\"\n            record.finished_at = datetime.now(timezone.utc)\n            record.error_message = str(e)\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-10 el except del veredicto de la hoja vuelve a session.session_id",
   "fichero": "app/routers/cmv40.py",
   "viejo": "        _logger.warning(\"No se pudo rehacer el veredicto de la hoja de %s: %s\",\n                        session.id, e)",
   "nuevo": "        _logger.warning(\"No se pudo rehacer el veredicto de la hoja de %s: %s\",\n                        session.session_id, e)",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-11 el pre-flight no instala el predicado de cancelación",
   "fichero": "app/routers/cmv40.py",
   "viejo": "        # con su banner rojo (auditoría con Codex del 2026-10-17). Se\n        # instala dentro de la task, así que no sale de ella.\n        _cmv40_pipeline_mod.set_cancel_check(\n            lambda: bool(_cmv40_cancel_flags.get(session.id)))\n",
   "nuevo": "        # con su banner rojo (auditoría con Codex del 2026-10-17). Se\n        # instala dentro de la task, así que no sale de ella.\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-12 el pre-flight encadena la Fase A tras pulsar Cancelar",
   "fichero": "app/routers/cmv40.py",
   "viejo": "            and session.target_preflight_ok and not cancelado):",
   "nuevo": "            and session.target_preflight_ok):",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-13 el guardado de arranque del pre-flight vuelve a ir fuera del try",
   "fichero": "app/routers/cmv40.py",
   "viejo": "        try:\n            # El guardado de arranque va DENTRO del try: fuera, un fallo de\n            # escritura (disco lleno) salía con el proyecto apuntado en\n            # `_cmv40_activas` y en `workload` y sin pasar por el `finally`\n            # que los suelta — actividad fantasma hasta reiniciar.\n            await _save_cmv40_session_async(session)\n",
   "nuevo": "        await _save_cmv40_session_async(session)\n        try:\n",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-14 el guard destructivo solo mira running_phase",
   "fichero": "app/routers/cmv40.py",
   "viejo": "    viva = _cmv40_sesion_viva.get(session.id)\n    nombre = (session.running_phase or _cmv40_activas.get(session.id)",
   "nuevo": "    return session.running_phase or _cmv40_activas.get(session.id)\n    viva = _cmv40_sesion_viva.get(session.id)\n    nombre = (session.running_phase or _cmv40_activas.get(session.id)",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
  },
  {
   "id": "T4-15 el guard destructivo no mira el lock de la fase",
   "fichero": "app/routers/cmv40.py",
   "viejo": "    if (session.id in _cmv40_phases_in_flight\n            or _get_cmv40_phase_lock(session.id).locked()):",
   "nuevo": "    if False:",
-  "modulos": ["test_cmv40_cancelar_y_parar"]
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4-16 borrar el .mkv.tmp sin mirar si es de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    otro = _cmv40_otro_dueno_del_tmp(session)\n    if otro is not None:\n        _logger.info(",
+  "nuevo": "    otro = None\n    if otro is not None:\n        _logger.info(",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-17 renombrar mueve el .mkv.tmp de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "viejo.is_file() and viejo != nuevo\n            and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):",
+  "nuevo": "viejo.is_file() and viejo != nuevo):",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-18 renombrar a un nombre que usa otro proyecto vivo",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        if ocupado is not None:\n            raise HTTPException(",
+  "nuevo": "        if False:\n            raise HTTPException(",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-19 la Fase G arranca sobre el .mkv.tmp de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            if fase in _CMV40_FASES_QUE_LO_ESCRIBEN:\n                otro = await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session)",
+  "nuevo": "            if False:\n                otro = await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session)",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-20 el forward-roll adopta el .mkv.tmp de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "not session.running_phase\n                and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):",
+  "nuevo": "not session.running_phase):",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-21 crear acepta un nombre de salida con ruta",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    default_name = _cmv40_nombre_de_salida(\n        body.output_mkv_name or mkv_name.replace(\".mkv\", \" [CMv4.0].mkv\"))",
+  "nuevo": "    default_name = (\n        body.output_mkv_name or mkv_name.replace(\".mkv\", \" [CMv4.0].mkv\"))",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-22 un JSON con un nombre de salida con ruta se carga tal cual",
+  "fichero": "app/models.py",
+  "viejo": "            if plano != nombre:\n                avisa(f\"output_mkv_name con ruta",
+  "nuevo": "            if False:\n                avisa(f\"output_mkv_name con ruta",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-23 artifacts_dir llega a rmtree sin validar",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if rel is None or rel.parts != (session.id,):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-24 la limpieza masiva no mira la cola",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        en_cola = _cmv40_posicion_en_cola(session.id)\n        if en_vuelo or en_cola:",
+  "nuevo": "        en_cola = None\n        if en_vuelo or en_cola:",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-25 una limpieza que falla archiva igual",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "                _logger.warning(\"No se pudo borrar el workdir %s: %s\", wd, e)\n                raise _Cmv40NoSeLimpia(tr('cmv40.no_se_pudo_borrar_el_workdir',\n                                          error=str(e)))\n",
+  "nuevo": "                _logger.warning(\"No se pudo borrar el workdir %s: %s\", wd, e)\n",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-26 dos creaciones en el mismo segundo comparten id",
+  "fichero": "app/storage.py",
+  "viejo": "    while _cmv40_session_path(sid).exists():\n        sid, n = f\"{base}_{n}\", n + 1",
+  "nuevo": "    while False:\n        sid, n = f\"{base}_{n}\", n + 1",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4-27 un doble clic crea dos proyectos",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if previo is not None and previo.source_mkv_path == mkv_path:\n        return previo.model_dump()",
+  "nuevo": "    if False:\n        return previo.model_dump()",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
  }
 ]
