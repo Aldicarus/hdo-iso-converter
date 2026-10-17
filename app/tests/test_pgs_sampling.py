@@ -93,15 +93,15 @@ class TestDistributedPgsSampling(unittest.TestCase):
     def test_head_only_misses_late_complete(self):
         # HEAD-only: la completa (2ª mitad) no aparece en la muestra del inicio.
         counts = self._count(sample_segments=1)
-        self.assertEqual(counts[0], 0, "HEAD-only debería no ver la completa tardía")
-        self.assertGreater(counts[1], 0, "el forzado del inicio sí debe verse")
+        self.assertEqual(counts[PID_COMPLETE], 0, "HEAD-only debería no ver la completa tardía")
+        self.assertGreater(counts[PID_FORCED], 0, "el forzado del inicio sí debe verse")
 
     def test_distributed_counts_late_complete(self):
         # Distribuido: los tramos del final capturan la completa.
         counts = self._count(sample_segments=4)
-        self.assertGreater(counts[0], 0, "la completa tardía debe contarse")
+        self.assertGreater(counts[PID_COMPLETE], 0, "la completa tardía debe contarse")
         self.assertGreater(
-            counts[0], counts[1] * 3,
+            counts[PID_COMPLETE], counts[PID_FORCED] * 3,
             "la completa debe superar de lejos al forzado (ratio >3×)",
         )
 
@@ -112,7 +112,7 @@ class TestDistributedPgsSampling(unittest.TestCase):
         # PID_COMPLETE aparece en packets pares de [500,1000) = 250 eventos en
         # todo el fichero. Con 4 tramos cubriendo ~40% repartido, esperamos una
         # fracción no trivial (>20) — imposible sin realineación tras seek.
-        self.assertGreater(counts[0], 20)
+        self.assertGreater(counts[PID_COMPLETE], 20)
 
 
 class TestSequentialSmallFile(unittest.TestCase):
@@ -130,8 +130,8 @@ class TestSequentialSmallFile(unittest.TestCase):
                 sample_segments=4,
             ))
             # 400 packets: completa en pares [200,400) = 100; forzado 5.
-            self.assertEqual(counts[0], 100)
-            self.assertEqual(counts[1], 5)
+            self.assertEqual(counts[PID_COMPLETE], 100)
+            self.assertEqual(counts[PID_FORCED], 5)
         finally:
             os.unlink(tmp.name)
 
@@ -177,8 +177,8 @@ class TestScanVectorizado(unittest.IsolatedAsyncioTestCase):
             self._fake_m2ts(p, plan)
             got = await count_pgs_packets_ts_parse(
                 p, pid_list=[0x1200, 0x1201, 0x1202])
-        # El contrato es {índice posicional: conteo}, no {pid: conteo}
-        self.assertEqual(got, {0: 137, 1: 41, 2: 3})
+        # El contrato es {PID: conteo}: quién es quién lo decide el asignador
+        self.assertEqual(got, {0x1200: 137, 0x1201: 41, 0x1202: 3})
 
     async def test_pid_ausente_del_muestreo_queda_a_cero(self):
         """Un forzado muy disperso puede no aparecer; debe salir con 0, que
@@ -190,7 +190,7 @@ class TestScanVectorizado(unittest.IsolatedAsyncioTestCase):
             self._fake_m2ts(p, [0x1200] * 50)
             got = await count_pgs_packets_ts_parse(
                 p, pid_list=[0x1200, 0x12A3])
-        self.assertEqual(got, {0: 50, 1: 0})
+        self.assertEqual(got, {0x1200: 50, 0x12A3: 0})
 
     async def test_paquetes_desalineados_caen_al_recorrido_lento(self):
         """Si algún paquete no empieza por 0x47 hay que mirarlos uno a uno:
@@ -206,7 +206,7 @@ class TestScanVectorizado(unittest.IsolatedAsyncioTestCase):
                 f.write(b"\x00")
             got = await count_pgs_packets_ts_parse(p, pid_list=[0x1200])
         # 39 válidos: el corrupto no se cuenta, el resto sí
-        self.assertEqual(got[0], 39)
+        self.assertEqual(got[0x1200], 39)
 
     async def test_sin_pid_list_usa_el_rango_por_defecto(self):
         import tempfile, os
@@ -215,9 +215,8 @@ class TestScanVectorizado(unittest.IsolatedAsyncioTestCase):
             p = os.path.join(td, "t.m2ts")
             self._fake_m2ts(p, [0x1200] * 10 + [0x12FF] * 5 + [0x1300] * 7)
             got = await count_pgs_packets_ts_parse(p)
-        # 0x1300 queda fuera del rango PGS (0x1200-0x12FF). Sin pid_list el
-        # orden es ascendente de PID: idx 0 = 0x1200, idx 1 = 0x12FF.
-        self.assertEqual(got, {0: 10, 1: 5})
+        # 0x1300 queda fuera del rango PGS (0x1200-0x12FF).
+        self.assertEqual(got, {0x1200: 10, 0x12FF: 5})
 
     async def test_paquetes_de_188_bytes(self):
         """TS estándar, sin la cabecera BDAV de 4 bytes."""
@@ -227,4 +226,4 @@ class TestScanVectorizado(unittest.IsolatedAsyncioTestCase):
             p = os.path.join(td, "t.ts")
             self._fake_m2ts(p, [0x1200] * 30 + [0x1201] * 12, packet_size=188)
             got = await count_pgs_packets_ts_parse(p, pid_list=[0x1200, 0x1201])
-        self.assertEqual(got, {0: 30, 1: 12})
+        self.assertEqual(got, {0x1200: 30, 0x1201: 12})

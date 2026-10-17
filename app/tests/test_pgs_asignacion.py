@@ -130,6 +130,55 @@ class TestOrdenDelMpls(unittest.TestCase):
         self.assertIn("ascendente", motivo)
 
 
+class TestElContadorYElAsignadorHablanLoMismo(unittest.IsolatedAsyncioTestCase):
+    """Las dos piezas JUNTAS, sobre un m2ts sintético.
+
+    Por separado estaban bien probadas y con contratos incompatibles: el
+    contador devolvía `{posición: conteo}` y el asignador trata las claves
+    como PIDs. Con lista del MPLS las posiciones `0..n-1` hacían de PIDs, así
+    que el rescate «por orden del MPLS» no podía dispararse nunca (sus PIDs
+    reales no estaban entre las claves) y lo que se asignaba era el orden de la
+    STN_table, no el ascendente que el docstring dice preferir. En el corpus
+    los dos órdenes coinciden; en un disco donde no, cada pista recibía el
+    conteo de su vecina."""
+
+    def _m2ts(self, plan):
+        import os
+        import tempfile
+        fd, ruta = tempfile.mkstemp(suffix=".m2ts")
+        os.close(fd)
+        self.addCleanup(os.unlink, ruta)
+        with open(ruta, "wb") as f:
+            for pid in plan:
+                pkt = bytearray(192)
+                pkt[4] = 0x47
+                pkt[5] = (pid >> 8) & 0x1F
+                pkt[6] = pid & 0xFF
+                f.write(pkt)
+        return ruta
+
+    async def test_la_stn_en_otro_orden_que_los_pid(self):
+        from phases.phase_a import count_pgs_packets_ts_parse
+        # 0x1200 inglés completo (900 paquetes), 0x1201 castellano forzado (40)
+        ruta = self._m2ts([0x1200] * 900 + [0x1201] * 40)
+        stn = mpls(*[(0x1201, "spa"), (0x1200, "eng")])   # STN: spa primero
+        cuentas = await count_pgs_packets_ts_parse(
+            ruta, pid_list=[e["pid"] for e in stn])
+        # mkvmerge lista las pistas por PID ascendente: inglés, castellano.
+        pistas = subs("English", "Spanish", forzados=(1,))
+        ok, motivo = asignar_packet_counts(pistas, cuentas, stn)
+        self.assertTrue(ok, motivo)
+        self.assertEqual([p.packet_count for p in pistas], [900, 40],
+                         "cada pista ha recibido el conteo de su vecina")
+
+    async def test_el_contador_devuelve_pids(self):
+        from phases.phase_a import count_pgs_packets_ts_parse
+        ruta = self._m2ts([0x12A0] * 10 + [0x12A3] * 3)
+        self.assertEqual(
+            await count_pgs_packets_ts_parse(ruta, pid_list=[0x12A3, 0x12A0, 0x12A5]),
+            {0x12A3: 3, 0x12A0: 10, 0x12A5: 0})
+
+
 class TestDegradacion(unittest.TestCase):
     def test_sin_conteos_no_falla(self):
         pistas = subs("English")

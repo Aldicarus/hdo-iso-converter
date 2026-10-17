@@ -2240,15 +2240,15 @@ async def count_pgs_packets_ts_parse(
     if not pgs_counts:
         return {}
 
-    # Devolvemos {idx: count} con idx = posicion en el orden de pid_list
-    # (autoritativo desde MPLS) o, si no hay lista, en orden ascendente de
-    # PID (asume que coincide con el orden de mkvmerge — verdadero en
-    # discos BDAV estandar).
-    if has_pid_list:
-        order = list(pid_list)
-    else:
-        order = sorted(pgs_counts.keys())
-    return {i: pgs_counts.get(pid, 0) for i, pid in enumerate(order)}
+    # {PID: conteo}. Con lista del MPLS salen TODOS sus PIDs, a 0 los que el
+    # muestreo no vio; sin ella, los que aparecieron. Quién es quién lo decide
+    # `asignar_packet_counts`, que necesita los PIDs para elegir entre el orden
+    # ascendente y el de la STN_table. Esto devolvía `{posición: conteo}` en el
+    # orden de la lista, y el asignador tomaba esas posiciones por PIDs: el
+    # rescate por orden del MPLS no podía dispararse nunca y lo que se asignaba
+    # era el orden de la STN, no el ascendente.
+    order = list(pid_list) if has_pid_list else sorted(pgs_counts.keys())
+    return {pid: pgs_counts.get(pid, 0) for pid in order}
 
 
 async def run_pgs_packet_counts(
