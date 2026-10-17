@@ -20,15 +20,28 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Forzar CONFIG_DIR a un tempdir ANTES de importar storage
-_TMP_CONFIG = tempfile.mkdtemp(prefix="sessions_summary_test_")
-os.environ["CONFIG_DIR"] = _TMP_CONFIG
+sys.path.insert(0, str(Path(__file__).parent))
+import storage  # noqa: E402
+from aislamiento import directorios_aislados  # noqa: E402
 
 from storage import (  # noqa: E402
     list_sessions_summary,
-    CONFIG_DIR,
     _sessions_summary_by_file,
 )
+
+# Los directorios se redirigen al cargar el módulo, sea cual sea el orden en
+# que se importó `storage` (ver `aislamiento`).
+CONFIG_DIR = None
+_DESHACER = None
+
+
+def setUpModule():
+    global CONFIG_DIR, _DESHACER
+    CONFIG_DIR, _DESHACER = directorios_aislados("sessions_summary_test_")
+
+
+def tearDownModule():
+    _DESHACER()
 
 
 def _write_session(sid: str, *, bump_mtime: float = 0.0, **extra) -> Path:

@@ -21,10 +21,9 @@ from pathlib import Path
 # Permite ejecutar el test sin instalar el paquete
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Forzar CONFIG_DIR a un tempdir ANTES de importar storage
-_TMP_CONFIG = tempfile.mkdtemp(prefix="mkv_cache_test_")
-os.environ["CONFIG_DIR"] = _TMP_CONFIG
-
+sys.path.insert(0, str(Path(__file__).parent))
+import storage  # noqa: E402
+from aislamiento import directorios_aislados  # noqa: E402
 from storage import (  # noqa: E402
     compute_mkv_fingerprint,
     read_mkv_cache,
@@ -33,11 +32,24 @@ from storage import (  # noqa: E402
     invalidate_mkv_cache,
     invalidate_mkv_cache_by_path,
     list_mkv_audit_entries,
-    MKV_AUDIT_DIR,
     _mkv_audit_path,
     _fingerprint_content_match,
 )
 
+
+
+# Los directorios se redirigen al cargar el módulo, sea cual sea el orden en
+# que se importó `storage` (ver `aislamiento`).
+_DESHACER = None
+
+
+def setUpModule():
+    global _DESHACER
+    _, _DESHACER = directorios_aislados("mkv_cache_test_")
+
+
+def tearDownModule():
+    _DESHACER()
 
 def _make_fake_mkv(content: bytes, mtime_offset: float = 0.0) -> Path:
     """Crea un fichero temporal con contenido específico para fingerprint testing."""
@@ -298,7 +310,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_read_corrupt_cache_returns_none(self):
         """Si el fichero de cache es JSON inválido, no peta — devuelve None."""
-        MKV_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+        storage.MKV_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
         fake_fp = {"sha256_1mb": "deadbeef", "size_bytes": 100, "mtime_ns": 0}
         cache_path = _mkv_audit_path(fake_fp["sha256_1mb"])
         cache_path.write_text("{ not valid json")
@@ -398,8 +410,8 @@ class TestListMkvAuditEntries(unittest.TestCase):
 
     def test_lists_corrupt_entry(self):
         """Un fichero JSON malformado aparece como corrupt=True sin pet."""
-        MKV_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
-        fake_path = MKV_AUDIT_DIR / "feedface.json"
+        storage.MKV_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+        fake_path = storage.MKV_AUDIT_DIR / "feedface.json"
         fake_path.write_text("{ not valid json")
         try:
             entries = [e for e in list_mkv_audit_entries() if "feedface" in e["cache_path"]]

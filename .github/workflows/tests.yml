@@ -64,7 +64,12 @@ jobs:
           test -d "/proc/self/fdinfo" || { echo "::error::/proc/self/fdinfo no existe"; exit 1; }
 
       - name: Suite completa
-        run: python3 -m unittest discover -s app/tests -v
+        # El lanzador fija los directorios de la app a una caja temporal ANTES
+        # de importar nada (la suite dependía del orden de importación para
+        # no tocar el /config real) y, en estricto, falla con un skip que no
+        # esté en `SKIPS_PREVISTOS`: si un día faltara Chrome, se saltarían
+        # unos sesenta módulos y esto seguiría en verde.
+        run: python3 app/tests/correr_suite.py --estricto
 
       - name: Sintaxis del frontend
         # Una por pieza: `app.js` se partió en siete scripts clásicos y un

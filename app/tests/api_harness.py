@@ -177,6 +177,15 @@ class ApiTestCase(unittest.TestCase):
             self.addCleanup(
                 lambda e=_estado, c=_copia: (e.clear(), e.update(c)))
 
+        # El búfer del log de CMv4.0 es un dict de MÓDULO por id de sesión, y
+        # los tests reutilizan el mismo id: lo que un test dejaba sin volcar
+        # aparecía en el log del siguiente. `test_cmv40_cambiar_target` seguido
+        # de `test_cmv40_endpoints` fallaba así; en la suite entera pasaba
+        # porque algún módulo intermedio lo vaciaba —otra dependencia del orden.
+        from routers import cmv40 as _r_cmv40
+        _r_cmv40._cmv40_log_buffer.clear()
+        _r_cmv40._cmv40_log_buffer_ts.clear()
+
         import queue_manager as _qm
         self.encolados: list[str] = []
         cola = self.main.queue_manager

@@ -18,8 +18,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Forzar CONFIG_DIR a un tempdir ANTES de importar (storage lo lee al import).
-os.environ.setdefault("CONFIG_DIR", tempfile.mkdtemp(prefix="cmv40_pipeline_test_"))
+sys.path.insert(0, str(Path(__file__).parent))
+from aislamiento import directorios_aislados  # noqa: E402
+
+_DESHACER = None
+
+
+def setUpModule():
+    # Ver `aislamiento`: el entorno llega tarde si otro módulo importó
+    # `storage` antes.
+    global _DESHACER
+    _, _DESHACER = directorios_aislados("cmv40_pipeline_test_")
+
+
+def tearDownModule():
+    _DESHACER()
 
 from phases.cmv40_pipeline import (  # noqa: E402
     _adaptive_timeout,
