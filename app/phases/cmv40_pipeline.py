@@ -29,7 +29,7 @@ from pathlib import Path
 
 import firma
 from models import CMv40Phase, CMv40PhaseRecord, CMv40Session, DoviInfo
-from phases.cmv40_strategy import WORKFLOWS, resolve_plan
+from phases.cmv40_strategy import WORKFLOWS, gates_dan_confianza, resolve_plan
 from phases.phase_a import _parse_dovi_summary
 
 _logger = logging.getLogger(__name__)
@@ -2591,10 +2591,7 @@ async def _analyze_target_rpu(
 
     session.target_trust_gates = gates
     # trust_ok se recalcula tras el refinamiento (puede haber cambiado l5_div)
-    trust_ok = all(
-        g.get("ok", False) for g in gates.values()
-        if isinstance(g, dict) and g.get("critical", False)
-    )
+    trust_ok = gates_dan_confianza(gates)
     # Solo confiamos si tipo permite skip Y todos los gates críticos pasaron
     trusted_types = (
         "trusted_p7_fel_final", "trusted_p7_mel_final", "trusted_p8_source",
@@ -2657,23 +2654,22 @@ async def _analyze_target_rpu(
                 _et() + '🎯 Resultado' + tr('cmv40_pipeline.target_clasificado_como_trusted_gates_ok', target_type=session.target_type, implication=implication)
             )
         else:
-            crit_fail = any(gates.get(k, {}).get("critical") and not gates.get(k, {}).get("ok")
-                            for k in gates if isinstance(gates.get(k), dict))
-            # ¿Hay gates con severity ack_required? — escalada distinta a la
-            # de los gates críticos: requieren confirmación explícita del
-            # usuario (no son fail-fast, pero sí pausan el auto-pipeline).
-            has_ack_required = any(
-                isinstance(g, dict) and g.get("severity") == "ack_required"
-                for g in gates.values()
-            )
-            if crit_fail:
+            # Por severidad, de la más grave a la menos. Antes la primera rama
+            # era «algún gate crítico no pasa», y eso incluía un desfase de
+            # frames, que no aborta nada: el log decía «el pipeline se aborta»
+            # sobre un job que seguía a la Fase D.
+            severidades = {g.get("severity") for g in gates.values()
+                           if isinstance(g, dict)}
+            if "hard_abort" in severidades:
                 implication = (
                     tr('cmv40_pipeline.algun_gate_critico_ha_fallado_el_pipeline')
                 )
-            elif has_ack_required:
+            elif "ack_required" in severidades:
                 implication = (
                     tr('cmv40_pipeline.gates_con_degradacion_previsible_el_pipeline_se')
                 )
+            elif "sync_review" in severidades:
+                implication = tr('cmv40_pipeline.gates_con_desfase_revisable')
             else:
                 implication = (
                     tr('cmv40_pipeline.gates_soft_con_avisos_divergencias_no_criticas')
@@ -2797,7 +2793,8 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
                            source_frames: int, target_frames: int) -> tuple[dict, bool]:
     """Evalúa los gates (frame count + L1/L5/L6 divergence) y devuelve:
       - dict con resultado de cada gate
-      - bool `trust_ok`: True si todos los críticos pasan
+      - bool `trust_ok`: True si ningún gate rompe la confianza
+        (`cmv40_strategy.gates_dan_confianza`: severidad ok o warn)
 
     Cada gate lleva un campo `severity` que resume el impacto si falla:
       - 'hard_abort'   → no hay forma de continuar útil; el bin se rechaza
@@ -2813,8 +2810,8 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
                           L1 5-20%).
       - 'ok'           → gate pasa.
 
-    `critical: True` se mantiene por compatibilidad — equivale a "severity
-    distinta de 'ok'/'warn'" para gates que rompen target_trust_ok.
+    `critical` se mantiene por compatibilidad y para el chip de la card de
+    validaciones. La confianza NO lo lee: la decide la severidad.
     """
     gates: dict = {}
 
@@ -2873,7 +2870,10 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
             l5_sev = "ack_required"
             l5_why = tr('cmv40_pipeline.gate_l5_ack', px=l5_max)
         gates["l5_div"] = {
-            "ok": l5_max <= 30,
+            # Pasa solo hasta 5 px. De 5 a 30 es `sync_review` —la Fase D
+            # puede revisarlo— y tiene que contar como pendiente: con `ok` a
+            # True, `hay_sync_por_revisar` no lo veía y la Fase D se saltaba.
+            "ok": l5_max <= 5,
             "px_max": l5_max,
             "soft_px": 5,
             "critical_px": 30,
@@ -2925,7 +2925,9 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
                 "nits_diff": l6_diff,
                 "threshold": 50,
                 "warn_threshold": 200,
-                "critical": False,
+                # «Crítico» = rompe la confianza, que lo decide la severidad
+                # (ver `gate_rompe_la_confianza`): solo cuando pide ACK.
+                "critical": l6_sev == "ack_required",
                 "severity": l6_sev,
                 "why": l6_why,
             }
@@ -2950,17 +2952,13 @@ def _evaluate_trust_gates(source_info: DoviInfo | None, target_info: DoviInfo,
                 "pct_diff": round(pct, 2),
                 "threshold_pct": 5.0,
                 "warn_threshold_pct": 20.0,
-                "critical": False,
+                "critical": l1_sev == "ack_required",
                 "severity": l1_sev,
                 "why": l1_why,
             }
 
-    # trust_ok: TODOS los críticos deben pasar
-    trust_ok = all(
-        g.get("ok", False) for g in gates.values()
-        if isinstance(g, dict) and g.get("critical", False)
-    )
-    return gates, trust_ok
+    # trust_ok: ningún gate con una severidad que no sea ok/warn
+    return gates, gates_dan_confianza(gates)
 
 
 def _extract_l5_from_frame(frame: dict) -> tuple[int, int, int, int] | None:

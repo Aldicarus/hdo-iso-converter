@@ -70,6 +70,36 @@ _NEEDS_MERGE_TARGETS = ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic
 #  Entradas
 # ══════════════════════════════════════════════════════════════════════
 
+#: Las severidades con las que un gate NO quita la confianza en el bin.
+SEVERIDADES_QUE_CONFIAN = ("ok", "warn")
+
+
+def gate_rompe_la_confianza(gate) -> bool:
+    """¿Este gate, con su valor, impide fiarse del bin?
+
+    Lo decide la SEVERIDAD, que es lo que la tabla de gates documenta: `ok` y
+    `warn` confían; `sync_review`, `ack_required` y `hard_abort`, no. Antes se
+    miraba el campo `critical`, y los gates L6 y L1 lo llevaban a False
+    siempre: un L6 que pedía confirmación dejaba el bin `trusted`, y tras el
+    ACK el job podía ir por drop-in con el L1 de otro máster. Un gate sin
+    `severity` —proyectos anteriores a ese campo— decide por su `ok`.
+    """
+    if not isinstance(gate, dict):
+        return False
+    sev = gate.get("severity")
+    if not sev:
+        return not gate.get("ok", False)
+    return sev not in SEVERIDADES_QUE_CONFIAN
+
+
+def gates_dan_confianza(gates) -> bool:
+    """Ningún gate rompe la confianza. Es la definición de `target_trust_ok`
+    sin la condición del tipo de bin, que la pone la Fase B."""
+    if not isinstance(gates, dict):
+        return True
+    return not any(gate_rompe_la_confianza(g) for g in gates.values())
+
+
 def hay_sync_por_revisar(gates) -> bool:
     """¿Queda algún gate que la Fase D pueda arreglar?
 

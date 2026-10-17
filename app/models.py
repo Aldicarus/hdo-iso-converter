@@ -1901,6 +1901,27 @@ class CMv40Session(BaseModel):
                   "se baja el trust (conservador: fuerza revisión manual)")
             self.target_trust_ok = False
 
+        # La confianza la decide la severidad de los gates
+        # (`cmv40_strategy.gates_dan_confianza`). Con la regla de antes un L6 o
+        # un L1 que pedían ACK no la quitaban, y un L5 de 5 a 30 px pasaba con
+        # `ok: True` sin mandar a la Fase D. Un proyecto evaluado así se
+        # corrige al cargar, pero SOLO si no ha llegado a la Fase C: desde ahí
+        # la ruta (drop-in o merge) ya decidió qué artefactos existen, y
+        # cambiarla dejaría a la Fase F sin las entradas que espera.
+        if self.phase in (CMv40Phase.CREATED, CMv40Phase.SOURCE_ANALYZED,
+                          CMv40Phase.TARGET_PROVIDED):
+            from phases.cmv40_strategy import gates_dan_confianza
+            l5 = (self.target_trust_gates or {}).get("l5_div")
+            if (isinstance(l5, dict) and l5.get("severity") == "sync_review"
+                    and l5.get("ok")):
+                avisa("gate L5 en sync_review con ok=True",
+                      "se marca pendiente: la Fase D tiene que revisarlo")
+                l5["ok"] = False
+            if self.target_trust_ok and not gates_dan_confianza(self.target_trust_gates):
+                avisa("target_trust_ok con gates que no confían",
+                      "se baja el trust (regla de la severidad)")
+                self.target_trust_ok = False
+
         # El banner de confirmación se pinta desde `critical_gate_failures`:
         # sin motivos, el usuario vería un bloqueo sin explicación ni salida.
         if self.awaiting_critical_ack and not self.critical_gate_failures:

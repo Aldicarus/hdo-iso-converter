@@ -2232,6 +2232,40 @@ reales del corpus y el contraste A/B que justifica el umbral de tramo) y
 
 Campos relacionados en `CMv40Session`: `awaiting_critical_ack`, `critical_gate_failures`, `user_acknowledged_degradation`, `pipeline_aborted`. La flag `target_trust_ok` se mantiene como resumen booleano (true sólo si todos los gates son `ok`/`warn`).
 
+**Y eso es literal desde el 2026-10-17: la confianza sale de la SEVERIDAD**
+(`cmv40_strategy.gates_dan_confianza`), no del campo `critical`. Antes se
+calculaba como «todos los gates `critical` pasan», y L6 y L1 llevaban
+`critical: False` siempre, así que un L6 o un L1 que pedían ACK dejaban el bin
+`trusted`: tras el ACK el job podía ir por drop-in y meter el L1 de otro máster
+—el que el ACK reconoce como distinto— sobre este vídeo. Por merge se conserva
+el del disco. `critical` sigue existiendo para el chip de la card de
+validaciones y hoy dice lo mismo que la severidad (L6/L1 son críticos solo
+cuando piden ACK).
+
+**El L5 de 5 a 30 px manda a revisar el sync**, decidido con el usuario el
+2026-10-17. El gate decía `sync_review` con `ok: True`, y `hay_sync_por_revisar`
+exige un gate sin pasar, así que la Fase D se saltaba contra lo que la tabla de
+arriba promete. Ahora `ok` es `≤ 5 px`. La consecuencia que conviene saber: sin
+confianza **tampoco hay drop-in**, y el bin va por merge —igual que con un
+desfase de frames—, que con un letterbox distinto es lo correcto: conserva el
+L5 del disco.
+
+Los proyectos evaluados con la regla de antes se corrigen al cargar
+(`CMv40Session._normalizar_incoherencias`), **pero solo antes de la Fase C**:
+desde ahí la ruta ya decidió qué artefactos existen, y re-encaminar un proyecto
+a medias dejaría a la Fase F sin sus entradas. Cubierto por
+`test_cmv40_confianza_de_gates.py`, que ejecuta además el análisis del bin de
+la Fase B con el `dovi_tool` falso.
+
+**El `summary` del `dovi_tool` falso no se parecía al real**, y eso tapaba
+todo lo anterior: escribía `L5 offsets: 0, 0, 0, 0` y `L6 metadata: MaxCLL
+1000`, que `_parse_dovi_summary` no reconoce, así que L1, L5 y L6 llegaban a 0
+en todos los tests y los gates comparaban cero contra cero. Hoy emite el
+formato de dovi_tool 2.3.3 copiado del NAS (`Summary:` y las líneas sangradas,
+`L5 offsets: top=276, …`, la unidad detrás de cada valor) y `RpuProps` acepta
+`l1_max_cll`, `l5` y `l6_max_cll`. De paso salió que la línea de trims L8
+real lleva «nits» detrás de CADA valor y el parser se quedaba con el primero.
+
 ### Skip automático de fases
 
 Si `target_trust_ok=True` y `trust_override == "auto"`:

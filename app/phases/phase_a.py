@@ -2793,17 +2793,16 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
     # `--levels` no lo acepta y sacarlo pediría el volcado completo de 682
     # MB. Un flag sin fuente se deja en su default antes que fingirlo.
 
-    # Lista de nits de cada trim L8 (ej: "L8 trims: 100, 600, 1000, 2000")
+    # Lista de nits de cada trim L8. El formato real lleva la unidad detrás de
+    # CADA valor («L8 trims: 100 nits, 600 nits», igual que la línea de L2), y
+    # el patrón de antes —dígitos y comas, y un «nits» opcional al final— se
+    # detenía en el primero: con varios trims solo se leía uno.
     # Guardamos el conteo (legacy) + la lista explicita (nueva, para UI detallada).
-    m = re.search(r"L8 trims:\s*([0-9,\s]+(?:nits?)?)", summary, re.I)
+    m = re.search(r"L8 trims:[ \t]*([^\n]*)", summary, re.I)
     if m:
-        try:
-            raw = m.group(1).replace("nits", "").replace("nit", "")
-            nits = [int(v.strip()) for v in raw.split(",") if v.strip().isdigit()]
-            info.l8_trim_nits = nits
-            info.l8_trim_count = len(nits)
-        except Exception:
-            pass
+        nits = [int(v) for v in re.findall(r"\d+", m.group(1))]
+        info.l8_trim_nits = nits
+        info.l8_trim_count = len(nits)
 
     # L9 primaries del mastering display.
     #

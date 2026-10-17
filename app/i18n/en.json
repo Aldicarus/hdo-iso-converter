@@ -1204,5 +1204,6 @@
   "workload.segundos": "{n} s",
   "workload.tab_cmv40": "✨ Dolby Vision CMv4.0 upgrade",
   "workload.tab_mkv": "✏️ Inspect / edit MKV",
-  "workload.tab_rip": "💿 Blu-Ray ISO → MKV"
+  "workload.tab_rip": "💿 Blu-Ray ISO → MKV",
+  "cmv40_pipeline.gates_con_desfase_revisable": "gates with an offset that can be reviewed on the sync chart (frames or letterbox): the sync review is not skipped."
 }

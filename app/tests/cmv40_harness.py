@@ -76,6 +76,15 @@ class RpuProps:
     scenes: int = 120
     has_l8: bool = False
     has_l11: bool = True
+    # Lo que leen los trust gates de la Fase B. El summary del fake escribía
+    # estas tres líneas en una forma que `_parse_dovi_summary` no reconoce
+    # («L5 offsets: 0, 0, 0, 0»), así que en TODOS los tests llegaban a 0 y
+    # los gates L1/L5/L6 comparaban cero contra cero.
+    l1_max_cll: float = 1000.6
+    l1_max_fall: float = 138.55
+    l6_max_cll: int = 1000
+    l6_max_fall: int = 400
+    l5: tuple = (0, 0, 0, 0)        # top, bottom, left, right
 
     def to_summary(self) -> str:
         """Reconstruye el texto que `_parse_dovi_summary` sabe leer.
@@ -90,27 +99,36 @@ class RpuProps:
             profile_line = f"Profile: {self.profile} ({self.el_type})"
         else:
             profile_line = f"Profile: {self.profile}"
-        dm = 4 if self.cm_version == "v4.0" else 2
+        # El FORMATO REAL de dovi_tool 2.3.3, copiado del NAS (2026-10-17,
+        # `RPU_source.bin` y `RPU_target.bin` de Supergirl): un bloque
+        # «Summary:» con las líneas sangradas y la unidad detrás de cada valor.
+        dm = 2 if self.cm_version == "v4.0" else 1
+        top, bottom, left, right = self.l5
         lines = [
             "Parsing RPU file...",
-            profile_line,
-            f"DM version: {dm} (CM {self.cm_version})",
-            f"Scene/shot count: {self.scenes}",
-            f"Frames: {self.frames}",
-            "content light level (L1): min 0, max 1000",
-            "L2 trims: 100, 600",
-            "L5 offsets: 0, 0, 0, 0",
-            "L6 metadata: MaxCLL 1000, MaxFALL 400",
+            "",
+            "Summary:",
+            f"  Frames: {self.frames}",
+            "  " + profile_line,
+            f"  DM version: {dm} (CM {self.cm_version})",
+            f"  Scene/shot count: {self.scenes}",
+            "  RPU mastering display: 0.0001/1000 nits",
+            f"  RPU content light level (L1): MaxCLL: {self.l1_max_cll:.2f} nits, "
+            f"MaxFALL: {self.l1_max_fall:.2f} nits",
+            "  L6 metadata: Mastering display: 0.0001/1000 nits. "
+            f"MaxCLL: {self.l6_max_cll} nits, MaxFALL: {self.l6_max_fall} nits",
+            f"  L5 offsets: top={top}, bottom={bottom}, left={left}, right={right}",
+            "  L2 trims: 100 nits, 600 nits, 1000 nits",
         ]
         if self.has_l8:
-            lines.append("L8 trims: 100, 600, 1000, 2000")
+            lines.append("  L8 trims: 100 nits, 600 nits, 1000 nits, 2000 nits")
             # Formato REAL, copiado de `dovi_tool info --summary` sobre un
             # bin retail CMv4.0 del repo (2026-09-23): la línea es
             # `L9 MDP: DCI-P3 D65`. Aquí decía `L9 source primaries:`, una
             # forma que dovi_tool **no escribe**, así que el parser la casaba
             # en los tests y fallaba en el NAS — el fake hacía pasar en verde
             # un camino muerto.
-            lines.append("L9 MDP: DCI-P3 D65")
+            lines.append("  L9 MDP: DCI-P3 D65")
         # Y de L11 **no hay línea**: el summary real emite exactamente cuatro
         # de niveles (L5 offsets, L2 trims, L8 trims, L9 MDP). El
         # `l11_content_type` solo puede salir de `export --levels level11`,
@@ -123,11 +141,17 @@ class RpuProps:
             "cm_version": self.cm_version, "frames": self.frames,
             "scenes": self.scenes, "has_l8": self.has_l8,
             "has_l11": self.has_l11,
+            "l1_max_cll": self.l1_max_cll, "l1_max_fall": self.l1_max_fall,
+            "l6_max_cll": self.l6_max_cll, "l6_max_fall": self.l6_max_fall,
+            "l5": list(self.l5),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "RpuProps":
-        return cls(**{k: v for k, v in d.items() if k in cls.__annotations__})
+        campos = {k: v for k, v in d.items() if k in cls.__annotations__}
+        if "l5" in campos:
+            campos["l5"] = tuple(campos["l5"])
+        return cls(**campos)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -675,6 +699,9 @@ def opt(name):
 DEFAULT_PROPS = {
     "profile": 7, "el_type": "FEL", "cm_version": "v2.9",
     "frames": 1000, "scenes": 120, "has_l8": False, "has_l11": True,
+    # Ver `RpuProps`: lo que leen los trust gates de la Fase B.
+    "l1_max_cll": 1000.6, "l1_max_fall": 138.55,
+    "l6_max_cll": 1000, "l6_max_fall": 400, "l5": [0, 0, 0, 0],
     # El `SegmentUID` de Matroska, donde va la marca de procedencia. Viaja
     # con el resto de props —o sea en la cabecera del CONTENIDO— porque el
     # pipeline mueve el fichero (`.mkv.tmp` -> `.mkv` de la Fase H) y un
@@ -785,24 +812,31 @@ def summary(props):
         profile_line = "Profile: %d (%s)" % (props["profile"], props["el_type"])
     else:
         profile_line = "Profile: %d" % props["profile"]
-    dm = 4 if props["cm_version"] == "v4.0" else 2
+    # Formato real de dovi_tool 2.3.3: ver `RpuProps.to_summary`.
+    dm = 2 if props["cm_version"] == "v4.0" else 1
+    top, bottom, left, right = props.get("l5") or [0, 0, 0, 0]
     lines = [
         "Parsing RPU file...",
-        profile_line,
-        "DM version: %d (CM %s)" % (dm, props["cm_version"]),
-        "Scene/shot count: %d" % props["scenes"],
-        "Frames: %d" % props["frames"],
-        "content light level (L1): min 0, max 1000",
-        "L2 trims: 100, 600",
-        "L5 offsets: 0, 0, 0, 0",
-        "L6 metadata: MaxCLL 1000, MaxFALL 400",
+        "",
+        "Summary:",
+        "  Frames: %d" % props["frames"],
+        "  " + profile_line,
+        "  DM version: %d (CM %s)" % (dm, props["cm_version"]),
+        "  Scene/shot count: %d" % props["scenes"],
+        "  RPU mastering display: 0.0001/1000 nits",
+        "  RPU content light level (L1): MaxCLL: %.2f nits, MaxFALL: %.2f nits"
+        % (props["l1_max_cll"], props["l1_max_fall"]),
+        "  L6 metadata: Mastering display: 0.0001/1000 nits. "
+        "MaxCLL: %d nits, MaxFALL: %d nits" % (props["l6_max_cll"], props["l6_max_fall"]),
+        "  L5 offsets: top=%d, bottom=%d, left=%d, right=%d" % (top, bottom, left, right),
+        "  L2 trims: 100 nits, 600 nits, 1000 nits",
     ]
     if props["has_l8"]:
-        lines.append("L8 trims: 100, 600, 1000, 2000")
+        lines.append("  L8 trims: 100 nits, 600 nits, 1000 nits, 2000 nits")
         # Ver `RpuProps.to_summary`: el formato real es `L9 MDP: ...` y de
         # L11 no hay linea. Las dos copias tienen que decir lo mismo y hay
         # un test que las cruza — esta se quedo atras y costo un ciclo.
-        lines.append("L9 MDP: DCI-P3 D65")
+        lines.append("  L9 MDP: DCI-P3 D65")
     return "\n".join(lines) + "\n"
 
 

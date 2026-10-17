@@ -1204,5 +1204,6 @@
   "workload.segundos": "{n} s",
   "workload.tab_cmv40": "✨ Upgrade Dolby Vision CMv4.0",
   "workload.tab_mkv": "✏️ Consultar / Editar MKV",
-  "workload.tab_rip": "💿 Blu-Ray ISO → MKV"
+  "workload.tab_rip": "💿 Blu-Ray ISO → MKV",
+  "cmv40_pipeline.gates_con_desfase_revisable": "gates amb un desfasament que es pot revisar al gràfic de sincronització (frames o letterbox): la revisió del sync no s'omet."
 }
