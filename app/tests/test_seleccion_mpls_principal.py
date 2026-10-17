@@ -581,6 +581,24 @@ class TestElReintentoConMasTiempo(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Path(mpls).name, "00000.mpls")
         self.assertEqual([n for n, _ in self.llamadas].count("00018.mpls"), 1)
 
+    async def test_el_que_entra_al_reintentar_conserva_su_puesto(self):
+        """El orden de `candidates` es el último desempate de la elección, y
+        un MPLS que entra en el segundo intento no puede pasar al final."""
+        a, b, c = (Path(f"/x/{n}.mpls") for n in ("00001", "00002", "00003"))
+        intentos = []
+
+        async def _j(path, timeout=None):
+            intentos.append(Path(path).name)
+            if Path(path).name == "00002.mpls" and intentos.count("00002.mpls") == 1:
+                return None, True
+            return {"tracks": []}, False
+
+        with mock.patch.object(phase_a, "_mkvmerge_j", _j):
+            leidos = await phase_a._identificar_candidatos(
+                [a, b, c], {a: 7200, b: 7200, c: 7200})
+        self.assertEqual([x["path"].name for x in leidos],
+                         ["00001.mpls", "00002.mpls", "00003.mpls"])
+
     async def test_agotarse_de_verdad_se_distingue_de_fallar(self):
         """El `True` de `_mkvmerge_j` sale del timeout real, no del fake:
         un mkvmerge que no contesta a tiempo."""

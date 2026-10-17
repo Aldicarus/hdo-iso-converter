@@ -115,6 +115,36 @@ class TestDistributedPgsSampling(unittest.TestCase):
         self.assertGreater(counts[PID_COMPLETE], 20)
 
 
+class TestCadaTramoSeRealinea(unittest.TestCase):
+    """Con todos los paquetes del mismo PID, lo leído en los tramos es
+    exactamente lo que hay que contar. `test_alignment_after_seek` pedía
+    «más de 20» y aguantaba que la realineación devolviera siempre 0."""
+
+    def test_se_cuentan_casi_todos_los_paquetes_leidos(self):
+        # 4.999 y no 5.000: con 5.000 los cuatro saltos caían en múltiplos
+        # exactos de 192 bytes, no había nada que realinear y una realineación
+        # rota pasaba en verde. La condición se comprueba abajo.
+        paquetes = 4999
+        tmp = tempfile.NamedTemporaryFile(suffix=".m2ts", delete=False)
+        tmp.close()
+        self.addCleanup(os.unlink, tmp.name)
+        with open(tmp.name, "wb") as f:
+            for _ in range(paquetes):
+                f.write(_make_packet(PID_COMPLETE))
+        presupuesto = paquetes * PACKET_SIZE * 4 // 10
+        tramo = presupuesto // 4
+        span = paquetes * PACKET_SIZE - tramo
+        saltos = [(span * i) // 3 for i in range(1, 4)]
+        self.assertTrue(all(x % PACKET_SIZE for x in saltos),
+                        f"los saltos caen en frontera de paquete: {saltos}")
+        counts = asyncio.run(count_pgs_packets_ts_parse(
+            tmp.name, sample_bytes=presupuesto, pid_list=[PID_COMPLETE],
+            sample_segments=4))
+        leidos = presupuesto // PACKET_SIZE
+        # Cada tramo pierde a lo sumo el paquete partido por el seek.
+        self.assertGreaterEqual(counts[PID_COMPLETE], leidos - 8, counts)
+
+
 class TestSequentialSmallFile(unittest.TestCase):
     """Si el fichero cabe entero en el presupuesto → un solo tramo secuencial."""
 

@@ -1,0 +1,608 @@
+[
+ {
+  "id": "P4-a1 Fase H no borra los HEVC (deja el texto)",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    for hevc_name in (\"source.hevc\", \"source_injected.hevc\", \"DV_dual.hevc\",\n                      \"EL_injected.hevc\", \"BL_injected.hevc\"):\n        artifact = wd / hevc_name\n        try:\n            if artifact.exists():\n                freed += artifact.stat().st_size\n        except OSError:\n            pass\n        artifact.unlink(missing_ok=True)",
+  "nuevo": "    for hevc_name in (\"source.hevc\", \"source_injected.hevc\", \"DV_dual.hevc\",\n                      \"EL_injected.hevc\", \"BL_injected.hevc\"):\n        artifact = wd / hevc_name\n        try:\n            if artifact.exists():\n                freed += artifact.stat().st_size\n        except OSError:\n            pass\n        pass  # artifact.unlink(missing_ok=True)",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "P4-a2 Fase A no comprueba el nombre libre (deja la aguja)",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    await check_output_name_free(session, log_callback)\n",
+  "nuevo": "    if False: await check_output_name_free(session, log_callback)\n",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P4-a3 inject sin el guard de error pendiente (deja la aguja)",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "async def cmv40_inject(session_id: str):\n    session = load_cmv40_session(session_id)\n    if not session:\n        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))\n    _cmv40_guard_no_pending_error(session)",
+  "nuevo": "async def cmv40_inject(session_id: str):\n    session = load_cmv40_session(session_id)\n    if not session:\n        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))\n    if False: _cmv40_guard_no_pending_error(session)",
+  "modulos": [
+   "test_cmv40_endpoints"
+  ]
+ },
+ {
+  "id": "P4-a3b validate sin el guard de error pendiente",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "async def cmv40_validate(session_id: str):\n    session = load_cmv40_session(session_id)\n    if not session:\n        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))\n    _cmv40_guard_no_pending_error(session)",
+  "nuevo": "async def cmv40_validate(session_id: str):\n    session = load_cmv40_session(session_id)\n    if not session:\n        raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))\n    if False: _cmv40_guard_no_pending_error(session)",
+  "modulos": [
+   "test_cmv40_endpoints"
+  ]
+ },
+ {
+  "id": "P4-a4 demux con timeout de 300 s (deja las agujas)",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            demux_timeout = _adaptive_timeout(est_demux)\n",
+  "nuevo": "            demux_timeout = _adaptive_timeout(est_demux)\n            demux_timeout = min(demux_timeout, 300)\n",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "M3 la firma se lee al revés",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "hecho_con_esta_app=firma.lleva_nuestra_firma(data),",
+  "nuevo": "hecho_con_esta_app=firma.lleva_nuestra_firma(data) is False,",
+  "modulos": [
+   "test_firma"
+  ]
+ },
+ {
+  "id": "P3-1 F mergea el target SIN sincronizar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "rpu_target_v40=rpu_target_effective,",
+  "nuevo": "rpu_target_v40=rpu_target,",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-2 G toma el vídeo del MKV origen y no el HEVC procesado",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        str(hevc_for_mkv),\n        \"--no-video\", session.source_mkv_path,",
+  "nuevo": "        \"--no-video\", str(hevc_for_mkv),\n        session.source_mkv_path,",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "P3-2b G pierde audio, subtítulos y capítulos",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "\"--no-video\", session.source_mkv_path,",
+  "nuevo": "\"--no-video\", \"--no-audio\", \"--no-subtitles\", \"--no-chapters\", session.source_mkv_path,",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "P3-3 un source P8 mergea como FEL (pisa L1/L2/L6)",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "is_fel_source = (expected_el_type or \"\").upper() == \"FEL\"",
+  "nuevo": "is_fel_source = (expected_el_type or \"\").upper() != \"MEL\"",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-4 Profile 8: consulta el recuento del RPU equivocado",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "\"info\", \"--summary\", str(rpu_path)], timeout=60)",
+  "nuevo": "\"info\", \"--summary\", str(wd / \"RPU_target.bin\")], timeout=60)",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-5 E: replace → copyfile (no atómico)",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "os.replace(salida_tmp, rpu_synced)",
+  "nuevo": "shutil.copyfile(salida_tmp, rpu_synced)",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-5b E: duplicar siempre el primer frame",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    config_json.write_text(json.dumps(editor_config, indent=2), encoding=\"utf-8\")\n",
+  "nuevo": "    editor_config = dict(editor_config)\n    if editor_config.get(\"duplicate\"):\n        editor_config[\"duplicate\"] = [{**d, \"source\": 0} for d in editor_config[\"duplicate\"]]\n    config_json.write_text(json.dumps(editor_config, indent=2), encoding=\"utf-8\")\n",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-6 umbral de sync 85 % → 70 %",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "\"threshold_ok\": pearson >= SYNC_CONFIDENCE_THRESHOLD,",
+  "nuevo": "\"threshold_ok\": pearson >= 0.70,",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-6b Δ=±1 se acepta",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "delta_ok = sync_delta == 0",
+  "nuevo": "delta_ok = abs(sync_delta) <= 1",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-7 offset sugerido con el signo invertido",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "return {\"offset\": best_offset, \"confidence\": confidence, \"reason\": reason}",
+  "nuevo": "return {\"offset\": -best_offset, \"confidence\": confidence, \"reason\": reason}",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-7b una sola serie plana no se detecta",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "if len(set(src_w)) < 2 or len(set(tgt_w)) < 2:",
+  "nuevo": "if len(set(src_w)) < 2 and len(set(tgt_w)) < 2:",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-8 L5: umbral de divergencia 30 → 100 px",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "umbral_px = 30",
+  "nuevo": "umbral_px = 100",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-8b L5: cobertura del cuerpo 70 % → 50 %",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "if cob >= 0.70:",
+  "nuevo": "if cob >= 0.50:",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-9 L6: frontera del ACK 200 → 300 nits",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "elif l6_diff <= 200:",
+  "nuevo": "elif l6_diff <= 300:",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-9b L1: porcentaje sin ×100",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "pct = abs(src_l1 - tgt_l1) / max(src_l1, tgt_l1) * 100.0",
+  "nuevo": "pct = abs(src_l1 - tgt_l1) / max(src_l1, tgt_l1)",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian",
+   "test_cmv40_confianza_de_gates"
+  ]
+ },
+ {
+  "id": "P3-9c B no pide ACK nunca",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "has_hard, ack_failures, hard_failures = _classify_gate_failures(gates)",
+  "nuevo": "has_hard, ack_failures, hard_failures = False, [], []",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-10 L8: maxΔ = 50 ya es «real»",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "if delta_l8_de(analysis) > L8_REAL_MINIMAL_SIGNIFICANT_DELTA:",
+  "nuevo": "if delta_l8_de(analysis) >= L8_REAL_MINIMAL_SIGNIFICANT_DELTA:",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-10b L8: chroma_weight no cuenta",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "c.trim_chroma_weight, c.trim_saturation_gain):",
+  "nuevo": "2048, c.trim_saturation_gain):",
+  "modulos": [
+   "test_cmv40_reglas_que_sobrevivian"
+  ]
+ },
+ {
+  "id": "P3-12 H completa: un RPU con frames DE MÁS pasa",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "rpu_diff = abs(rpu_info.frame_count - expected_frames)",
+  "nuevo": "rpu_diff = expected_frames - rpu_info.frame_count",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "P3-12b H completa valida la EL antes que el dual",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            wd / \"DV_dual.hevc\",           # p7_fel con merge: salida del dovi_tool mux\n            wd / \"EL_injected.hevc\",       # p7_fel: capa de mejora, si no hubo mux\n",
+  "nuevo": "            wd / \"EL_injected.hevc\",       # p7_fel: capa de mejora, si no hubo mux\n            wd / \"DV_dual.hevc\",           # p7_fel con merge: salida del dovi_tool mux\n",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "P2-4 B elige el audio de PEOR calidad",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "ranked = sorted(lang_tracks, key=lambda t: (_codec_priority(t), -t.bitrate_kbps))",
+  "nuevo": "ranked = sorted(lang_tracks, key=lambda t: (-_codec_priority(t), -t.bitrate_kbps))",
+  "modulos": [
+   "test_reglas_de_la_fase_b"
+  ]
+ },
+ {
+  "id": "P2-5 B sin conteos PGS: forzado/completo invertidos",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "low = [t for t in lang_tracks if t.bitrate_kbps < 3.0]",
+  "nuevo": "low = [t for t in lang_tracks if t.bitrate_kbps >= 3.0]",
+  "modulos": [
+   "test_reglas_de_la_fase_b"
+  ]
+ },
+ {
+  "id": "P2-6 A no quita los cores AC-3 de MediaInfo",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "return [t for i, t in enumerate(mi_audio) if i not in core_indices]",
+  "nuevo": "return mi_audio",
+  "modulos": [
+   "test_mediainfo_sin_cores"
+  ]
+ },
+ {
+  "id": "P2-7 E: el audio de la ruta directa se mapea por posición",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    audio_id_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map, avisos,\n                                           disco=pistas_del_disco(session, \"audio\"))",
+  "nuevo": "    audio_id_map = dict(enumerate(mkv_audio_ids[:len(audio_tracks)]))",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "P2-7b propedit edita la pista anterior (off-by-one)",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "cmd += [\"--edit\", f\"track:{tid + 1}\"]",
+  "nuevo": "cmd += [\"--edit\", f\"track:{tid}\"]",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "P2-8 PGS: la realineación tras el seek no realinea",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "                            return a\n",
+  "nuevo": "                            return 0\n",
+  "modulos": [
+   "test_pgs_sampling"
+  ]
+ },
+ {
+  "id": "P2-10 MPLS: el reintento pierde el orden de desempate",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "for p in candidates if p in leidos]",
+  "nuevo": "for p in leidos]",
+  "modulos": [
+   "test_seleccion_mpls_principal"
+  ]
+ },
+ {
+  "id": "P2-11 VO de emergencia fijada a inglés",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "first_lang = langs_lower[0] if langs_lower else \"english\"",
+  "nuevo": "first_lang = \"english\"",
+  "modulos": [
+   "test_reglas_de_la_fase_b"
+  ]
+ },
+ {
+  "id": "P2-14 la red de subtítulos en inglés desaparece",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "ordered_entries.append((\"english\", \"complete\"))",
+  "nuevo": "pass",
+  "modulos": [
+   "test_reglas_de_la_fase_b"
+  ]
+ },
+ {
+  "id": "P2-15 capítulos: sin control de rango",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "if total_ticks > 0 and abs_ticks_list[-1] > total_ticks * 1.05:",
+  "nuevo": "if False:",
+  "modulos": [
+   "test_mpls_chapters"
+  ]
+ },
+ {
+  "id": "P2-9 la muestra de la EL sin -c:v copy",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "\"-map\", mapa, \"-c:v\", \"copy\", \"-bsf:v\", \"hevc_mp4toannexb\",",
+  "nuevo": "\"-map\", mapa, \"-bsf:v\", \"hevc_mp4toannexb\",",
+  "modulos": [
+   "test_capa_de_mejora_dv"
+  ]
+ },
+ {
+  "id": "M1' el modal de serie adopta el resultado terminado de otro disco",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  return !(prog && prog.job && miJob && prog.job !== miJob);",
+  "nuevo": "  return !(prog && prog.job && miJob && prog.job !== miJob && prog.running);",
+  "modulos": [
+   "test_dos_discos_de_una_temporada"
+  ]
+ },
+ {
+  "id": "M2' el aviso de desfase sale con Δ=0",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (!delta) return '';",
+  "nuevo": "  if (delta) return '';",
+  "modulos": [
+   "test_backlog_2026_09_23_tarde"
+  ]
+ },
+ {
+  "id": "P3-11' H rápida no mide el MKV final",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        actual_frames, exacto = await _contar_frames(str(output_mkv))",
+  "nuevo": "        actual_frames, exacto = expected_frames, True",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "P2-13' propedit: el código 2 ya no es error",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    if proc.returncode not in (0, 1):\n        if chapters_xml:",
+  "nuevo": "    if proc.returncode not in (0, 1, 2):\n        if chapters_xml:",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T1 la ruta directa escribe al nombre definitivo",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        output_path=work_path,",
+  "nuevo": "        output_path=output_path,",
+  "modulos": [
+   "test_orquestador_tab1"
+  ]
+ },
+ {
+  "id": "T1 propedit vuelve a aceptar códigos negativos",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    if proc.returncode not in (0, 1):\n        if chapters_xml:",
+  "nuevo": "    if proc.returncode >= 2:\n        if chapters_xml:",
+  "modulos": [
+   "test_fases_de_tab1",
+   "test_orquestador_tab1"
+  ]
+ },
+ {
+  "id": "T1 el arranque no borra el .tmp",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if trabajo.is_file():",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_parcial_al_reiniciar"
+  ]
+ },
+ {
+  "id": "T1 la intermedia de antes sobrevive al fallo",
+  "fichero": "app/phases/phase_d.py",
+  "viejo": "        borrado = _limpiar_parcial(out_path)",
+  "nuevo": "        borrado = None",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T1 sin el puesto en el disco",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        if i in puestos:",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_track_mapping",
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T1 sin el par LPCM",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        (\"lpcm\", \"pcm\"),\n",
+  "nuevo": "",
+  "modulos": [
+   "test_track_mapping"
+  ]
+ },
+ {
+  "id": "T1 cores por la ruta con intermedio",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    if _el_origen_tiene_cores(session):\n        return True",
+  "nuevo": "    if False:\n        return True",
+  "modulos": [
+   "test_orquestador_tab1"
+  ]
+ },
+ {
+  "id": "T1 el contador PGS vuelve a posiciones",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "    return {pid: pgs_counts.get(pid, 0) for pid in order}",
+  "nuevo": "    return {i: pgs_counts.get(pid, 0) for i, pid in enumerate(order)}",
+  "modulos": [
+   "test_pgs_asignacion"
+  ]
+ },
+ {
+  "id": "T1 trims L8: solo el primero",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "        nits = [int(v) for v in re.findall(r\"\\d+\", m.group(1))]",
+  "nuevo": "        nits = [int(v) for v in re.findall(r\"\\d+\", m.group(1))][:1]",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T3 L6 nunca crítico",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "                \"critical\": l6_sev == \"ack_required\",",
+  "nuevo": "                \"critical\": False,",
+  "modulos": [
+   "test_cmv40_confianza_de_gates"
+  ]
+ },
+ {
+  "id": "T3 L5 pasa hasta 30 px",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            \"ok\": l5_max <= 5,",
+  "nuevo": "            \"ok\": l5_max <= 30,",
+  "modulos": [
+   "test_cmv40_confianza_de_gates"
+  ]
+ },
+ {
+  "id": "T3 sin normalizar los proyectos ya evaluados",
+  "fichero": "app/models.py",
+  "viejo": "            if self.target_trust_ok and not gates_dan_confianza(self.target_trust_gates):",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_cmv40_confianza_de_gates"
+  ]
+ },
+ {
+  "id": "T3 H solo registra los frames",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if exacto and diff > _FRAME_COUNT_TOLERANCE:",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T3 H no muestrea el MKV en merge",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        await _dv_del_mkv_entregado(output_mkv, wd, plan, session, log_callback)\n",
+  "nuevo": "        pass\n",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T3 H no compara pistas con el origen",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    await _comprobar_pistas_del_origen(session, out, log_callback)\n",
+  "nuevo": "    pass\n",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T3 H borra el RPU extraído",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            # de corresponder al stream.\n            pass\n",
+  "nuevo": "            # de corresponder al stream.\n            full_rpu.unlink(missing_ok=True)\n",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T3 H con import time local",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "                # reventaba con `UnboundLocalError` cuando esta rama no corría.\n                hb_start",
+  "nuevo": "                # reventaba con `UnboundLocalError` cuando esta rama no corría.\n                import time\n                hb_start",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T3 A no borra el HEVC si ffmpeg falla",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        if rc != 0:\n            source_hevc.unlink(missing_ok=True)\n            raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_al_extraer_hevc_codigo'",
+  "nuevo": "        if rc != 0:\n            raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_al_extraer_hevc_codigo'",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T3 un bin nuevo hereda la corrección",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    for nombre in (\"RPU_synced.bin\", \"RPU_synced.tmp.bin\", \"editor_config.json\"):\n        (wd / nombre).unlink(missing_ok=True)\n    session.sync_config = None",
+  "nuevo": "    return",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T3 _run no mata su proceso al cancelarse",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    except asyncio.CancelledError:\n        # La tarea muere y el proceso con ella.",
+  "nuevo": "    except ZeroDivisionError:\n        # La tarea muere y el proceso con ella.",
+  "modulos": [
+   "test_cmv40_cancelar_no_deja_procesos"
+  ]
+ },
+ {
+  "id": "T3 G no espera al adelanto si el mux lanza",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    except BaseException:\n        await _parar_el_adelanto()\n        raise",
+  "nuevo": "    except BaseException:\n        raise",
+  "modulos": [
+   "test_cmv40_cancelar_no_deja_procesos"
+  ]
+ },
+ {
+  "id": "T3 H vuelve a exigir el HEVC en un segundo disparo",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        solo_el_mkv = not pre_mux_hevc and not prewarmed and already_renamed",
+  "nuevo": "        solo_el_mkv = False",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T3 reset no borra el remux viejo",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if _clear_from(\"remuxed\"):\n        _cmv40_borrar_tmp_del_remux(session)",
+  "nuevo": "    if False:\n        _cmv40_borrar_tmp_del_remux(session)",
+  "modulos": [
+   "test_cmv40_el_mkv_tmp_del_remux"
+  ]
+ },
+ {
+  "id": "T3 borrar con artefactos deja el remux",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        # limpieza normal y la masiva ya lo borraban; esta no.\n        _cmv40_borrar_tmp_del_remux(session)",
+  "nuevo": "        # limpieza normal y la masiva ya lo borraban; esta no.\n        pass",
+  "modulos": [
+   "test_cmv40_el_mkv_tmp_del_remux"
+  ]
+ },
+ {
+  "id": "T3 renombrar no mueve el remux",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        os.rename(viejo, nuevo)\n",
+  "nuevo": "        pass\n",
+  "modulos": [
+   "test_cmv40_el_mkv_tmp_del_remux"
+  ]
+ },
+ {
+  "id": "T3 renombrar acepta rutas",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if (Path(new_name).name != new_name or",
+  "nuevo": "    if (False and Path(new_name).name != new_name or",
+  "modulos": [
+   "test_cmv40_el_mkv_tmp_del_remux"
+  ]
+ }
+]

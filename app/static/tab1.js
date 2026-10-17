@@ -1636,6 +1636,21 @@ function _seriesConfirmConflicts(count, listText) {
   });
 }
 
+
+/**
+ * ¿El progreso de `/api/series-create-progress` es del trabajo de ESTE modal?
+ *
+ * El progreso es uno para toda la app, y con la cola puede haber otro disco de
+ * la misma serie por delante: sin mirar el sello, el modal adoptaba el
+ * resultado del otro trabajo y daba por creados episodios que no existían. Da
+ * igual que el otro siga corriendo o haya TERMINADO —un resultado ajeno no es
+ * el nuestro—. Sin sello (un servidor anterior) o sin `job` propio no hay con
+ * qué descartar, y se acepta.
+ */
+function _seriesProgresoEsDeMiTrabajo(prog, miJob) {
+  return !(prog && prog.job && miJob && prog.job !== miJob);
+}
+
 async function seriesCreateSessions() {
   if (!_seriesState) return;
   const s = _seriesState;
@@ -1801,7 +1816,7 @@ async function seriesCreateSessions() {
       // misma serie por delante. Sin comprobar de quién es, este modal
       // adoptaba el resultado del otro trabajo como propio y daba por creados
       // episodios que no existían.
-      if (prog.job && miJob && prog.job !== miJob) continue;   // aún es su turno
+      if (!_seriesProgresoEsDeMiTrabajo(prog, miJob)) continue;   // aún es su turno
       const n = (prog.completed || []).length;
       if (n > hechos) { hechos = n; await loadSessions(); }
       if (prog.error) { data = null; break; }

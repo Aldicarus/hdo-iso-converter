@@ -124,6 +124,19 @@ class TestMplsMarksBinary(unittest.TestCase):
         self._paths.append(path)
         return path
 
+    def test_marcas_fuera_de_la_duracion_descartan_la_lista(self):
+        """Si los offsets salen mal (un multi-ángulo que no se soporta), el
+        último capítulo cae más allá del final: se descarta la lista entera en
+        vez de dar capítulos en posiciones erróneas. La marca que pasa del
+        final la quita antes el filtro del «end mark», así que hacen falta dos
+        para llegar al control de rango."""
+        path = self._mpls(
+            playitems=[(0, HZ * 600)],
+            marks=[(0x01, 0, 0), (0x01, 0, HZ * 120),
+                   (0x01, 0, HZ * 700), (0x01, 0, HZ * 800)],
+        )
+        self.assertEqual(_parse_mpls_marks_binary(path), [])
+
     def test_un_solo_segmento(self):
         # PlayItem único 0..600s; marks en 0, 120s, 300s.
         path = self._mpls(

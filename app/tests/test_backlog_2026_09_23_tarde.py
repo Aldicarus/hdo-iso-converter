@@ -884,14 +884,33 @@ class TestYaNoSeAdivinaDondeVaLaCorreccion(unittest.TestCase):
         self.assertIn('value="0"', cuerpo)
 
     def test_y_el_desfase_se_ANUNCIA(self):
-        cuerpo = _codigo("_renderCMv40SyncControls")
+        cuerpo = _codigo("_cmv40AvisoDeDesfase")
         for clave in ("tab3.sync_sobran_frames", "tab3.sync_faltan_frames"):
             with self.subTest(clave):
                 self.assertIn(clave, cuerpo)
 
+    @unittest.skipUnless(NODE, "node no disponible")
     def test_el_aviso_solo_sale_si_hay_desfase(self):
-        """Con Δ=0 no hay nada que avisar y el bloque estorba."""
-        self.assertIn("delta === 0 ? ''", _codigo("_renderCMv40SyncControls"))
+        """Con Δ=0 no hay nada que avisar y el bloque estorba. Se EJECUTA el
+        helper: el `assertIn("delta === 0 ? ''")` que había aquí pasaba con la
+        condición invertida (mutación M2 de la auditoría del 2026-10-17)."""
+        guion = ("const fs = require('fs');\n"
+                 "const aviso = new Function([\n"
+                 "  fs.readFileSync(process.env.MOTOR, 'utf8'),\n"
+                 "  'const escHtml = (s) => String(s);',\n"
+                 "  " + json.dumps(_fn("_cmv40AvisoDeDesfase")) + ",\n"
+                 "  'return _cmv40AvisoDeDesfase;'].join('\\n'))();\n"
+                 "console.log(JSON.stringify([0, 5, -3].map(aviso)));\n")
+        r = subprocess.run(argv_node(guion), env={**os.environ, "MOTOR": motor_en_disco()},
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr[-800:])
+        cero, sobran, faltan = json.loads(r.stdout)
+        self.assertEqual(cero, "")
+        self.assertIn("cmv40-sync-aviso", sobran)
+        self.assertIn("5", sobran)
+        self.assertIn("3", faltan)
+        self.assertNotEqual(sobran, faltan)
+        self.assertIn("_cmv40AvisoDeDesfase(delta)", _codigo("_renderCMv40SyncControls"))
 
     def test_el_gate_de_avance_sigue_siendo_del_backend(self):
         """Lo que impide continuar con los frames descuadrados no cambia:

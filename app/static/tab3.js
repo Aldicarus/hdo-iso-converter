@@ -6785,6 +6785,23 @@ function _renderCMv40Confidence(project) {
   `;
 }
 
+/**
+ * El aviso de desfase del formulario de corrección: cuántos frames sobran o
+ * faltan al bin. Con Δ = 0 no hay nada que avisar y el bloque estorba. Va en
+ * su propia función para poder ejecutarse en un test: dentro de la plantilla
+ * solo lo vigilaba un `assertIn` sobre el fuente, que pasaba con la condición
+ * invertida.
+ */
+function _cmv40AvisoDeDesfase(delta) {
+  if (!delta) return '';
+  return `<div class="cmv40-sync-aviso">
+      <span data-icono="aviso"></span>
+      <span>${escHtml(delta > 0
+        ? tr('tab3.sync_sobran_frames', {n: delta})
+        : tr('tab3.sync_faltan_frames', {n: Math.abs(delta)}))}</span>
+    </div>`;
+}
+
 function _renderCMv40SyncControls(project) {
   const pid = project.id;
   const s = project.session;
@@ -6903,12 +6920,7 @@ function _renderCMv40SyncControls(project) {
         ? tr('tab3.estos_valores_se_sumaran_a_la')
         : tr('tab3.los_valores_se_aplican_desde_el')}
     </div>
-    ${delta === 0 ? '' : `<div class="cmv40-sync-aviso">
-      <span data-icono="aviso"></span>
-      <span>${escHtml(delta > 0
-        ? tr('tab3.sync_sobran_frames', {n: delta})
-        : tr('tab3.sync_faltan_frames', {n: Math.abs(delta)}))}</span>
-    </div>`}
+    ${_cmv40AvisoDeDesfase(delta)}
     ${desplazamiento ? `<div class="cmv40-sync-aviso">
       <span data-icono="aviso"></span>
       <span>${escHtml(tr('tab3.sync_cuadra_pero_no_alinea', {

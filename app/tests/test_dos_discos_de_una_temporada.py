@@ -21,6 +21,9 @@ El segundo trabajo **se descartó en silencio**, y tres cosas lo taparon:
 """
 
 import asyncio
+import json
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -159,10 +162,29 @@ class TestElProgresoLlevaElSelloDeSuTrabajo(unittest.TestCase):
                       "el progreso no lleva sello: dos trabajos de serie se "
                       "confunden entre sí")
 
+    @unittest.skipUnless(shutil.which("node"), "node no disponible")
     def test_el_frontend_descarta_el_progreso_de_otro_trabajo(self):
-        from frontend_sources import js_completo
-        self.assertIn("prog.job !== miJob", js_completo(),
-                      "el modal aceptaría el resultado de otro trabajo")
+        """Se EJECUTA la decisión. El `assertIn("prog.job !== miJob")` que
+        había pasaba con la comprobación debilitada a «solo mientras el otro
+        corre» (mutación M1 de la auditoría del 2026-10-17), que es justo el
+        caso en que el modal se quedaba con el resultado del otro disco."""
+        from frontend_sources import argv_node, js_completo
+        src = js_completo()
+        i = src.index("function _seriesProgresoEsDeMiTrabajo(")
+        fn = src[i:src.index("\n}\n", i) + 2]
+        casos = [
+            ({"job": "B", "running": True}, "A"),                       # el otro, corriendo
+            ({"job": "B", "running": False, "resultado": {}}, "A"),     # el otro, TERMINADO
+            ({"job": "A", "running": True}, "A"),                       # el mío
+            ({"running": True}, "A"),                                   # servidor sin sello
+            ({"job": "B", "running": True}, None),                      # modal sin job
+        ]
+        guion = fn + "\nconsole.log(JSON.stringify(" + json.dumps(casos) + \
+            ".map(([p, j]) => _seriesProgresoEsDeMiTrabajo(p, j))));\n"
+        r = subprocess.run(argv_node(guion), capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr[-800:])
+        self.assertEqual(json.loads(r.stdout), [False, False, True, True, True])
+        self.assertIn("_seriesProgresoEsDeMiTrabajo(prog, miJob)", src)
 
 
 if __name__ == "__main__":

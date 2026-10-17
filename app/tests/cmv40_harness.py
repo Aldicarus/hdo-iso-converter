@@ -593,13 +593,20 @@ def sidecar_path(path, state_dir=None) -> Path:
 def write_artifacts(workdir: Path, *names: str, props: RpuProps | None = None) -> None:
     """Crea artefactos falsos con tamaño suficiente para los guards del pipeline.
 
-    Si se pasan `props`, se escribe también su sidecar para que los falsos
-    sepan qué RPU contiene cada fichero (ver `sidecar_path`).
+    Si se pasan `props`, van en la CABECERA del contenido —como hace
+    `produce`— y además en su sidecar. Solo con el sidecar, que va indexado
+    por ruta, un artefacto que el pipeline renombra (el `.mkv.tmp` → `.mkv`
+    de la Fase H) volvía a los valores por defecto: la firma escribía un
+    CMv2.9 inventado en la cabecera y un segundo disparo de la fase leía eso.
     """
     workdir.mkdir(parents=True, exist_ok=True)
     for n in names:
         p = workdir / n
-        p.write_bytes(_FILLER)
+        if props is None:
+            p.write_bytes(_FILLER)
+        else:
+            p.write_bytes(b"#HARNESS-PROPS " + json.dumps(props.as_dict()).encode("utf-8")
+                          + b"\n" + _FILLER)
         if props is not None:
             mp = sidecar_path(p)
             mp.parent.mkdir(parents=True, exist_ok=True)
@@ -1421,7 +1428,11 @@ def ffmpeg(sc):
         # Lo que llega al filtro es la SALIDA: con `-c:v copy`, el códec del
         # stream; recodificando, el del codificador. Y recodificar con libx265
         # no conserva los NAL del RPU: sale un HEVC sin Dolby Vision.
-        codificador = opt("-c:v") or "copy"
+        # Sin `-c:v` (ni `-c`) ffmpeg RECODIFICA con el codificador por
+        # defecto del formato de salida: el fake lo daba por `copy`, y una
+        # muestra de la EL sin `-c:v copy` —que en el real sale sin RPU—
+        # pasaba en verde (mutación P2-9 de la auditoría del 2026-10-17).
+        codificador = opt("-c:v") or opt("-c") or "libx265"
         salida = (elegido["format"] if codificador == "copy" else
                   {"libx265": "HEVC", "libx264": "AVC"}.get(codificador, codificador))
         if salida != "HEVC" and opt("-bsf:v") == "hevc_mp4toannexb":
