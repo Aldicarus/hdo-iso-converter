@@ -159,14 +159,18 @@ class TestFaseCReutilizacionDelDemux(CmvPhaseCase):
                          "un demux completo no se repite")
 
     async def test_demux_fallido_no_deja_marcador_ni_parciales(self):
+        """El demux ESCRIBE y después muere, como el de Proyecto Salvación:
+        sin `tras_producir` no había parciales y el aserto no comprobaba nada."""
         session = self.prepare(trust_ok=False, artifacts=("source.hevc",))
-        self.tb.fail("dovi_tool", "demux", rc=1, stderr="disco lleno")
+        self.tb.fail("dovi_tool", "demux", rc=1, stderr="disco lleno",
+                     tras_producir=True)
         from phases.cmv40_pipeline import run_phase_c_extract
         with self.assertRaises(RuntimeError):
             await run_phase_c_extract(session, self.log)
         self.assertFalse((self.wd / ".demux_done").exists())
-        self.assertFalse((self.wd / "BL.hevc").exists(),
-                         "los parciales deben irse para que el reintento empiece limpio")
+        for parcial in ("BL.hevc", "EL.hevc"):
+            self.assertFalse((self.wd / parcial).exists(),
+                             f"{parcial}: los parciales deben irse para que el reintento empiece limpio")
 
 
 class TestFaseCDatosPerFrame(CmvPhaseCase):

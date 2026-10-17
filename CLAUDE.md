@@ -516,6 +516,21 @@ Las fases C/F/G/H no se podían invocar en un test —lanzan `ffmpeg`/`dovi_tool
 
 **Y el `dovi_tool` falso se salta los valores de sus opciones**: `extract-rpu --limit 720 X` tomaba el `720` por la entrada y devolvía los valores POR DEFECTO, así que todo muestreo con `--limit` —el del análisis básico de Tab 2 incluido— leía un CMv2.9 inventado en vez del RPU del fichero. El `ffprobe` falso puede contestar `N/A` (`define_media(frames=None)`), que es lo que el real da sobre algunos MKV.
 
+**Y cinco cosas más que el arnés aprendió el 2026-10-17**, todas de la misma
+regla —un fake que inventa en vez de fallar hace pasar en verde lo que en el
+NAS se rompe—:
+- **una entrada que no existe falla** como en el real (`ffmpeg -i`, y en
+  `dovi_tool` `-i`, `--rpu-in`, `--bl`/`--el`, el origen de `demux` y de
+  `extract-rpu`, el de `info`): antes se contestaba con las props del
+  escenario sobre un fichero que no estaba;
+- **`inject-rpu` y `mux` heredan los frames del HEVC** que procesan (el más
+  corto, en el mux): un BL truncado ya no sale entero del resto del pipeline;
+- **el editor deja un rastro** de lo que aplica (`FakeToolbox.ediciones_de`),
+  porque contar frames no distingue quitar el primero de quitar el último;
+- **`tras_producir` funciona con `dovi_tool`** (no estaba en el despacho, así
+  que el test de «el demux fallido no deja parciales» no tenía parciales);
+- **con `tee`, `ffmpeg` da `size=N/A`** como el real.
+
 **Las props viajan en la cabecera del CONTENIDO, no en la ruta.** El sidecar está indexado por ruta absoluta, así que en cuanto el pipeline **mueve** un artefacto la metadata se queda apuntando al nombre viejo y el fichero movido vuelve a los valores por defecto — sin fallar, simplemente contestando otra cosa. Lo destapó el `os.replace` del RPU corregido de la Fase E, pero afecta igual al `.mkv.tmp` → `.mkv` de la Fase H. El `dovi_tool` real lleva la metadata dentro del fichero: `produce` escribe la cabecera que ya existía para el pipe y `read_props`/`props_of` la prefieren al sidecar.
 
 Con eso un test afirma **qué RPU se inyecta en qué HEVC** en cada rama, y el criterio de aceptación es de mutación: reintroducir el bug (quitar la llamada a `_ensure_profile8_rpu`) tiene que hacer fallar un test. Verificado también para el demux truncado de Proyecto Salvación, el adelanto del RPU en drop-in y la validación de L8.

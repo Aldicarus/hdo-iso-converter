@@ -513,6 +513,19 @@ class FakeToolbox:
 
     # ── artefactos ───────────────────────────────────────────────────
 
+    def ediciones_de(self, path: Path) -> list[dict]:
+        """El rastro de correcciones (`remove`/`duplicate`) que el editor
+        falso dejó en un RPU, en el orden en que se aplicaron."""
+        try:
+            with open(path, "rb") as f:
+                primera = f.readline()
+        except OSError:
+            return []
+        cab = b"#HARNESS-PROPS "
+        if not primera.startswith(cab):
+            return []
+        return json.loads(primera[len(cab):]).get("ediciones") or []
+
     def props_of(self, path: Path) -> RpuProps | None:
         """Propiedades del RPU que un artefacto producido contiene.
 
@@ -926,6 +939,12 @@ def main():
         # Hace su trabajo y DESPUÉS falla: así queda el fichero de salida a
         # medias, que es lo que pasa cuando mkvmerge aborta durante el mux. Sin
         # esto no se puede comprobar que alguien limpia el parcial.
+        #
+        # `dovi_tool` no estaba en el despacho, así que con él `tras_producir`
+        # no hacía nada: un demux que muere a mitad no dejaba BL/EL, y el test
+        # de «el demux fallido no deja parciales» pasaba sin parciales que
+        # limpiar (auditoría del 2026-10-17).
+        DESPACHO["dovi_tool"] = lambda s: dovi_tool(s, sub, json_args)
         try:
             DESPACHO[BINARY](sc) if BINARY in DESPACHO else None
         except Exception:
@@ -962,7 +981,37 @@ def main():
     return 0
 
 
+def props_conocidas(ruta, sc):
+    """Las props de un fichero si el test las declaró (cabecera, sidecar o
+    escenario), o None: `read_props` devuelve los valores POR DEFECTO para un
+    fichero del que no se sabe nada, y eso no puede limitar a nadie."""
+    if not ruta:
+        return None
+    cab = props_in_file(Path(ruta))
+    if cab is not None:
+        return cab
+    if meta_path(Path(ruta)).exists() or Path(ruta).name in sc.get("rpus", {}):
+        return read_props(ruta, sc)
+    return None
+
+
+def _falta(ruta):
+    """El error del `dovi_tool` real con una entrada que no existe. Sin esto
+    el fake contestaba con las props del escenario sobre un fichero que no
+    estaba: un paso que leyera un artefacto equivocado pasaba en verde."""
+    if ruta and ruta != "-" and not Path(ruta).exists():
+        sys.stderr.write("Error: No such file or directory (os error 2)\n")
+        return True
+    return False
+
+
 def dovi_tool(sc, sub, json_args):
+    if sub in ("inject-rpu", "editor", "export") and _falta(opt("-i")):
+        return 1
+    if sub == "inject-rpu" and _falta(opt("--rpu-in")):
+        return 1
+    if sub == "mux" and (_falta(opt("--bl")) or _falta(opt("--el"))):
+        return 1
     if sub == "info" and opt("-f") is not None:
         # **`info -f N` NO es el summary: imprime UN frame en JSON.**
         # Cayendo en la rama de abajo escribía el summary, así que el
@@ -990,6 +1039,8 @@ def dovi_tool(sc, sub, json_args):
             # `--summary` puede venir sin valor y el path llegar al final.
             positional = [a for a in ARGV if not a.startswith("-") and a != "info"]
             target = positional[-1] if positional else None
+        if _falta(target):
+            return 1
         sys.stdout.write(summary(read_props(target, sc)))
         return 0
 
@@ -1028,6 +1079,12 @@ def dovi_tool(sc, sub, json_args):
                 anadidos += int(d.get("length") or 0)
         if quitados or anadidos:
             props["frames"] = max(0, int(props.get("frames") or 0) - quitados + anadidos)
+            # Y QUÉ se ha hecho, en orden. Contar frames no distingue quitar el
+            # primero de quitar el último ni duplicar el primero de duplicar el
+            # último —que es lo que desplaza o no la película—; con el rastro,
+            # un test puede afirmar sobre la corrección que acabó en el RPU.
+            props["ediciones"] = list(props.get("ediciones") or []) + [{
+                k: json_args[k] for k in ("remove", "duplicate") if json_args.get(k)}]
         produce(out, props)
         return 0
 
@@ -1036,8 +1093,14 @@ def dovi_tool(sc, sub, json_args):
         rpu_in = opt("--rpu-in")
         out = opt("-o")
         # El HEVC de salida contiene el RPU inyectado, con el frame count del
-        # HEVC de entrada.
+        # HEVC de entrada: un HEVC recortado da un stream recortado, lleve el
+        # RPU los frames que lleve. El fake copiaba el RPU tal cual y un BL o
+        # una EL truncada —el demux de Proyecto Salvación— salía entero.
         props = read_props(rpu_in, sc)
+        del_hevc = props_conocidas(hevc_in, sc)
+        if del_hevc is not None:
+            props["frames"] = min(int(props.get("frames") or 0),
+                                  int(del_hevc.get("frames") or 0))
         produce(out, props)
         sys.stdout.write("Processing input video for frame order info...\n")
         sys.stdout.write("Rewriting file with interleaved RPU NALs...\n")
@@ -1046,6 +1109,8 @@ def dovi_tool(sc, sub, json_args):
     if sub == "demux":
         positional = [a for a in ARGV if not a.startswith("-") and a != "demux"]
         src = positional[0] if positional else None
+        if _falta(src):
+            return 1
         props = read_props(src, sc)
         bl, el = opt("--bl-out"), opt("--el-out")
         if bl:
@@ -1057,8 +1122,15 @@ def dovi_tool(sc, sub, json_args):
     if sub == "mux":
         el = opt("--el")
         out = opt("-o")
-        # El dual-layer resultante lleva el RPU de la capa de mejora.
-        produce(out, read_props(el, sc))
+        # El dual-layer resultante lleva el RPU de la capa de mejora, y tantos
+        # frames como la capa MÁS CORTA: un BL truncado no se arregla porque
+        # la EL esté entera.
+        props = read_props(el, sc)
+        del_bl = props_conocidas(opt("--bl"), sc)
+        if del_bl is not None:
+            props["frames"] = min(int(props.get("frames") or 0),
+                                  int(del_bl.get("frames") or 0))
+        produce(out, props)
         return 0
 
     if sub == "extract-rpu":
@@ -1082,6 +1154,8 @@ def dovi_tool(sc, sub, json_args):
                 positional.append(a)
         src = positional[0] if positional else None
         out = opt("-o")
+        if _falta(src):
+            return 1
         if src == "-":
             # Modo pipe (Fase A): hay que sacar del pipe TODO lo que el
             # productor escribió o ffmpeg no puede terminar. Las props
@@ -1412,7 +1486,12 @@ def props_from_stream(datos, sc):
 
 
 def ffmpeg(sc):
-    props = read_props(opt("-i"), sc)
+    entrada = opt("-i")
+    if entrada and entrada != "-" and not entrada.startswith("pipe:") \
+            and not Path(entrada).exists():
+        sys.stderr.write("%s: No such file or directory\n" % entrada)
+        return 1
+    props = read_props(entrada, sc)
     # `-map` sobre un m2ts con sus vídeos declarados. El fake lo ignoraba y
     # devolvía la EL saliera el stream que saliera, así que ningún test podía
     # ver que se muestreaba el vídeo equivocado. Los dos errores son los del
@@ -1477,15 +1556,22 @@ def ffmpeg(sc):
     # y la última con `Lsize=` en vez de `size=`.
     dur = float(props.get("duration") or 7200.0)
     frames_tot = int(props.get("frames") or 1000)
+    # Con el muxer `tee` (dos salidas) el real no sabe qué tamaño dar:
+    # `size=N/A` en el progreso y `Lsize=N/A` al final (CLAUDE.md: «a ffmpeg
+    # no se le puede preguntar cuando escribe con tee»). El fake daba el
+    # número igual, así que un consumidor que se fiara del `size=` con `tee`
+    # pasaba en verde y en el NAS se quedaba sin barra.
+    con_tee = opt("-f") == "tee"
     for paso in range(1, 5):
         frac = paso / 4.0
         seg = dur * frac
+        tam = "N/A" if con_tee else "%dKiB" % int(70_000_000 * frac)
         sys.stderr.write(
-            "frame=%6d fps=1038 q=-1.0 %s=%dKiB time=%02d:%02d:%05.2f "
+            "frame=%6d fps=1038 q=-1.0 %s=%s time=%02d:%02d:%05.2f "
             "bitrate=68644.1kbits/s speed=43.3x\n" % (
                 int(frames_tot * frac),
                 "Lsize" if paso == 4 else "size",
-                int(70_000_000 * frac),
+                tam,
                 int(seg // 3600), int((seg % 3600) // 60), seg % 60,
             ))
         sys.stderr.flush()

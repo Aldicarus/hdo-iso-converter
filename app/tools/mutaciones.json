@@ -604,5 +604,23 @@
   "modulos": [
    "test_cmv40_el_mkv_tmp_del_remux"
   ]
+ },
+ {
+  "id": "T3 Fase C no limpia los parciales del demux",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            \"\"\"Borra BL/EL parciales + marcador para que el reintento sea limpio.\"\"\"\n            for partial in (bl_hevc, el_hevc, demux_done):",
+  "nuevo": "            \"\"\"Borra BL/EL parciales + marcador para que el reintento sea limpio.\"\"\"\n            for partial in ():",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T3 E corrige desde el bin y no desde lo ya corregido",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    entrada = rpu_synced if rpu_synced.exists() else rpu_target",
+  "nuevo": "    entrada = rpu_target",
+  "modulos": [
+   "test_cmv40_el_contenido_viaja"
+  ]
  }
 ]
