@@ -1180,5 +1180,452 @@
   "modulos": [
    "test_curva_de_luz"
   ]
+ },
+ {
+  "id": "T1-1 el pipe de la Fase A recodifica (sin -c:v copy)",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "FFMPEG_BIN, \"-y\", \"-i\", mkv_path,\n        \"-map\", \"0:v:0\", \"-c:v\", \"copy\",",
+  "nuevo": "FFMPEG_BIN, \"-y\", \"-i\", mkv_path,\n        \"-map\", \"0:v:0\",",
+  "modulos": [
+   "test_pipe_fase_a",
+   "test_cmv40_fase_a",
+   "test_ffmpeg_pipe_extract"
+  ]
+ },
+ {
+  "id": "T1-2 el sniff del pre-flight recodifica",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "\"-t\", \"30\", \"-i\", session.source_mkv_path,\n            \"-map\", \"0:v:0\", \"-c:v\", \"copy\",",
+  "nuevo": "\"-t\", \"30\", \"-i\", session.source_mkv_path,\n            \"-map\", \"0:v:0\",",
+  "modulos": [
+   "test_cmv40_preflight_source"
+  ]
+ },
+ {
+  "id": "T1-3 el sniff del pre-flight sin -t 30",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "FFMPEG_BIN, \"-y\", \"-t\", \"30\", \"-i\", session.source_mkv_path,",
+  "nuevo": "FFMPEG_BIN, \"-y\", \"-i\", session.source_mkv_path,",
+  "modulos": [
+   "test_cmv40_preflight_source"
+  ]
+ },
+ {
+  "id": "T1-4 el muestreo de la Fase H recodifica",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "\"-t\", \"30\", \"-i\", str(mkv),\n            \"-map\", \"0:v:0\", \"-c:v\", \"copy\",",
+  "nuevo": "\"-t\", \"30\", \"-i\", str(mkv),\n            \"-map\", \"0:v:0\",",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T1-5 el muestreo de la Fase H sin -t 30",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "FFMPEG_BIN, \"-y\", \"-t\", \"30\", \"-i\", str(mkv),",
+  "nuevo": "FFMPEG_BIN, \"-y\", \"-i\", str(mkv),",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T1-7 arnés: el mux trunca el vídeo",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "        produce(out, props)\n    # Progreso en el formato REAL de `--gui-mode`.",
+  "nuevo": "        produce(out, dict(props, frames=int(props[\"frames\"]) // 2))\n    # Progreso en el formato REAL de `--gui-mode`.",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv",
+   "test_los_fakes_respetan_las_opciones"
+  ]
+ },
+ {
+  "id": "T1-8 la serie desde M2TS sin importar safe_source_path",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    from phases.iso_mount import Source, SourceError, safe_source_path\n    from models import Chapter\n\n    # Qué episodios",
+  "nuevo": "    from phases.iso_mount import Source, SourceError\n    from models import Chapter\n\n    # Qué episodios",
+  "modulos": [
+   "test_serie_auto_ejecuta",
+   "test_imports_alcanzables"
+  ]
+ },
+ {
+  "id": "T1-9 api_harness no redirige el alias del router",
+  "fichero": "app/tests/api_harness.py",
+  "viejo": "            (_r_cmv40, \"CMV40_WORK_BASE\", self.work_base),\n",
+  "nuevo": "",
+  "modulos": [
+   "test_aislamiento_de_la_suite"
+  ]
+ },
+ {
+  "id": "T1-10 estricto no mira los módulos sin tests",
+  "fichero": "app/tests/correr_suite.py",
+  "viejo": "if f.stem not in con_tests)",
+  "nuevo": "if False)",
+  "modulos": [
+   "test_aislamiento_de_la_suite"
+  ]
+ },
+ {
+  "id": "T1-11 mutar borra el respaldo que no pudo restaurar",
+  "fichero": "app/tools/mutar.py",
+  "viejo": "            fallidos.append(info.get(\"fichero\", meta.name))\n            continue",
+  "nuevo": "            fallidos.append(info.get(\"fichero\", meta.name))",
+  "modulos": [
+   "test_herramienta_de_mutaciones"
+  ]
+ },
+ {
+  "id": "T1-12 mutar vuelve a la base de la unión",
+  "fichero": "app/tools/mutar.py",
+  "viejo": "    selecciones = list(dict.fromkeys(tuple(m[\"modulos\"]) for m in muts))",
+  "nuevo": "    selecciones = [tuple(sorted({mod for m in muts for mod in m[\"modulos\"]}))]",
+  "modulos": [
+   "test_herramienta_de_mutaciones"
+  ]
+ },
+ {
+  "id": "T1-13 el guard de entorno no ve update con dict",
+  "fichero": "app/tests/test_aislamiento_de_la_suite.py",
+  "viejo": "                if isinstance(a, ast.Dict):",
+  "nuevo": "                if False:",
+  "modulos": [
+   "test_aislamiento_de_la_suite"
+  ]
+ },
+ {
+  "id": "T1-14 el guard de nombres vuelve a mirar el módulo entero",
+  "fichero": "app/tests/test_imports_alcanzables.py",
+  "viejo": "    modulo = _definidos(arbol) | _globales(arbol)",
+  "nuevo": "    modulo = _definidos(arbol) | _globales(arbol) | {n.asname or n.name.split('.')[0] for n in ast.walk(arbol) if isinstance(n, ast.alias)}",
+  "modulos": [
+   "test_imports_alcanzables"
+  ]
+ },
+ {
+  "id": "T1-15 arnés: el editor trae siempre el L1 del donante",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "            if 1 in niveles:",
+  "nuevo": "            if True:",
+  "modulos": [
+   "test_los_fakes_respetan_las_opciones"
+  ]
+ },
+ {
+  "id": "T1-16 arnés: mkvpropedit invierte flag-forced",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "                    pista[\"forced\"] = valor == \"1\"",
+  "nuevo": "                    pista[\"forced\"] = valor == \"0\"",
+  "modulos": [
+   "test_los_fakes_respetan_las_opciones"
+  ]
+ },
+ {
+  "id": "T1-17 arnés: ffprobe vuelve al recuento del escenario",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "        del_fichero = props_conocidas(positional[-1], sc) if positional else None",
+  "nuevo": "        del_fichero = None",
+  "modulos": [
+   "test_los_fakes_respetan_las_opciones",
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T2-1 la Fase D vuelve a elegir el MPLS por su cuenta",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "                        source_path=extraction_source,\n                    )",
+  "nuevo": "                        source_path=None,\n                    )",
+  "modulos": [
+   "test_el_rip_no_cambia_de_titulo"
+  ]
+ },
+ {
+  "id": "T2-2 un episodio M2TS vuelve a su iso_path",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            and Path(session.mpls_path).is_absolute():\n        return session.mpls_path",
+  "nuevo": "            and Path(session.mpls_path).is_absolute():\n        return session.iso_path",
+  "modulos": [
+   "test_el_rip_no_cambia_de_titulo"
+  ]
+ },
+ {
+  "id": "T2-3 un MPLS de la sesión que falta cae a otro",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            if mkvmerge_source is None and sabido:",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_el_rip_no_cambia_de_titulo"
+  ]
+ },
+ {
+  "id": "T2-4 un fallo de la validación vuelve a tumbar el rip",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            await log('[Validación] ' + tr('tab1.validacion_no_se_pudo_ejecutar', e=e))\n            validation_ok = False",
+  "nuevo": "            raise",
+  "modulos": [
+   "test_el_rip_no_cambia_de_titulo"
+  ]
+ },
+ {
+  "id": "T2-5 reaplicar reglas da nombre de película a un episodio",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        session.mkv_name = (_nombre_automatico_de_episodio(session)\n                            if _es_episodio(session) else rules[\"mkv_name\"])",
+  "nuevo": "        session.mkv_name = rules[\"mkv_name\"]",
+  "modulos": [
+   "test_episodios_no_se_pisan"
+  ]
+ },
+ {
+  "id": "T2-6 ejecutar sobre el destino de otro proyecto",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if otro:\n        raise HTTPException(status_code=409, detail=tr(",
+  "nuevo": "    if False:\n        raise HTTPException(status_code=409, detail=tr(",
+  "modulos": [
+   "test_episodios_no_se_pisan"
+  ]
+ },
+ {
+  "id": "T2-7 el runner no borra el episodio reemplazado",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "                viejo = (reemplazos or {}).get(str(ep.episode_number))",
+  "nuevo": "                viejo = None",
+  "modulos": [
+   "test_episodios_no_se_pisan"
+  ]
+ },
+ {
+  "id": "T2-8 el merge FEL ignora la divergencia de L1/L6",
+  "fichero": "app/phases/cmv40_strategy.py",
+  "viejo": "    if (el_type_del_rpu or \"\").upper() == \"FEL\" and not conservar_los_del_disco:",
+  "nuevo": "    if (el_type_del_rpu or \"\").upper() == \"FEL\":",
+  "modulos": [
+   "test_cmv40_fase_f_matriz",
+   "test_cmv40_confianza_de_gates"
+  ]
+ },
+ {
+  "id": "T2-9 un bin P8 sin confianza vuelve a ir directo",
+  "fichero": "app/phases/cmv40_strategy.py",
+  "viejo": "        return (self.target_type == \"trusted_p8_source\" and self.gates_evaluados\n                and not self.trust_effective)",
+  "nuevo": "        return False",
+  "modulos": [
+   "test_cmv40_fase_f_matriz"
+  ]
+ },
+ {
+  "id": "T2-10 la recomendación dice conservador siempre",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "    conservador = not (source_wf == \"p7_fel\" and not inject.conservar_niveles_del_disco)",
+  "nuevo": "    conservador = True",
+  "modulos": [
+   "test_rpu_analyze"
+  ]
+ },
+ {
+  "id": "T2-11 apagar el auto no llega a la sesión viva",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    _cmv40_propagar_a_la_viva(session_id, auto_pipeline=body.enabled)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_cmv40_la_fase_no_pisa_al_usuario"
+  ]
+ },
+ {
+  "id": "T2-12 la hoja hidratada no llega a la sesión viva",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        _cmv40_propagar_a_la_viva(session_id, sheet_recommendation=fresh.sheet_recommendation)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_cmv40_la_fase_no_pisa_al_usuario"
+  ]
+ },
+ {
+  "id": "T2-13 cancelar el remux deja su tmp",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            if phase_name == \"remux\":\n                _cmv40_cleanup_orphan_tmp(session)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_cmv40_la_fase_no_pisa_al_usuario"
+  ]
+ },
+ {
+  "id": "T2-14 forward-roll con cualquier remux bueno",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        had_successful_remux = bool(remuxes) and remuxes[-1].status == \"done\"",
+  "nuevo": "        had_successful_remux = any(r.status == \"done\" for r in remuxes)",
+  "modulos": [
+   "test_cmv40_la_fase_no_pisa_al_usuario"
+  ]
+ },
+ {
+  "id": "T2-15 el recovery deja el tmp del remux cortado",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "                if getattr(last, \"phase\", \"\") == \"remux\":\n                    _cmv40_cleanup_orphan_tmp(s)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_cmv40_la_fase_no_pisa_al_usuario"
+  ]
+ },
+ {
+  "id": "T2-16 una fase en cola no cuenta",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    cola = _cmv40_posicion_en_cola(session.id)\n    if cola:",
+  "nuevo": "    cola = None\n    if cola:",
+  "modulos": [
+   "test_cmv40_la_fase_no_pisa_al_usuario"
+  ]
+ },
+ {
+  "id": "T2-17 el runner corre fases de un proyecto archivado",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            if session.archived:\n                _logger.warning(\"[cola] la sesión %s está archivada",
+  "nuevo": "            if False:\n                _logger.warning(\"[cola] la sesión %s está archivada",
+  "modulos": [
+   "test_cmv40_la_fase_no_pisa_al_usuario"
+  ]
+ },
+ {
+  "id": "T2-18 la Fase A reutiliza un HEVC sin la marca",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        or not _source_hevc_completo(wd)\n    )",
+  "nuevo": "    )",
+  "modulos": [
+   "test_cmv40_fase_a"
+  ]
+ },
+ {
+  "id": "T2-19 la Fase A acepta un RPU con frames de menos",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if (es_exacto and dovi_info.profile == 7 and dovi_info.frame_count > 0",
+  "nuevo": "    if (False and dovi_info.profile == 7 and dovi_info.frame_count > 0",
+  "modulos": [
+   "test_cmv40_fase_a"
+  ]
+ },
+ {
+  "id": "T2-20 la Fase C reutiliza un HEVC sin la marca",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if source_hevc.exists() and not _source_hevc_completo(wd):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T2-21 la Fase H merge no mide el MKV",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            await _mkv_tan_largo_como_el_origen(output_mkv, session, log_callback)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T2-22 el recovery borra un destino que no creó",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "persisted.get(\"step\") in (\"copying\", \"applying\") and persisted.get(\"dst_creado\"):",
+  "nuevo": "persisted.get(\"step\") in (\"copying\", \"applying\"):",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-23 el recovery borra fuera de output",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "            if dentro and dst_path.exists() and dst_path.is_file():",
+  "nuevo": "            if dst_path.exists() and dst_path.is_file():",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-24 la copia hereda el resultado anterior",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        \"result\": None,\n        \"dst_creado\": False,",
+  "nuevo": "        \"dst_creado\": False,",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-25 mkvpropedit muerto por señal es éxito",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "    if proc.returncode not in (0, 1):\n        raise RuntimeError(\n            tr('mkv_analyze.mkvpropedit_fallo_codigo'",
+  "nuevo": "    if proc.returncode >= 2:\n        raise RuntimeError(\n            tr('mkv_analyze.mkvpropedit_fallo_codigo'",
+  "modulos": [
+   "test_tab2_aplicar_en_el_mkv"
+  ]
+ },
+ {
+  "id": "T2-26 una lista de capítulos vacía escribe una edición vacía",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        else:\n            cmd += [\"--chapters\", \"\"]",
+  "nuevo": "        else:\n            cmd += [\"--chapters\", _write_chapters_xml(request.chapters)]",
+  "modulos": [
+   "test_tab2_aplicar_en_el_mkv"
+  ]
+ },
+ {
+  "id": "T2-27 Tab 2 manda los capítulos siempre",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    chapters: _mkvCapitulosCambiados(project) ? a.chapters : null,",
+  "nuevo": "    chapters: a.chapters,",
+  "modulos": [
+   "test_tab2_aplicar_cambios"
+  ]
+ },
+ {
+  "id": "T2-28 abrir un proyecto manual vuelve a suponer auto",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  return !!session && session.auto_pipeline === true;",
+  "nuevo": "  return !!session && (session.auto_pipeline === true || session.target_trust_ok === true);",
+  "modulos": [
+   "test_cmv40_auto_al_abrir"
+  ]
+ },
+ {
+  "id": "T2-29 el respaldo del frontend nunca mergea un P8",
+  "fichero": "app/static/tab3.js",
+  "viejo": "    return evaluados && !_cmv40Trust(s);",
+  "nuevo": "    return false;",
+  "modulos": [
+   "test_cmv40_plan_frontend"
+  ]
+ },
+ {
+  "id": "T2-30 la clave vuelve al log del listado de Drive",
+  "fichero": "app/services/rec999_drive.py",
+  "viejo": "intento cache en disco\", redactar_claves(e))",
+  "nuevo": "intento cache en disco\", e)",
+  "modulos": [
+   "test_la_clave_no_sale_en_el_log"
+  ]
+ },
+ {
+  "id": "T2-31 una descarga cortada deja el bin",
+  "fichero": "app/services/rec999_drive.py",
+  "viejo": "            if total is not None and bytes_written != total:",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_la_clave_no_sale_en_el_log"
+  ]
+ },
+ {
+  "id": "T2-32 la Fase E mueve el intermedio en el bucle",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        copia = asyncio.ensure_future(asyncio.to_thread(shutil.move, intermediate_mkv, work_path))",
+  "nuevo": "        shutil.move(intermediate_mkv, work_path)\n        copia = asyncio.ensure_future(asyncio.sleep(0))",
+  "modulos": [
+   "test_event_loop_limpio"
+  ]
+ },
+ {
+  "id": "T2-33 la reserva de Tab 2 recodifica",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "\"-map\", \"0:v:0\", \"-c:v\", \"copy\", \"-bsf:v\", \"hevc_mp4toannexb\",\n                \"-f\", \"hevc\", str(hevc_path),",
+  "nuevo": "\"-map\", \"0:v:0\", \"-bsf:v\", \"hevc_mp4toannexb\",\n                \"-f\", \"hevc\", str(hevc_path),",
+  "modulos": [
+   "test_mkv_quality_pipeline"
+  ]
  }
 ]
