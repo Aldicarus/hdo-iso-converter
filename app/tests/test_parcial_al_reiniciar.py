@@ -134,6 +134,50 @@ class TestElParcialSeBorra(RecoveryCase):
         self.assertFalse(f.exists())
 
 
+class TestElNombreDeTrabajo(RecoveryCase):
+    """Desde que las fases escriben en `<nombre>.tmp` y renombran al terminar,
+    lo que un reinicio deja a medias es ESE fichero. Es siempre de la sesión
+    —nadie más escribe con su nombre— así que se borra sin preguntar, y el
+    MKV bueno de una pasada anterior sigue donde estaba."""
+
+    def test_el_tmp_de_una_sesion_interrumpida_se_borra(self):
+        import storage
+        buena = self.mkv("peli.mkv", pistas=PISTAS_OK)
+        resto = self.output / "peli.mkv.tmp"
+        resto.write_bytes(b"\x00" * 2_000_000)
+        self.sesion("peli", "peli.mkv")
+
+        self.recuperar()
+
+        self.assertFalse(resto.exists(), "el .tmp a medias sigue en /mnt/output")
+        self.assertTrue(buena.exists(), "se ha borrado el MKV de la pasada buena")
+        self.assertEqual(storage.load_session("peli").status, "pending")
+
+    def test_tambien_en_los_subdirectorios_de_una_serie(self):
+        rel = "Serie (2011)/Season 05/S05E05.mkv"
+        resto = self.output / (rel + ".tmp")
+        resto.parent.mkdir(parents=True)
+        resto.write_bytes(b"\x00" * 64)
+        self.sesion("e05", rel)
+
+        self.recuperar()
+
+        self.assertFalse(resto.exists())
+
+    def test_el_tmp_de_una_sesion_ENCOLADA_no_se_toca(self):
+        """No había empezado: ese fichero no es suyo."""
+        from queue_manager import TIPO_RIP, TrabajoEnCola
+        resto = self.output / "encolada.mkv.tmp"
+        resto.write_bytes(b"\x00" * 64)
+        self.sesion("encolada", "encolada.mkv", status="queued")
+        self.cola._queue.append(TrabajoEnCola(
+            tab="rip", tipo=TIPO_RIP, clave="encolada", que="rip"))
+
+        self.recuperar()
+
+        self.assertTrue(resto.exists())
+
+
 class TestLoQueNoSeToca(RecoveryCase):
 
     def test_un_mkv_completo_no_se_borra_nunca(self):

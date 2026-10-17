@@ -566,6 +566,56 @@ class TestParcialesQueSeQuedan(OrquestadorCase):
         self.assertTrue(previo.exists(), "se ha borrado un MKV que ya estaba")
         self.assertEqual(previo.read_bytes(), b"rip anterior que no hay que perder")
 
+    async def test_un_fallo_A_MEDIAS_no_pisa_el_mkv_de_antes(self):
+        """El caso que el anterior no cubría: re-ejecutar escribe sobre el
+        mismo nombre, y si mkvmerge llega a escribir y DESPUÉS muere, lo que
+        había ya no está — y el parcial se quedaba con el nombre bueno porque
+        el fichero «existía antes». El MKV de la pasada buena tiene que
+        sobrevivir a una re-ejecución que falla, y no puede quedar nada más."""
+        previo = self.salida / "Peli (2024) [DV FEL].mkv"
+        previo.write_bytes(b"rip anterior que no hay que perder")
+        self.tb.fail_when_arg("mkvmerge", self.SOLO_EL_MUX, rc=2,
+                              stderr="petó a mitad\n", tras_producir=True)
+        s = await self._correr(self._sesion_ruta_directa())
+        self.assertEqual(s.status, "error")
+        self.assertEqual(previo.read_bytes(), b"rip anterior que no hay que perder",
+                         "el parcial ha pisado el MKV de la pasada buena")
+        self.assertEqual(sorted(p.name for p in self.salida.iterdir()), [previo.name],
+                         "ha quedado un resto en /mnt/output")
+
+    async def test_reejecutar_BIEN_sustituye_el_mkv_de_antes(self):
+        previo = self.salida / "Peli (2024) [DV FEL].mkv"
+        previo.write_bytes(b"rip anterior")
+        s = await self._correr(self._sesion_ruta_directa())
+        self.assertEqual(s.status, "done", s.error_message)
+        self.assertNotEqual(previo.read_bytes(), b"rip anterior",
+                            "la re-ejecución no ha sustituido el MKV")
+        self.assertEqual(sorted(p.name for p in self.salida.iterdir()), [previo.name])
+
+    async def test_mientras_se_escribe_el_mkv_no_lleva_el_nombre_definitivo(self):
+        """Lo que hace imposible el parcial con el nombre bueno: mkvmerge
+        escribe en un nombre de trabajo del MISMO directorio, y el rename al
+        definitivo —atómico— solo llega con el mux terminado."""
+        await self._correr(self._sesion_ruta_directa())
+        destino = Path(self.muxes[-1].opt("-o"))
+        self.assertNotEqual(destino.name, "Peli (2024) [DV FEL].mkv")
+        self.assertEqual(destino.parent, self.salida)
+
+    async def test_un_mkvpropedit_MATADO_no_entrega_el_intermedio(self):
+        """La ruta con intermedio. `mkvpropedit` muerto por señal llega con un
+        `returncode` NEGATIVO y el chequeo `>= 2` lo daba por bueno: el
+        intermedio, con los metadatos a medio escribir, se movía a /mnt/output
+        con el nombre definitivo. Es el bug que ya se arregló en mkvmerge.
+
+        Se falla solo la edición de metadatos (`title=`): la marca de
+        procedencia también usa mkvpropedit y no es lo que se prueba."""
+        import signal
+        self.tb.fail_when_arg("mkvpropedit", "title=", senal=signal.SIGTERM)
+        s = await self._correr(self._sesion())
+        self.assertEqual(s.status, "error", "un mkvpropedit matado no es un éxito")
+        self.assertEqual(list(self.salida.rglob("*.mkv*")), [],
+                         "el intermedio se ha entregado con el nombre definitivo")
+
 
 class TestNingunModuloNuevoDejaElLockColgando(unittest.TestCase):
     """Quien conduzca `_run_pipeline` tiene que limpiar los locks del save.

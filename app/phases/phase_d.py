@@ -41,25 +41,27 @@ MIN_MPLS_SIZE = 200  # 200 bytes — ISOs custom tienen MPLS muy pequeños (~1.5
 # remux activo emite progreso cada pocos segundos.
 MKVMERGE_INACTIVITY_S = 900
 
-def _limpiar_parcial(out_path: str, existia_antes: bool) -> str | None:
+def _limpiar_parcial(out_path: str) -> str | None:
     """Borra la salida a medias de un mkvmerge que abortó.
 
-    Devuelve el nombre borrado, o None si no había nada o no tocaba.
-
-    `existia_antes` es la salvaguarda importante: si el fichero ya estaba antes
-    de lanzar mkvmerge, **no es nuestro parcial** y puede ser el resultado bueno
-    de una ejecución anterior. Solo se borra lo que ha creado esta pasada.
+    Devuelve el nombre borrado, o None si no había nada.
 
     Hacía falta porque el orquestador no puede: solo conoce la ruta a través de
     lo que la fase DEVUELVE, y una fase que falla no devuelve nada. Su limpieza
     (`if intermediate_mkv and ...`) era por tanto inalcanzable, y un
     `*_intermediate.mkv` a medias —decenas de GB en un UHD— se quedaba en
-    /mnt/tmp para siempre; el barrido de huérfanos tampoco cubre ese patrón. En
-    la ruta directa era peor: un `.mkv` parcial en **/mnt/output** con el nombre
-    definitivo, indistinguible de un rip terminado.
+    /mnt/tmp para siempre; el barrido de huérfanos tampoco cubre ese patrón.
+
+    **Solo se llama con rutas que son de la fase**, y por eso ya no lleva la
+    salvaguarda de «si ya estaba, no es mío». Esa salvaguarda protegía el MKV
+    bueno de una pasada anterior en la ruta directa, pero no lo protegía de
+    verdad: mkvmerge lo sobrescribía al empezar, y si moría a mitad el parcial
+    se quedaba con el nombre definitivo justamente porque «existía antes». Hoy
+    la ruta directa escribe en un nombre de trabajo (`<final>.tmp`) y el
+    intermedio solo lo crea la Fase D, con la cola corriendo los rips de uno
+    en uno: lo que haya en esas rutas es de esta pasada o el resto de una que
+    murió, y en los dos casos es basura.
     """
-    if existia_antes:
-        return None
     p = Path(out_path)
     if not p.exists():
         return None
@@ -163,8 +165,6 @@ async def run_phase_d(
         iso_stem  = Path(share_path).name
     out_path  = str(Path(tmp_dir) / f"{iso_stem}_intermediate.mkv")
 
-    # Si ya había algo con ese nombre, no es nuestro: ver `_limpiar_parcial`.
-    existia_antes = Path(out_path).exists()
     cmd = [MKVMERGE_BIN, "--gui-mode", "-o", out_path, mpls_path]
 
     if log_callback:
@@ -229,7 +229,7 @@ async def run_phase_d(
 
     # Cualquier salida que no sea un éxito deja el intermedio a medias.
     if hung or playlist_assert or proc.returncode not in (0, 1):
-        borrado = _limpiar_parcial(out_path, existia_antes)
+        borrado = _limpiar_parcial(out_path)
         if borrado and log_callback:
             await log_callback('[Fase B] ' + tr('phase_d.intermedio_parcial_eliminado', borrado=borrado))
 

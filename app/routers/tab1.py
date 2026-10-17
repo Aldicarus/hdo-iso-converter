@@ -217,6 +217,27 @@ def _borrar_salida_a_medias(session) -> str:
         destino.relative_to(paths.OUTPUT_DIR_MKV.resolve())
     except (OSError, ValueError):
         return aviso_interrumpida()
+
+    # Las fases escriben en `<nombre>.tmp` y renombran al terminar (ver
+    # `phase_e._nombre_de_trabajo`), así que un mux que murió deja ESE fichero,
+    # y es siempre de esta sesión: se borra sin mirarlo. El MKV con el nombre
+    # definitivo, si lo hay, es de una pasada anterior que sí terminó.
+    trabajo = destino.with_name(destino.name + ".tmp")
+    if trabajo.is_file():
+        try:
+            liberado = trabajo.stat().st_size
+            trabajo.unlink()
+        except OSError as e:
+            _logger.warning("[Startup] no se pudo borrar el MKV a medias %s: %s", trabajo, e)
+            return aviso_interrumpida()
+        _logger.info("[Startup] MKV a medias borrado (%.2f GB): %s",
+                     liberado / 1e9, trabajo)
+        return tr('tab1.interrumpida_mkv_a_medias_borrado',
+                  aviso=aviso_interrumpida(), gb=f"{liberado / 1e9:.2f}")
+
+    # Lo que queda es el caso anterior a ese cambio: un mux que escribía
+    # directamente al nombre definitivo (una versión vieja que murió con el
+    # despliegue que trae esta) o un MKV ya renombrado que no llegó a validarse.
     if not destino.is_file():
         return aviso_interrumpida()
 

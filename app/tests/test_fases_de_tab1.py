@@ -203,6 +203,20 @@ class TestFaseD(FaseTestCase):
         with self.assertRaises(RuntimeError):
             await self._correr()
 
+    async def test_un_intermedio_de_antes_no_sobrevive_a_un_fallo(self):
+        """El intermedio es SIEMPRE de esta sesión: solo lo crea la Fase D y la
+        cola corre los rips de uno en uno. Uno que ya estuviera es el resto de
+        una pasada que murió, y mkvmerge lo sobrescribe al empezar, así que
+        tras un fallo a medias es basura de decenas de GB en /mnt/tmp. La
+        salvaguarda de «si ya estaba no es mío» lo conservaba para siempre."""
+        viejo = self.trabajo / f"{self.disco.name}_intermediate.mkv"
+        viejo.write_bytes(b"resto de una pasada que murio")
+        self.tb.fail("mkvmerge", "*", rc=2, stderr="petó a mitad\n",
+                     tras_producir=True)
+        with self.assertRaises(RuntimeError):
+            await self._correr()
+        self.assertFalse(viejo.exists(), "el intermedio a medias sigue en /mnt/tmp")
+
     async def test_registra_el_comando_completo(self):
         await self._correr()
         self.assertTrue(self.log.says("$ mkvmerge"), self.log.lines)
@@ -323,6 +337,70 @@ class TestFaseEDirecta(FaseTestCase):
         await self._correr()
         self.assertIn("Progress: 100%",
                       [l for l in self.log.lines if l.startswith("Progress: ")])
+
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Fase E — la ruta con intermedio: mkvpropedit + entrega
+# ══════════════════════════════════════════════════════════════════════
+
+class TestFaseEPropedit(FaseTestCase):
+    """`run_phase_e_propedit` edita las cabeceras del intermedio y lo entrega.
+
+    El chequeo del código de salida era `>= 2`, el mismo que ya se arregló en
+    mkvmerge: un proceso muerto por señal llega NEGATIVO y pasaba."""
+
+    def setUp(self):
+        super().setUp()
+        self.intermedio = self.trabajo / "00800_intermediate.mkv"
+        self.intermedio.write_bytes(b"\x00" * 2048)
+        self.tb.define_mkv(self.intermedio.name, tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H"},
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa", "channels": 8},
+        ])
+        self.sesion = self._sesion(included_tracks=[
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio",
+                   "Castellano TrueHD Atmos 7.1", flag_default=True, ch=8)])
+
+    async def _correr(self):
+        return await self.e.run_phase_e_propedit(
+            self.sesion, str(self.intermedio), log_callback=self.log)
+
+    def _en_output(self):
+        return sorted(p.name for p in self.salida.rglob("*") if p.is_file())
+
+    async def test_entrega_el_mkv_con_el_nombre_definitivo(self):
+        salida = await self._correr()
+        self.assertEqual(Path(salida), self.salida / "Peli (2024) [DV FEL].mkv")
+        self.assertEqual(self._en_output(), ["Peli (2024) [DV FEL].mkv"])
+        self.assertFalse(self.intermedio.exists())
+
+    async def test_muerto_por_senal_lanza_y_no_entrega_nada(self):
+        self.tb.fail("mkvpropedit", "*", stderr="boom\n", senal=SENAL_DE_CRASH)
+        with self.assertRaises(RuntimeError) as ctx:
+            await self._correr()
+        self.assertIn(str(-int(SENAL_DE_CRASH)), str(ctx.exception))
+        self.assertEqual(self._en_output(), [],
+                         "un intermedio a medio editar ha llegado a /mnt/output")
+
+    async def test_el_codigo_2_es_un_error(self):
+        self.tb.fail("mkvpropedit", "*", rc=2, stderr="no se pudo escribir\n")
+        with self.assertRaises(RuntimeError):
+            await self._correr()
+        self.assertEqual(self._en_output(), [])
+
+    async def test_el_codigo_1_son_avisos_y_entrega(self):
+        self.tb.fail("mkvpropedit", "*", rc=1, stderr="aviso\n")
+        await self._correr()
+        self.assertEqual(self._en_output(), ["Peli (2024) [DV FEL].mkv"])
+
+    async def test_edita_la_pista_por_su_numero_de_mkvpropedit(self):
+        """mkvpropedit numera las pistas desde 1 y mkvmerge desde 0: el audio
+        con id 1 es `track:2`. Con el desfase se editaría el VÍDEO."""
+        await self._correr()
+        argv = self.tb.one("mkvpropedit").argv
+        i = argv.index("name=Castellano TrueHD Atmos 7.1")
+        self.assertEqual(argv[i - 2:i], ["track:2", "--set"], argv)
 
 
 if __name__ == "__main__":

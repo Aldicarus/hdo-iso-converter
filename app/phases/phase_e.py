@@ -59,6 +59,17 @@ OUTPUT_DIR      = os.environ.get("OUTPUT_DIR", "/mnt/output")
 MKVMERGE_INACTIVITY_S = 900
 
 
+def _nombre_de_trabajo(output_path: str) -> str:
+    """El nombre con el que se escribe el MKV final hasta que está terminado.
+
+    En el MISMO directorio, para que el paso al definitivo sea un rename
+    atómico. Es el `.mkv.tmp` que ya usa la Fase G de CMv4.0, así que el panel
+    de Limpieza lo reconoce como remux incompleto si se queda huérfano, y el
+    recovery de arranque (`routers.tab1._borrar_salida_a_medias`) lo borra.
+    """
+    return output_path + ".tmp"
+
+
 # ══════════════════════════════════════════════════════════════════════
 #  DETECCIÓN DE REORDENACIÓN (usada por el pipeline ANTES de Phase D)
 # ══════════════════════════════════════════════════════════════════════
@@ -138,16 +149,20 @@ async def run_phase_e_direct(
     # invocar mkvmerge — sin esto, mkvmerge falla si el directorio padre
     # no existe.
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    # Si ya había un MKV con ese nombre, no es nuestro parcial: puede ser el
-    # resultado bueno de una ejecución anterior (ver `_limpiar_parcial`).
-    existia_antes = Path(output_path).exists()
+    # mkvmerge escribe en un nombre de TRABAJO del mismo directorio, y solo al
+    # terminar bien pasa al definitivo con un rename atómico. Escribiendo
+    # directamente al definitivo, re-ejecutar una sesión sobrescribía el MKV
+    # bueno de la pasada anterior desde el primer byte, y si mkvmerge moría a
+    # mitad el parcial se quedaba con ese nombre: indistinguible de un rip
+    # terminado. Así, un fallo deja el MKV de antes donde estaba.
+    work_path    = _nombre_de_trabajo(output_path)
     track_map    = await _identify_tracks(mpls_path, log_callback)
     chapters_xml = _write_chapters_xml(session.chapters) if session.chapters else None
 
     avisos_matcher: list[str] = []
     cmd = _build_mkvmerge_cmd(
         source_path=mpls_path,
-        output_path=output_path,
+        output_path=work_path,
         session=session,
         track_map=track_map,
         chapters_xml=chapters_xml,
@@ -215,10 +230,9 @@ async def run_phase_e_direct(
     if chapters_xml:
         Path(chapters_xml).unlink(missing_ok=True)
 
-    # Cualquier salida que no sea un éxito deja el MKV final a medias, y con
-    # el nombre definitivo en /mnt/output: indistinguible de un rip terminado.
+    # Cualquier salida que no sea un éxito deja el fichero de trabajo a medias.
     if hung or playlist_assert or proc.returncode not in (0, 1):
-        borrado = _limpiar_parcial(output_path, existia_antes)
+        borrado = _limpiar_parcial(work_path)
         if borrado and log_callback:
             await log_callback('[Fase B] ' + tr('phase_e.mkv_parcial_eliminado', borrado=borrado))
 
@@ -239,8 +253,9 @@ async def run_phase_e_direct(
     if proc.returncode not in (0, 1):
         raise RuntimeError(tr('phase_d.mkvmerge_termino_de_forma_anomala_codigo', returncode=proc.returncode))
 
-    if not Path(output_path).exists():
+    if not Path(work_path).exists():
         raise RuntimeError(tr('phase_e.mkvmerge_no_genero_el_mkv_final', output_path=output_path))
+    os.replace(work_path, output_path)
 
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
@@ -319,7 +334,11 @@ async def run_phase_e_propedit(
     if proc_callback:
         proc_callback(proc)
     _, stderr = await proc.communicate()
-    if proc.returncode >= 2:
+    # 0 = OK · 1 = avisos no fatales · resto = fallo, INCLUIDOS los negativos
+    # de un proceso muerto por señal. El `>= 2` que había los daba por buenos
+    # —el mismo bug que ya se arregló en mkvmerge— y el intermedio, con los
+    # metadatos a medio escribir, se entregaba con el nombre definitivo.
+    if proc.returncode not in (0, 1):
         if chapters_xml:
             Path(chapters_xml).unlink(missing_ok=True)
         err_text = stderr.decode("utf-8", errors="replace")[:300] if stderr else ""
@@ -330,9 +349,18 @@ async def run_phase_e_propedit(
     if chapters_xml:
         Path(chapters_xml).unlink(missing_ok=True)
 
-    # Mover al directorio de salida
+    # Mover al directorio de salida. Pasa por el nombre de trabajo por lo mismo
+    # que la ruta directa: /mnt/tmp y /mnt/output son montajes distintos, así
+    # que `shutil.move` COPIA, y un fallo a mitad dejaría el parcial con el
+    # nombre definitivo encima del MKV de una pasada anterior.
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(intermediate_mkv, output_path)
+    work_path = _nombre_de_trabajo(output_path)
+    try:
+        shutil.move(intermediate_mkv, work_path)
+        os.replace(work_path, output_path)
+    except BaseException:
+        _limpiar_parcial(work_path)
+        raise
     if log_callback:
         size_gb = Path(output_path).stat().st_size / 1e9
         await log_callback('[Fase C] └─ ' + tr('phase_e.mkv_final_gb', p1=Path(output_path).name, p2=format(size_gb, '.1f')))
