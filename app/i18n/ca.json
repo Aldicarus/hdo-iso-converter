@@ -1211,5 +1211,8 @@
   "cmv40_pipeline.mkv_final_dv_distinto": "El MKV final porta Profile {profile} {el_type} CM {cm_version}, i havia de portar Profile {perfil} {capa} CM v4.0: el vídeo que s'ha multiplexat no és el processat. El .mkv.tmp es conserva per inspeccionar-lo.",
   "cmv40_pipeline.mkv_final_dv_ok": "✓ Mostra de 30 s del MKV final: Profile {profile}{el_type} CM {cm_version}",
   "cmv40_pipeline.mkv_final_pierde_pistas": "El MKV final té {a} pistes d'àudio i {s} de subtítols, i l'origen {a0} i {s0}: el remux ha perdut pistes. El .mkv.tmp es conserva per inspeccionar-lo.",
-  "cmv40_pipeline.mkv_final_pistas_sin_origen": "ℹ El MKV d'origen ja no es pot llegir: no es comprova que el final en conservi l'àudio i els subtítols."
+  "cmv40_pipeline.mkv_final_pistas_sin_origen": "ℹ El MKV d'origen ja no es pot llegir: no es comprova que el final en conservi l'àudio i els subtítols.",
+  "cmv40_pipeline.revalidacion_sin_hevc_pre_mux": "ℹ El MKV ja es va validar en una passada anterior i els HEVC previs al mux ja no hi són: es comprova el mateix MKV.",
+  "cmv40.nombre_con_ruta": "El nom del MKV no pot portar un camí: només el nom del fitxer.",
+  "cmv40.ya_hay_un_remux_con_ese_nombre": "Ja hi ha un remux pendent de validar amb el nom «{nombre}» a /mnt/output: no se sobreescriu."
 }

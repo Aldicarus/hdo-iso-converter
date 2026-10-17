@@ -3075,12 +3075,34 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
             # sobre ZFS tarda segundos. En el bucle, eso congela la app entera
             # (incluido el healthcheck del contenedor).
             await asyncio.to_thread(_cmv40_shutil.rmtree, wd, ignore_errors=True)
+        # Y el remux que la Fase G dejó en /mnt/output: es del proyecto, y sin
+        # él quedaban decenas de GB huérfanos en el directorio del usuario. La
+        # limpieza normal y la masiva ya lo borraban; esta no.
+        _cmv40_borrar_tmp_del_remux(session)
     delete_cmv40_session(session_id)
     return {"ok": True}
 
 
 class CMv40RenameRequest(BaseModel):
     output_mkv_name: str
+
+
+def _cmv40_tmp_del_remux(session: CMv40Session) -> Path:
+    """El `.mkv.tmp` que la Fase G deja en /mnt/output para la H."""
+    return _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
+
+
+def _cmv40_borrar_tmp_del_remux(session: CMv40Session) -> int:
+    """Borra el `.mkv.tmp` del proyecto si existe; devuelve los bytes."""
+    tmp = _cmv40_tmp_del_remux(session)
+    try:
+        if tmp.is_file():
+            tam = tmp.stat().st_size
+            tmp.unlink()
+            return tam
+    except OSError as e:
+        _logger.warning("No se pudo borrar %s: %s", tmp, e)
+    return 0
 
 
 def _cmv40_guard_mutable(session: CMv40Session):
@@ -3119,6 +3141,21 @@ async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
         raise HTTPException(status_code=400, detail=tr('cmv40.nombre_vacio'))
     if not new_name.lower().endswith(".mkv"):
         new_name += ".mkv"
+    # El nombre acaba en el `os.rename` de la Fase H hacia /mnt/output: con
+    # una ruta dentro, el MKV saldría del directorio de salida.
+    if (Path(new_name).name != new_name or "\\" in new_name
+            or new_name.startswith(".")):
+        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_con_ruta'))
+    # Con el remux ya escrito, el `.mkv.tmp` cambia de nombre con el
+    # proyecto. Si no, la Fase H buscaba el nombre nuevo, el auto-rewind
+    # mandaba a repetir el remux y el temporal viejo se quedaba huérfano.
+    viejo = _cmv40_tmp_del_remux(session)
+    nuevo = _cmv40_pipeline_mod.OUTPUT_DIR / f"{new_name}.tmp"
+    if viejo.is_file() and viejo != nuevo:
+        if nuevo.exists():
+            raise HTTPException(status_code=409,
+                                detail=tr('cmv40.ya_hay_un_remux_con_ese_nombre', nombre=new_name))
+        os.rename(viejo, nuevo)
     session.output_mkv_name = new_name
     save_cmv40_session(session)
     return session.model_dump()
@@ -3645,6 +3682,14 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
 
     def _clear_from(phase_name: str):
         return CMV40_PHASES_ORDER.index(phase_name) > target_idx
+
+    # El remux que la Fase G dejó en /mnt/output es aguas abajo de cualquier
+    # fase anterior a `remuxed`. Quedándose, el forward-roll del `GET` —un
+    # `.mkv.tmp` y un remux `done` en el historial— DESHACÍA el reset en la
+    # siguiente lectura y llevaba el proyecto a validar el MKV de la pasada
+    # anterior (el de otro bin, si se cambiaba de target).
+    if _clear_from("remuxed"):
+        _cmv40_borrar_tmp_del_remux(session)
 
     # Borrar artefactos aguas abajo
     wd = Path(session.artifacts_dir) if session.artifacts_dir else None

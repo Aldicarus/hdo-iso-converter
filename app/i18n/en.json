@@ -1211,5 +1211,8 @@
   "cmv40_pipeline.mkv_final_dv_distinto": "The final MKV carries Profile {profile} {el_type} CM {cm_version}, and it had to carry Profile {perfil} {capa} CM v4.0: the video that was muxed is not the processed one. The .mkv.tmp is kept for inspection.",
   "cmv40_pipeline.mkv_final_dv_ok": "✓ 30 s sample of the final MKV: Profile {profile}{el_type} CM {cm_version}",
   "cmv40_pipeline.mkv_final_pierde_pistas": "The final MKV has {a} audio and {s} subtitle tracks, and the source {a0} and {s0}: the remux lost tracks. The .mkv.tmp is kept for inspection.",
-  "cmv40_pipeline.mkv_final_pistas_sin_origen": "ℹ The source MKV can no longer be read: it is not checked that the final one keeps its audio and subtitles."
+  "cmv40_pipeline.mkv_final_pistas_sin_origen": "ℹ The source MKV can no longer be read: it is not checked that the final one keeps its audio and subtitles.",
+  "cmv40_pipeline.revalidacion_sin_hevc_pre_mux": "ℹ The MKV was already validated in an earlier pass and the pre-mux HEVCs are gone: the MKV itself is checked.",
+  "cmv40.nombre_con_ruta": "The MKV name cannot contain a path: just the file name.",
+  "cmv40.ya_hay_un_remux_con_ese_nombre": "There is already a remux awaiting validation named \"{nombre}\" in /mnt/output: it is not overwritten."
 }

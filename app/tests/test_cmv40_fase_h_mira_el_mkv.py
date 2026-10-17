@@ -350,5 +350,41 @@ class TestFaseANoDejaElHevcAMedias(PhaseTestCase):
                          "el HEVC a medias se queda para que el reintento lo reutilice")
 
 
+
+class TestUnSegundoDisparoPorLaRamaMerge(FaseHCase):
+    """La Fase H puede dispararse dos veces (los dos disparadores del
+    auto-pipeline), y el segundo llega con el MKV ya en su nombre definitivo.
+    Revalidar tiene que ser idempotente también por la rama merge, que tras
+    el primer éxito ha borrado los HEVC previos al mux."""
+
+    async def test_el_segundo_revalida_sin_fallar(self):
+        s = self.preparar(trust=False, artefactos=("BL.hevc", "DV_dual.hevc"))
+        self.mkv_de_la_fase_g(s, INJ_FEL)
+        await self.fase_h(s)
+        self.assertTrue(self.entregado(s))
+        r = await self.fase_h(s)
+        self.assertTrue(r.get("already_validated"), r)
+        self.assertTrue(self.entregado(s))
+
+    async def test_sin_el_rpu_extraido_comprueba_el_propio_mkv(self):
+        """Un proyecto anterior a que el RPU extraído sobreviviera: ni HEVC ni
+        RPU, y el MKV en su sitio. Se revalida lo que hay, y se dice."""
+        s = self.preparar(trust=False, artefactos=())
+        final = self.output_dir / s.output_mkv_name
+        write_artifacts(self.output_dir, final.name, props=INJ_FEL)
+        self.tb.define_media(final.name, duration=7200.0, frames=FRAMES)
+        r = await self.fase_h(s)
+        self.assertTrue(r.get("already_validated"))
+        self.assertTrue(any("_sniff_final" in " ".join(c.argv)
+                            for c in self.tb.find("ffmpeg")))
+
+    async def test_en_la_primera_pasada_sin_hevc_sigue_fallando(self):
+        s = self.preparar(trust=False, artefactos=())
+        self.mkv_de_la_fase_g(s, INJ_FEL)
+        with self.assertRaises(RuntimeError):
+            await self.fase_h(s)
+        self.assertFalse(self.entregado(s))
+
+
 if __name__ == "__main__":
     unittest.main()

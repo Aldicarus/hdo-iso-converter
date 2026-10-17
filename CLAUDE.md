@@ -458,6 +458,7 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 8. **Fase H — Validación**: dos rutas según el modo:
    - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Verifica el frame count con `ffprobe` —**falla** con más de ±2 frames cuando el recuento lo da `ffprobe`; si es una estimación por duración, solo lo registra—, el Dolby Vision del propio MKV (ver abajo) y `mkvmerge -J`. ~segundos. Hasta el 2026-10-17 el frame count solo se registraba y el resultado era un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito a mano: un MKV truncado se entregaba.
    - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
+   - **Revalidar es idempotente también por la rama merge.** Un segundo disparo llega con el MKV ya entregado y los HEVC previos al mux BORRADOS por el primero: con el RPU extraído (que ya sobrevive) se revalida igual, y sin él se comprueba el propio MKV y se dice. Antes lanzaba «No se encontró el HEVC pre-mux» sobre un proyecto terminado y correcto.
    - **Las dos rutas miran el MKV que se entrega** (`_dv_del_mkv_entregado` y `_comprobar_pistas_del_origen`): un muestreo de 30 s (`ffmpeg -t 30` + `extract-rpu --limit 720`, el mismo del pre-flight) comprueba el perfil (8 si la salida es single-layer, 7 si no), la capa y CM v4.0 del RPU que lleva **el fichero**, y `mkvmerge -J` que conserve el audio y los subtítulos del MKV origen. La rama merge valida el HEVC PREVIO al mux, así que un remux que tomara el vídeo del origen —la mutación P3-2, que sobrevivía a la suite entera— o que dejara fuera su audio salía en verde. El muestreo lleva `--limit` a propósito: es la marca de «esto no es el `extract-rpu` completo» que ya usaban los tests del precache. Cubierto por `test_cmv40_fase_h_mira_el_mkv.py`, con la Fase G y la H en cadena.
    Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
 
@@ -1722,6 +1723,17 @@ Al abrir un proyecto, el endpoint reconcilia el estado persistido con la realida
 
 Ambos saltan en sesiones archivadas y en DEV_MODE.
 
+
+**El `.mkv.tmp` del remux sigue al proyecto, y eso es lo que hace seguro el
+forward-roll.** «Rehacer» una fase anterior a la G (o «Cambiar target») lo
+dejaba en /mnt/output, y como el historial conserva el remux `done`, el
+siguiente `GET` adelantaba la sesión a `remuxed`: el reset se deshacía solo y
+la Fase H validaba el MKV hecho con el bin anterior. Hoy `reset-to` lo borra
+al rebobinar por debajo de `remuxed`, `DELETE ?clean_artifacts=true` también
+(la limpieza normal y la masiva ya lo hacían) y `rename-output` lo renombra
+con el proyecto —409 si el nombre nuevo ya tiene uno— y rechaza un nombre con
+ruta, que acabaría en el `os.rename` de la Fase H fuera de /mnt/output.
+`test_cmv40_el_mkv_tmp_del_remux.py`.
 ### UI
 
 - **Multi-proyecto con sidebar** (como Tab 1): búsqueda, ordenación (por modificado/nombre/fase), filtros (todos / en progreso / completados / errores), iconos por fase en el badge
@@ -1795,6 +1807,7 @@ Medido: 24,1 MB → **0,38 MB** la película entera y 0,07 MB un zoom; la primer
 - Cada transición de fase es explícita (click del usuario) — no hay cascadas automáticas
 - Los artefactos de fases anteriores se preservan para permitir reentrar tras crash/reinicio
 - Cleanup es destructivo e irreversible → archived=true → proyecto en modo solo lectura. `cleanup` y `delete?clean_artifacts=true` devuelven **409 con una fase en curso** (`_cmv40_guard_not_running`): hacían `rmtree` del workdir por debajo del `dovi_tool` que lo estaba escribiendo, y lo que veía el usuario era un fallo incomprensible en el log. `cleanup-bulk` ya saltaba los proyectos en ejecución
+- **Y una tarea cancelada no deja su proceso vivo.** `_run` y `_run_streaming` matan su subproceso cuando les cancelan la TAREA: el `CancelledError` salía del `await` y el proceso —lanzado con `start_new_session`, fuera del grupo del padre— seguía corriendo. Lo destapó el `extract-rpu` que la Fase G adelanta para la H: solo se cancelaba si mkvmerge salía con error, y si el mux LANZABA (cancelar, un timeout) seguía leyendo el HEVC completo minutos después, con el hueco de trabajo ya liberado y fuera del alcance del botón Cancelar (no se registra en los procesos activos). Hoy la Fase G lo cancela y lo ESPERA en cualquier salida que no sea un éxito. `test_cmv40_cancelar_no_deja_procesos.py`.
 - **Cancelar es cooperativo, no solo un SIGTERM.** `raise_if_cancelled()` se llama **antes de cada subproceso** (`_run`, `_run_streaming`), que es el punto natural: entre un comando y el siguiente es donde una fase puede parar sin dejar un artefacto a medias. Antes la cancelación dependía solo de matar el proceso en curso, así que cancelar **entre** dos pasos no tenía efecto y la fase seguía adelante con el comando siguiente. El predicado lo instala el orquestador en un **ContextVar** (`set_cancel_check`) y no como parámetro: las nueve `run_phase_*` reciben `(session, log_callback, proc_callback)` y un cuarto argumento obligaría a tocar las firmas, sus catorce call-sites y todos los tests; las tasks de asyncio heredan el contexto, así que llega solo a las corrutinas hijas. Lanza `CMv40Cancelled`, que **no es un error del pipeline**: se registra la fase como `cancelled`, sin manchar `error_message`
 - Errores NO bloquean el proyecto: mantienen la fase previa, solo escriben `error_message` descartable
 - Validación de CM version target = v4.0 (aviso, no bloqueante)
@@ -3257,9 +3270,54 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### Tests
 - Suite `unittest` en `app/tests/` (sin pytest ni config). Ejecutar **desde la raíz del repo**:
   ```bash
-  python3 -m unittest discover -s app/tests -v        # toda la suite
+  python3 app/tests/correr_suite.py                   # toda la suite (aísla los directorios)
+  python3 app/tests/correr_suite.py --estricto        # además: un skip no previsto falla (lo usa CI)
   python3 -m unittest app.tests.test_rpu_analyze -v   # un módulo
+  python3 app/tools/mutar.py app/tools/mutaciones.json   # las mutaciones de la auditoría
   ```
+
+### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
+
+Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
+de entonces seguían en verde. Hoy hay **67 mutaciones** en
+`app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
+una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
+todas. Lo que se aprendió, por orden de cuántas veces se repitió:
+
+- **Se probaba que algo PASA, no la frontera en que deja de pasar.** Umbrales
+  a 0,70 en vez de 0,85, 300 nits en vez de 200, `> 2` en vez de `>= 2`: el
+  mismo verde. `test_cmv40_reglas_que_sobrevivian` y `test_reglas_de_la_fase_b`
+  fijan cada frontera con un caso a cada lado.
+- **`abs()` donde el signo es el dato.** El desfase de sync se comparaba en
+  valor absoluto y aguantaba que se invirtiera.
+- **Un fixture que cae justo donde la regla no hace nada.** Los saltos del
+  muestreo PGS caían en múltiplos exactos de 192 bytes y la realineación rota
+  pasaba; el test lo comprueba ahora como condición previa.
+- **Fakes que inventan en vez de fallar.** El `summary` del `dovi_tool` falso
+  no casaba con el parser (L1/L5/L6 a 0 en TODA la suite), `extract-rpu
+  --limit 720` leía el `720` como entrada, el mux heredaba el RPU del primer
+  `.hevc` del argv aunque fuera tras un `--no-video`, `ffmpeg` sin `-c:v` daba
+  por hecho `copy`, y `write_artifacts` perdía las props al renombrar.
+- **Piezas probadas por separado con contratos incompatibles** (el contador
+  PGS y su asignador): un test que pasa un dato por las dos.
+- **Guards que miran el vacío**: bucles que acaban en `pass`, un regex sin
+  `MULTILINE`, una sonda de URLs que cogía el primer prefijo, una medición
+  de alineación sobre una página sin catálogo de i18n (de 78 botones con
+  icono comparaba 2) y un `sin_respuesta` que se calculaba y nadie miraba.
+  `test_la_suite_no_se_engana` guarda los bucles vacíos y los avisos de
+  sintaxis.
+- **El orden de importación decidía a qué `/config` se escribía.** Los
+  directorios se resuelven al importar; cuatro módulos fijaban el entorno y
+  solo funcionaba si nadie importaba `storage` antes. Hoy los redirige
+  `tests/aislamiento.py` en `setUpModule`, `correr_suite.py` los fija para la
+  suite entera, y `test_aislamiento_de_la_suite` lo vigila. Mismo patrón con
+  el búfer del log de CMv4.0, que se filtraba entre tests con el mismo id.
+
+**`app/tools/mutar.py`** comprueba que la base está en verde antes de mutar,
+restaura desde el contenido original guardado (nunca con `git checkout`),
+deja una copia en disco que recupera si una ejecución muere a medias, aísla
+los directorios, no escribe bytecode y sale con 1 si alguna sobrevive. Una
+mutación nueva va al JSON con los módulos que tienen que cazarla.
 - Cubren motor de reglas/series, match TMDb TV, clasificación L8 RPU, cache + quality audit de MKV, la abstracción Source y **las fases C/F/G/H del pipeline CMv4.0 ejecutadas de verdad** (via `cmv40_harness.py`). No requieren discos reales ni los binarios instalados.
 - **El pipeline de Tab 1 se ejecuta en tests** (`test_fases_de_tab1`, `test_orquestador_tab1`, `test_validacion_final`): las fases D y E con el argv real que recibe mkvmerge, `_run_pipeline` con las dos rutas y el reintento con el M2TS —que reintenta, que reintenta **una sola vez** y que con origen m2ts no vuelve a entrar—, y `_validate_final_mkv` con su tabla ISO 639. Se usa un origen `bdmv_folder`, que en `Source` es un no-op: ejercita el orquestador entero sin montar nada.
 - **Los endpoints de Tab 1 y Tab 2 se prueban por HTTP** (`test_endpoints_tab1_tab2`, sobre `api_harness`): path traversal del file browser, el whitelist del borrado, que `PUT /api/sessions/{id}` no acepte `has_fel`/`audio_dcp`, que los secretos no salgan en crudo. Los que salen a la red (TMDb, Google, GitHub) quedan fuera a propósito.
@@ -3282,7 +3340,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 
 ### CI — `.github/workflows/tests.yml`
 
-La suite corre en **push a main, PR y `workflow_dispatch`**. Hasta entonces el único workflow del repo publicaba la imagen en `release.published`, así que se podía tagear en rojo sin que nada avisara.
+La suite corre en **push a main, PR y `workflow_dispatch`**, con `app/tests/correr_suite.py --estricto`: aísla los directorios de la app antes de importar nada y falla con un skip que no esté en `SKIPS_PREVISTOS` (hoy, uno: el contraste del filtro de tags, que solo existe con un tag auxiliar por delante). Hasta entonces el único workflow del repo publicaba la imagen en `release.published`, así que se podía tagear en rojo sin que nada avisara.
 
 **Ningún entorno local ejecuta la suite entera.** Medido sobre los mismos 761 tests:
 

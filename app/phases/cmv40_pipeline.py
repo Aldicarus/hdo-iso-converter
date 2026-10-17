@@ -405,6 +405,13 @@ async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) ->
     except asyncio.TimeoutError:
         proc.kill()
         raise RuntimeError(tr('cmv40_pipeline.timeout_tras_s', timeout=timeout, p2=cmd[0]))
+    except asyncio.CancelledError:
+        # La tarea muere y el proceso con ella. Sin esto seguía corriendo
+        # —con `start_new_session` queda fuera del grupo del padre—: el
+        # `extract-rpu` que la Fase G adelanta leía el HEVC entero minutos
+        # después de cancelarse la fase.
+        _matar_proceso(proc)
+        raise
     # **Cancelar no es fallar.** Al cancelar se le manda un SIGTERM al
     # proceso, y el rc llega NEGATIVO (-15): los 36 sitios que comprueban el
     # código lo tomaban por un fallo del pipeline y la fase acababa en
@@ -739,7 +746,47 @@ async def _emit_heartbeat(log_callback, label: str, elapsed_s: float,
     await log_callback('  ' + tr('cmv40_pipeline.en_curso_min_s', label=label, mins=mins, secs=secs, eta_txt=eta_txt))
 
 
+def _matar_proceso(proc) -> None:
+    """Mata un subproceso que sigue vivo; no lanza si ya terminó."""
+    if proc is not None and proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 async def _run_streaming(
+    cmd: list[str],
+    log_callback=None,
+    proc_callback=None,
+    progress_ctx: dict | None = None,
+) -> int:
+    """`_run_streaming_sin_red` con una red: si cancelan la TAREA, el
+    subproceso muere con ella.
+
+    El `CancelledError` salía del `await` y el proceso —lanzado con
+    `start_new_session`, fuera del grupo del padre— seguía corriendo. El
+    botón Cancelar no pasa por aquí (mata el proceso registrado y la fase
+    acaba por el código de salida), pero una tarea que se cancela desde el
+    código sí, y se quedaba huérfana. Ver `test_cmv40_cancelar_no_deja_procesos`.
+    """
+    vistos = []
+
+    def _registrar(proc):
+        vistos.append(proc)
+        if proc_callback:
+            proc_callback(proc)
+    try:
+        return await _run_streaming_sin_red(cmd, log_callback=log_callback,
+                                            proc_callback=_registrar,
+                                            progress_ctx=progress_ctx)
+    except asyncio.CancelledError:
+        for proc in vistos:
+            _matar_proceso(proc)
+        raise
+
+
+async def _run_streaming_sin_red(
     cmd: list[str],
     log_callback=None,
     proc_callback=None,
@@ -4675,21 +4722,35 @@ async def run_phase_g_remux(
     await _log(log_callback, _et() + tr('cmv40_pipeline.remuxando_a_mkv_final_mkvmerge'))
     title = session.output_mkv_name.removesuffix(".mkv")
     video_track_name = remux.video_track_name
-    rc = await _run_streaming([
-        MKVMERGE_BIN, "--gui-mode", "-o", str(output_mkv),
-        "--title", title,
-        "--track-name", f"0:{video_track_name}",
-        str(hevc_for_mkv),
-        "--no-video", session.source_mkv_path,
-    ], log_callback=log_callback, proc_callback=proc_callback,
-       progress_ctx={
-           "time_estimate_s": est_mkv,
-           "offset": remux_offset, "weight": remux_weight,
-           "label": tr('cmv40_pipeline.lbl_remuxando_mkv_final'),
-       })
-    if rc not in (0, 1):
-        if prewarm_task:
+    async def _parar_el_adelanto():
+        """Cancela el `extract-rpu` adelantado y ESPERA a que muera: solo con
+        el `cancel()` la tarea seguía hasta su siguiente `await`, y si el mux
+        lanzaba —cancelar, un timeout— nadie la cancelaba."""
+        if prewarm_task and not prewarm_task.done():
             prewarm_task.cancel()
+            try:
+                await prewarm_task
+            except BaseException:
+                pass
+
+    try:
+        rc = await _run_streaming([
+            MKVMERGE_BIN, "--gui-mode", "-o", str(output_mkv),
+            "--title", title,
+            "--track-name", f"0:{video_track_name}",
+            str(hevc_for_mkv),
+            "--no-video", session.source_mkv_path,
+        ], log_callback=log_callback, proc_callback=proc_callback,
+           progress_ctx={
+               "time_estimate_s": est_mkv,
+               "offset": remux_offset, "weight": remux_weight,
+               "label": tr('cmv40_pipeline.lbl_remuxando_mkv_final'),
+           })
+    except BaseException:
+        await _parar_el_adelanto()
+        raise
+    if rc not in (0, 1):
+        await _parar_el_adelanto()
         raise RuntimeError(tr('cmv40_pipeline.mkvmerge_fallo_codigo', rc=rc))
 
     # Recoger el extract-rpu adelantado. A estas alturas suele estar hecho
@@ -5089,10 +5150,6 @@ async def run_phase_h_validate(
             wd / "BL_injected.hevc",       # p7_mel y p8: single-layer
         ]
         pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
-        if not pre_mux_hevc:
-            raise RuntimeError(
-                tr('cmv40_pipeline.no_se_encontro_el_hevc_pre')
-            )
 
         full_rpu = wd / "_validate_full_rpu.bin"
         # Fase G lo deja extraído mientras hacía el remux (ver
@@ -5100,163 +5157,179 @@ async def run_phase_h_validate(
         # que aquí solo hay que recogerlo. Si no está —Fase G de una versión
         # anterior, o el adelanto falló— se extrae ahora como siempre.
         prewarmed = full_rpu.exists() and full_rpu.stat().st_size > 0
-        try:
-            if prewarmed:
+        # Un segundo disparo llega con el MKV ya entregado y los HEVC previos
+        # al mux BORRADOS por el primero. Con el RPU extraído se revalida igual;
+        # sin él —un proyecto anterior a que sobreviviera— queda el propio MKV,
+        # que se comprueba abajo. Revalidar tiene que ser idempotente: antes
+        # esto lanzaba sobre un proyecto terminado y correcto.
+        solo_el_mkv = not pre_mux_hevc and not prewarmed and already_renamed
+        if not pre_mux_hevc and not prewarmed and not already_renamed:
+            raise RuntimeError(
+                tr('cmv40_pipeline.no_se_encontro_el_hevc_pre')
+            )
+        if solo_el_mkv:
+            await _log(log_callback, _et() + tr('cmv40_pipeline.revalidacion_sin_hevc_pre_mux'))
+            result_info = await _dv_del_mkv_entregado(output_mkv, wd, plan, session,
+                                                      log_callback)
+            result_info.frame_count = expected_frames
+        else:
+            try:
+                if prewarmed:
+                    await _log(
+            log_callback,
+                        _et() + tr('cmv40_pipeline.paso_1_3_rpu_ya_extraido', p1=format(full_rpu.stat().st_size / 1e6, '.0f'))
+                    )
+                    await _emit_progress(log_callback, 75, tr('cmv40_pipeline.rpu_listo_extraido_en_fase_g'))
+                else:
+                    if log_callback:
+                        hevc_gb = pre_mux_hevc.stat().st_size / 1e9
+                        # ETA orientativa: dovi_tool extract-rpu sobre NAS ronda
+                        # ~3-5 min por cada 30 GB de HEVC (depende de carga I/O).
+                        eta_min_lo = max(2, int(hevc_gb / 30 * 3))
+                        eta_min_hi = max(5, int(hevc_gb / 30 * 5))
+                        await log_callback(
+                            _et() + tr('cmv40_pipeline.paso_1_3_extrayendo_rpu_completo', p1=pre_mux_hevc.name, p2=format(hevc_gb, '.1f'), eta_min_lo=eta_min_lo, eta_min_hi=eta_min_hi)
+                        )
+                    await _emit_progress(log_callback, 5, tr('cmv40_pipeline.extrayendo_rpu_completo_del_pre_mux'))
+
+                # Heartbeat task: dovi_tool extract-rpu no streamea progreso al log
+                # (sale en stderr solo al final), así que sin esto el modal queda
+                # sin actividad ~5-8 min y parece colgado. Cada 30s emitimos el
+                # tiempo transcurrido para confirmar que sigue trabajando.
+                if not prewarmed:
+                    # Sin `import time` aquí: `time` ya es del módulo, y un import
+                    # dentro de la función lo convertía en variable LOCAL de toda
+                    # ella — la copia entre sistemas de ficheros de más abajo
+                    # reventaba con `UnboundLocalError` cuando esta rama no corría.
+                    hb_start = time.monotonic()
+
+                    async def _heartbeat():
+                        try:
+                            while True:
+                                await asyncio.sleep(30)
+                                elapsed = int(time.monotonic() - hb_start)
+                                await _log(
+            log_callback,
+                                    _et() + ' ' + tr('cmv40_pipeline.extract_rpu_en_curso_min_s', p1=elapsed // 60, p2=elapsed % 60)
+                                )
+                        except asyncio.CancelledError:
+                            return
+                    hb_task = asyncio.create_task(_heartbeat())
+                    try:
+                        rc, _, err = await _run([
+                            DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
+                            "-o", str(full_rpu),
+                        ], log_callback=log_callback,
+                           timeout=_adaptive_timeout(
+                               _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
+                               floor_s=1200),
+                        )
+                    finally:
+                        hb_task.cancel()
+                        try:
+                            await hb_task
+                        except asyncio.CancelledError:
+                            pass
+
+                    if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
+                        raise RuntimeError(
+                            tr('cmv40_pipeline.extract_rpu_fallo_sobre', p1=pre_mux_hevc.name, p2=err[:200])
+                        )
+
+                await _log(log_callback, _et() + tr('cmv40_pipeline.paso_2_3_analizando_metadata_del'))
+                await _emit_progress(log_callback, 80, tr('cmv40_pipeline.analizando_rpu'))
+                rc, summary, err = await _run(
+                    [DOVI_TOOL_BIN, "info", "--summary", str(full_rpu)],
+                    log_callback=log_callback, timeout=60,
+                )
+                if rc != 0:
+                    raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo_sobre_rpu_2', p1=err[:200]))
+                rpu_info = _parse_dovi_summary(summary)
+
                 await _log(
-        log_callback,
-                    _et() + tr('cmv40_pipeline.paso_1_3_rpu_ya_extraido', p1=format(full_rpu.stat().st_size / 1e6, '.0f'))
+            log_callback,
+                    _et() + tr('cmv40_pipeline.rpu_del_mkv_final_profile_cm', profile=rpu_info.profile, el_type=rpu_info.el_type, cm_version=rpu_info.cm_version, frame_count=rpu_info.frame_count)
                 )
-                await _emit_progress(log_callback, 75, tr('cmv40_pipeline.rpu_listo_extraido_en_fase_g'))
-            else:
-                if log_callback:
-                    hevc_gb = pre_mux_hevc.stat().st_size / 1e9
-                    # ETA orientativa: dovi_tool extract-rpu sobre NAS ronda
-                    # ~3-5 min por cada 30 GB de HEVC (depende de carga I/O).
-                    eta_min_lo = max(2, int(hevc_gb / 30 * 3))
-                    eta_min_hi = max(5, int(hevc_gb / 30 * 5))
-                    await log_callback(
-                        _et() + tr('cmv40_pipeline.paso_1_3_extrayendo_rpu_completo', p1=pre_mux_hevc.name, p2=format(hevc_gb, '.1f'), eta_min_lo=eta_min_lo, eta_min_hi=eta_min_hi)
-                    )
-                await _emit_progress(log_callback, 5, tr('cmv40_pipeline.extrayendo_rpu_completo_del_pre_mux'))
 
-            # Heartbeat task: dovi_tool extract-rpu no streamea progreso al log
-            # (sale en stderr solo al final), así que sin esto el modal queda
-            # sin actividad ~5-8 min y parece colgado. Cada 30s emitimos el
-            # tiempo transcurrido para confirmar que sigue trabajando.
-            if not prewarmed:
-                # Sin `import time` aquí: `time` ya es del módulo, y un import
-                # dentro de la función lo convertía en variable LOCAL de toda
-                # ella — la copia entre sistemas de ficheros de más abajo
-                # reventaba con `UnboundLocalError` cuando esta rama no corría.
-                hb_start = time.monotonic()
+                # ── Validación rigurosa: frame count del RPU vs expected ──
+                # NOTA: comparamos RPU vs RPU (misma métrica). La diferencia
+                # con ffprobe del MKV es esperada y NO se valida aquí.
+                if expected_frames > 0 and rpu_info.frame_count > 0:
+                    rpu_diff = abs(rpu_info.frame_count - expected_frames)
+                    if rpu_diff > 2:
+                        raise RuntimeError(
+                            tr('cmv40_pipeline.frame_count_del_rpu_del_mkv', frame_count=rpu_info.frame_count, expected_frames=expected_frames, rpu_diff=rpu_diff)
+                        )
+                    if rpu_diff > 0 and log_callback:
+                        # Δ de 1-2 frames es normal: mkvmerge puede emitir un
+                        # cluster final corto que mueve ±1 frame el conteo. NO es
+                        # warning — el merge se considera correcto. Usamos ℹ
+                        # (informativo) para alinearlo con la semántica del drop-in
+                        # path en _check_frame_count.
+                        await log_callback(
+                            _et() + tr('cmv40_pipeline.i_rpu_frame_count_vs_esperados', frame_count=rpu_info.frame_count, expected_frames=expected_frames, rpu_diff=rpu_diff, p4='s' if rpu_diff != 1 else '')
+                        )
 
-                async def _heartbeat():
-                    try:
-                        while True:
-                            await asyncio.sleep(30)
-                            elapsed = int(time.monotonic() - hb_start)
-                            await _log(
-        log_callback,
-                                _et() + ' ' + tr('cmv40_pipeline.extract_rpu_en_curso_min_s', p1=elapsed // 60, p2=elapsed % 60)
-                            )
-                    except asyncio.CancelledError:
-                        return
-                hb_task = asyncio.create_task(_heartbeat())
-                try:
-                    rc, _, err = await _run([
-                        DOVI_TOOL_BIN, "extract-rpu", str(pre_mux_hevc),
-                        "-o", str(full_rpu),
-                    ], log_callback=log_callback,
-                       timeout=_adaptive_timeout(
-                           _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
-                           floor_s=1200),
-                    )
-                finally:
-                    hb_task.cancel()
-                    try:
-                        await hb_task
-                    except asyncio.CancelledError:
-                        pass
-
-                if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
+                # ── Validación CMv4.0 ─────────────────────────────────────
+                if rpu_info.cm_version != "v4.0":
                     raise RuntimeError(
-                        tr('cmv40_pipeline.extract_rpu_fallo_sobre', p1=pre_mux_hevc.name, p2=err[:200])
+                        tr('cmv40_pipeline.rpu_del_mkv_final_tiene_cm', cm_version=rpu_info.cm_version)
                     )
 
-            await _log(log_callback, _et() + tr('cmv40_pipeline.paso_2_3_analizando_metadata_del'))
-            await _emit_progress(log_callback, 80, tr('cmv40_pipeline.analizando_rpu'))
-            rc, summary, err = await _run(
-                [DOVI_TOOL_BIN, "info", "--summary", str(full_rpu)],
-                log_callback=log_callback, timeout=60,
-            )
-            if rc != 0:
-                raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo_sobre_rpu_2', p1=err[:200]))
-            rpu_info = _parse_dovi_summary(summary)
+                # ── Validación el_type según workflow ─────────────────────
+                expected_el = validate.expected_el_type
+                if expected_el and rpu_info.el_type != expected_el:
+                    raise RuntimeError(
+                        tr('cmv40_pipeline.rpu_del_mkv_final_tiene_el', el_type=repr(rpu_info.el_type), expected_el=expected_el, source_workflow=session.source_workflow)
+                    )
 
+                # ── Validación L8 presente (CMv4.0 trims target display) ───
+                # L8 es el marker real de CMv4.0: contiene los trim targets para
+                # peak displays distintos del master (100/600/1000/2000 nits).
+                # Si por algún bug de dovi_tool editor el merge dejara el RPU sin
+                # L8, cm_version=v4.0 podría seguir siendo true (el header lo
+                # marca) pero el output sería un CMv4.0 hueco — el HDR display no
+                # tendría nada que aplicar. Defensa en profundidad: abortar antes
+                # del rename atómico, preservar .mkv.tmp para inspección.
+                if not rpu_info.has_l8:
+                    raise RuntimeError(
+                        tr('cmv40_pipeline.rpu_del_mkv_final_no_contiene')
+                    )
+
+                # NOTA: antes había aquí un ffprobe del MKV completo solo para
+                # log informativo ("frame count del MKV vs RPU"). Eliminado:
+                #   - Coste 5-15s extra sobre NAS bajo I/O en MKVs de 60+ GB
+                #   - Ruido visual: el modal quedaba sin actualizar mientras
+                #     ffprobe leía un MKV enorme, dando aspecto de "colgado"
+                #   - Información redundante: la integridad ya se valida con el
+                #     extract-rpu completo arriba (RPU vs RPU expected, ±2)
+            finally:
+                # `_validate_full_rpu.bin` NO se borra: es el RPU extraído del
+                # stream, el que `_precachear_analisis_de_tab2` prefiere al
+                # inyectado porque es evidencia de lo que hay dentro del fichero.
+                # Se borraba aquí, antes del precache, que acababa usando el
+                # inyectado. Lo borra un rehacer de la Fase F, que es cuando deja
+                # de corresponder al stream.
+                pass
+
+            # Y el MKV que se entrega lleva ese stream: el RPU de arriba es el del
+            # HEVC previo al mux, y un remux que tomara el vídeo del MKV origen
+            # pasaba la validación entera.
+            await _dv_del_mkv_entregado(output_mkv, wd, plan, session, log_callback)
+
+            # result_info: el RPU completo es la fuente autoritativa
+            result_info = DoviInfo(
+                profile=rpu_info.profile,
+                el_type=rpu_info.el_type,
+                cm_version=rpu_info.cm_version,
+                frame_count=rpu_info.frame_count,
+                has_l8=rpu_info.has_l8,
+                has_l11=rpu_info.has_l11,
+            )
             await _log(
-        log_callback,
-                _et() + tr('cmv40_pipeline.rpu_del_mkv_final_profile_cm', profile=rpu_info.profile, el_type=rpu_info.el_type, cm_version=rpu_info.cm_version, frame_count=rpu_info.frame_count)
+            log_callback,
+                _et() + tr('cmv40_pipeline.validacion_dv_ok_rpu_completo_verificado', profile=result_info.profile, el_type=result_info.el_type, cm_version=result_info.cm_version, frame_count=result_info.frame_count)
             )
-
-            # ── Validación rigurosa: frame count del RPU vs expected ──
-            # NOTA: comparamos RPU vs RPU (misma métrica). La diferencia
-            # con ffprobe del MKV es esperada y NO se valida aquí.
-            if expected_frames > 0 and rpu_info.frame_count > 0:
-                rpu_diff = abs(rpu_info.frame_count - expected_frames)
-                if rpu_diff > 2:
-                    raise RuntimeError(
-                        tr('cmv40_pipeline.frame_count_del_rpu_del_mkv', frame_count=rpu_info.frame_count, expected_frames=expected_frames, rpu_diff=rpu_diff)
-                    )
-                if rpu_diff > 0 and log_callback:
-                    # Δ de 1-2 frames es normal: mkvmerge puede emitir un
-                    # cluster final corto que mueve ±1 frame el conteo. NO es
-                    # warning — el merge se considera correcto. Usamos ℹ
-                    # (informativo) para alinearlo con la semántica del drop-in
-                    # path en _check_frame_count.
-                    await log_callback(
-                        _et() + tr('cmv40_pipeline.i_rpu_frame_count_vs_esperados', frame_count=rpu_info.frame_count, expected_frames=expected_frames, rpu_diff=rpu_diff, p4='s' if rpu_diff != 1 else '')
-                    )
-
-            # ── Validación CMv4.0 ─────────────────────────────────────
-            if rpu_info.cm_version != "v4.0":
-                raise RuntimeError(
-                    tr('cmv40_pipeline.rpu_del_mkv_final_tiene_cm', cm_version=rpu_info.cm_version)
-                )
-
-            # ── Validación el_type según workflow ─────────────────────
-            expected_el = validate.expected_el_type
-            if expected_el and rpu_info.el_type != expected_el:
-                raise RuntimeError(
-                    tr('cmv40_pipeline.rpu_del_mkv_final_tiene_el', el_type=repr(rpu_info.el_type), expected_el=expected_el, source_workflow=session.source_workflow)
-                )
-
-            # ── Validación L8 presente (CMv4.0 trims target display) ───
-            # L8 es el marker real de CMv4.0: contiene los trim targets para
-            # peak displays distintos del master (100/600/1000/2000 nits).
-            # Si por algún bug de dovi_tool editor el merge dejara el RPU sin
-            # L8, cm_version=v4.0 podría seguir siendo true (el header lo
-            # marca) pero el output sería un CMv4.0 hueco — el HDR display no
-            # tendría nada que aplicar. Defensa en profundidad: abortar antes
-            # del rename atómico, preservar .mkv.tmp para inspección.
-            if not rpu_info.has_l8:
-                raise RuntimeError(
-                    tr('cmv40_pipeline.rpu_del_mkv_final_no_contiene')
-                )
-
-            # NOTA: antes había aquí un ffprobe del MKV completo solo para
-            # log informativo ("frame count del MKV vs RPU"). Eliminado:
-            #   - Coste 5-15s extra sobre NAS bajo I/O en MKVs de 60+ GB
-            #   - Ruido visual: el modal quedaba sin actualizar mientras
-            #     ffprobe leía un MKV enorme, dando aspecto de "colgado"
-            #   - Información redundante: la integridad ya se valida con el
-            #     extract-rpu completo arriba (RPU vs RPU expected, ±2)
-        finally:
-            # `_validate_full_rpu.bin` NO se borra: es el RPU extraído del
-            # stream, el que `_precachear_analisis_de_tab2` prefiere al
-            # inyectado porque es evidencia de lo que hay dentro del fichero.
-            # Se borraba aquí, antes del precache, que acababa usando el
-            # inyectado. Lo borra un rehacer de la Fase F, que es cuando deja
-            # de corresponder al stream.
-            pass
-
-        # Y el MKV que se entrega lleva ese stream: el RPU de arriba es el del
-        # HEVC previo al mux, y un remux que tomara el vídeo del MKV origen
-        # pasaba la validación entera.
-        await _dv_del_mkv_entregado(output_mkv, wd, plan, session, log_callback)
-
-        # result_info: el RPU completo es la fuente autoritativa
-        result_info = DoviInfo(
-            profile=rpu_info.profile,
-            el_type=rpu_info.el_type,
-            cm_version=rpu_info.cm_version,
-            frame_count=rpu_info.frame_count,
-            has_l8=rpu_info.has_l8,
-            has_l11=rpu_info.has_l11,
-        )
-        await _log(
-        log_callback,
-            _et() + tr('cmv40_pipeline.validacion_dv_ok_rpu_completo_verificado', profile=result_info.profile, el_type=result_info.el_type, cm_version=result_info.cm_version, frame_count=result_info.frame_count)
-        )
 
     # Validar pistas con mkvmerge -J (común a ambos paths)
     if log_callback:
