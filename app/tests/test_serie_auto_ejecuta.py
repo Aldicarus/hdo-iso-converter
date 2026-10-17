@@ -195,6 +195,47 @@ class TestElOrdenDeLasDosEscriturasDelFinal(SerieCase,
                         f"la bandera bajó antes del resultado: {orden}")
 
 
+class TestUnaSerieDesdeFicherosM2ts(ApiTestCase, unittest.IsolatedAsyncioTestCase):
+    """La rama de M2TS sueltos del runner, que ningún test ejecutaba: usaba
+    `safe_source_path` sin importarlo y crear la serie lanzaba `NameError`
+    desde `d90859a` (v3.0.0 a v3.3.1). El guard de nombres no lo veía porque
+    un import local de OTRA función le contaba como definido (auditoría con
+    Codex del 2026-10-17)."""
+
+    def setUp(self):
+        super().setUp()
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+        self.carpeta = self.isos_dir / "Serie M2TS"
+        self.carpeta.mkdir()
+        self.ficheros = []
+        for i in range(2):
+            f = self.carpeta / f"episodio{i + 1}.m2ts"
+            f.write_bytes(b"\0" * 4096)
+            self.ficheros.append(f)
+
+    async def test_crea_un_proyecto_por_fichero(self):
+        from routers import tab1
+        cuerpo = tab1.CreateSeriesSessionsRequest(
+            source_type="m2ts", source_path=str(self.ficheros[0]),
+            m2ts_paths=[str(f) for f in self.ficheros],
+            series_name="Serie", series_year=2024, season_number=1,
+            episodes=[{"mpls_path": str(f), "episode_number": i + 1,
+                       "episode_title": f"Ep {i + 1}"} for i, f in enumerate(self.ficheros)])
+        with patch("phases.phase_a.run_full_analysis_for_m2ts",
+                   return_value=(_bdinfo(), [])) as analisis:
+            await tab1._ejecutar_creacion_de_serie(
+                cuerpo, "m2ts", str(self.ficheros[0]), str(self.ficheros[0]),
+                cuerpo.episodes, [], [], "huella")
+        r = tab1._series_create_progress.get("resultado")
+        self.assertIsNotNone(r, tab1._series_create_progress)
+        self.assertEqual(len(r["created"]), 2, r)
+        self.assertEqual(r["failed"], [])
+        # Cada episodio se analiza sobre SU fichero, no sobre el primero.
+        self.assertEqual([Path(c.args[0]).name for c in analisis.call_args_list],
+                         ["episodio1.m2ts", "episodio2.m2ts"])
+
+
 class TestElFlagSobreviveALaEspera(ApiTestCase):
     """La cola puede despachar cuarenta minutos después de encolar.
 

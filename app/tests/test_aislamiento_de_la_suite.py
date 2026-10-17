@@ -27,12 +27,36 @@ import correr_suite  # noqa: E402
 
 
 def _nivel_de_modulo(arbol):
-    """Las sentencias que se ejecutan al importar (no las de dentro de una
-    función o una clase)."""
-    for nodo in arbol.body:
-        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+    """Las sentencias que se ejecutan al importar: las del módulo y las del
+    CUERPO de cada clase (que también corren al importar), no las de dentro
+    de una función. Las clases se saltaban enteras (revisión de Codex)."""
+    for nodo in getattr(arbol, "body", []):
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if isinstance(nodo, ast.ClassDef):
+            yield from _nivel_de_modulo(nodo)
             continue
         yield from ast.walk(nodo)
+
+
+def _claves_fijadas(n):
+    """Las claves de entorno que fija el nodo, por las tres formas: `os.environ[k]
+    = v`, `os.environ.setdefault(k, v)` y `os.environ.update({k: v} | k=v)`. El
+    `update` con un diccionario —su forma habitual— se escapaba."""
+    if (isinstance(n, ast.Assign) and n.targets and isinstance(n.targets[0], ast.Subscript)
+            and _es_os_environ(n.targets[0].value)):
+        return [n.targets[0].slice]
+    if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and _es_os_environ(n.func.value)):
+        if n.func.attr in ("setdefault", "__setitem__") and n.args:
+            return [n.args[0]]
+        if n.func.attr == "update":
+            claves = [ast.Constant(k.arg) for k in n.keywords if k.arg]
+            for a in n.args:
+                if isinstance(a, ast.Dict):
+                    claves += [k for k in a.keys if k is not None]
+            return claves
+    return []
 
 
 def _es_os_environ(nodo):
@@ -46,20 +70,34 @@ class TestNingunModuloFijaLosDirectoriosAlImportarse(unittest.TestCase):
         culpables = []
         for f in sorted(TESTS.glob("test_*.py")):
             for n in _nivel_de_modulo(ast.parse(f.read_text(encoding="utf-8"))):
-                clave = None
-                if (isinstance(n, ast.Assign) and n.targets
-                        and isinstance(n.targets[0], ast.Subscript)
-                        and _es_os_environ(n.targets[0].value)):
-                    clave = n.targets[0].slice
-                elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                      and n.func.attr in ("setdefault", "update", "__setitem__")
-                      and _es_os_environ(n.func.value) and n.args):
-                    clave = n.args[0]
-                if isinstance(clave, ast.Constant) and clave.value in correr_suite.DIRECTORIOS:
-                    culpables.append(f"{f.name}:{n.lineno} {clave.value}")
+                for clave in _claves_fijadas(n):
+                    if isinstance(clave, ast.Constant) and clave.value in correr_suite.DIRECTORIOS:
+                        culpables.append(f"{f.name}:{n.lineno} {clave.value}")
         self.assertEqual(culpables, [],
                          "fijar un directorio en el entorno al importar depende del orden: "
                          "usa aislamiento.directorios_aislados en setUpModule")
+
+
+class TestElDetectorDeEntornoVeLasTresFormas(unittest.TestCase):
+    """El detector, sobre fuente sintética: si deja de ver una forma, el guard
+    de arriba pasa en verde vigilando el vacío."""
+
+    def _ve(self, codigo):
+        arbol = ast.parse(codigo)
+        return sorted(c.value for n in _nivel_de_modulo(arbol) for c in _claves_fijadas(n)
+                      if isinstance(c, ast.Constant))
+
+    def test_las_formas(self):
+        self.assertEqual(self._ve('import os\nos.environ["CONFIG_DIR"] = "/x"'), ["CONFIG_DIR"])
+        self.assertEqual(self._ve('import os\nos.environ.setdefault("TMP_DIR", "/x")'), ["TMP_DIR"])
+        self.assertEqual(self._ve('import os\nos.environ.update({"CONFIG_DIR": "/x"})'),
+                         ["CONFIG_DIR"])
+        self.assertEqual(self._ve('import os\nos.environ.update(TMP_DIR="/x")'), ["TMP_DIR"])
+
+    def test_el_cuerpo_de_una_clase_cuenta_y_una_funcion_no(self):
+        self.assertEqual(self._ve('import os\nclass A:\n    os.environ["CONFIG_DIR"] = "/x"'),
+                         ["CONFIG_DIR"])
+        self.assertEqual(self._ve('import os\ndef f():\n    os.environ["CONFIG_DIR"] = "/x"'), [])
 
 
 class TestCadaRutaDerivadaSeRedirige(unittest.TestCase):
@@ -98,6 +136,54 @@ class TestCadaRutaDerivadaSeRedirige(unittest.TestCase):
         self.assertEqual(faltan, [])
 
 
+class TestTrasElArnesNadaApuntaAlDirectorioOriginal(unittest.TestCase):
+    """El guard de arriba busca el NOMBRE de cada ruta derivada en el texto de
+    `api_harness`, y eso no prueba que se redirija el atributo correcto: la
+    revisión de Codex de la suite (2026-10-17) cambió el módulo de una fila y
+    siguió en verde, y un alias importado (`from … import CMV40_WORK_BASE`)
+    ni siquiera es una ruta derivada. Este mira el EFECTO: monta el arnés de
+    verdad y recorre los módulos de la app cargados; un atributo que siga
+    apuntando a un directorio de los originales es un sitio donde un test
+    escribiría fuera de su caja. Al escribirlo salieron trece."""
+
+    def test_ninguna_ruta_de_modulo_queda_fuera_de_la_caja(self):
+        import importlib
+        import os
+        import api_harness
+        api_harness._load_app()
+        for m in ("services.tmdb", "services.rec999_drive", "services.rec999_sheet",
+                  "services.settings_store", "phases.mkv_analyze", "phases.cmv40_pipeline",
+                  "phases.phase_a", "phases.phase_d", "phases.phase_e", "phases.iso_mount",
+                  "historial", "storage", "firma", "queue_manager"):
+            importlib.import_module(m)
+        import paths
+        raices = {str(Path(v)) for v in (paths.CONFIG_DIR, paths.TMP_DIR, paths.OUTPUT_DIR_MKV,
+                                         paths.LIBRARY_DIR, paths.ISOS_DIR)}
+        raices |= {os.environ[d] for d in correr_suite.DIRECTORIOS if os.environ.get(d)}
+
+        class _Caso(api_harness.ApiTestCase):
+            def runTest(self):
+                pass
+
+        _Caso.setUpClass()
+        caso = _Caso()
+        caso.setUp()
+        try:
+            fuera = []
+            for nombre, mod in list(sys.modules.items()):
+                f = getattr(mod, "__file__", None)
+                if not f or APP not in Path(f).resolve().parents or "tests" in Path(f).parts:
+                    continue
+                for attr, valor in list(vars(mod).items()):
+                    if isinstance(valor, (str, Path)):
+                        s = str(valor)
+                        if any(s == r or s.startswith(r.rstrip("/") + "/") for r in raices):
+                            fuera.append(f"{nombre}.{attr} = {s}")
+        finally:
+            caso.doCleanups()
+        self.assertEqual(fuera, [])
+
+
 class TestElLanzadorAislaTodosLosDirectorios(unittest.TestCase):
 
     def test_cada_directorio_que_la_app_lee_del_entorno(self):
@@ -116,6 +202,28 @@ class TestElLanzadorAislaTodosLosDirectorios(unittest.TestCase):
         self.assertIn("app/tests/correr_suite.py --estricto", wf)
         self.assertNotIn("unittest discover", wf,
                          "el discover a pelo no aísla nada ni vigila los skips")
+
+    def test_un_modulo_que_no_aporta_tests_se_detecta(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for n in ("test_a.py", "test_b.py", "helpers.py"):
+                (Path(d) / n).write_text("")
+            ids = ["test_a.T.test_x"]
+            self.assertEqual(correr_suite.modulos_sin_tests(ids, Path(d)), ["test_b"])
+
+    def test_hoy_todos_los_modulos_aportan_tests(self):
+        """La premisa del trinquete: con la colección real no sobra ninguno."""
+        import unittest as u
+        ids = []
+
+        def _recorrer(s):
+            for x in s:
+                if isinstance(x, u.TestSuite):
+                    _recorrer(x)
+                else:
+                    ids.append(x.id())
+        _recorrer(u.TestLoader().discover(str(TESTS)))
+        self.assertEqual(correr_suite.modulos_sin_tests(ids, TESTS), [])
 
     def test_los_skips_previstos_existen(self):
         """Es lo que el modo estricto comprueba al final, adelantado: una

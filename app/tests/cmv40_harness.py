@@ -1104,6 +1104,14 @@ def dovi_tool(sc, sub, json_args):
         return 1
     if sub == "mux" and (_falta(opt("--bl")) or _falta(opt("--el"))):
         return 1
+    if sub == "info" and opt("-f") is not None and _falta(opt("-i")):
+        return 1
+    if sub == "editor" and json_args.get("allow_cmv4_transfer") \
+            and _falta(json_args.get("source_rpu")):
+        # El donante del transfer también es una entrada: sin comprobarlo, un
+        # escenario que declarase props CMv4.0 para un nombre que no existe
+        # producía un merge «correcto» (revisión de Codex, 2026-10-17).
+        return 1
     if sub == "info" and opt("-f") is not None:
         # **`info -f N` NO es el summary: imprime UN frame en JSON.**
         # Cayendo en la rama de abajo escribía el summary, así que el
@@ -1145,8 +1153,26 @@ def dovi_tool(sc, sub, json_args):
             # estructura (profile + el_type) del input. Igual que en el NAS.
             donor = read_props(json_args.get("source_rpu"), sc)
             props["cm_version"] = "v4.0"
-            props["has_l8"] = donor.get("has_l8", True)
-            props["has_l11"] = donor.get("has_l11", True)
+            # Solo los niveles de `rpu_levels` vienen del donante: el resto es
+            # del RPU de entrada. El fake copiaba siempre lo mismo, así que
+            # ningún test podía ver de DÓNDE salía el L1 de un merge FEL —y
+            # la regla «sin confianza se conserva el L1 del disco» era falsa
+            # sin que nada lo dijera (auditoría con Codex del 2026-10-17)—.
+            # El default es el de dovi_tool: los niveles CMv4.0 más L3.
+            niveles = set(json_args.get("rpu_levels") or [3, 8, 9, 11, 254])
+            if 1 in niveles:
+                props["l1_max_cll"] = donor.get("l1_max_cll", props.get("l1_max_cll"))
+                props["l1_max_fall"] = donor.get("l1_max_fall", props.get("l1_max_fall"))
+            if 5 in niveles:
+                props["l5"] = donor.get("l5", props.get("l5"))
+            if 6 in niveles:
+                props["l6_max_cll"] = donor.get("l6_max_cll", props.get("l6_max_cll"))
+                props["l6_max_fall"] = donor.get("l6_max_fall", props.get("l6_max_fall"))
+            if 8 in niveles:
+                props["has_l8"] = donor.get("has_l8", True)
+            if 11 in niveles:
+                props["has_l11"] = donor.get("has_l11", True)
+            props["niveles_del_donante"] = sorted(niveles)
         if json_args.get("mode") == 2:
             # "Converts the RPU to be profile 8.1 compatible": el profile
             # cambia, el resto de metadata se preserva.
@@ -1522,30 +1548,121 @@ def mkvextract(sc):
     positional = [a for a in ARGV if not a.startswith("-") and a != "chapters"]
     name = Path(positional[0]).name if positional else ""
     caps = sc.get("chapters", {}).get(name, [])
+    if positional and Path(positional[0]).exists():
+        escritos = read_props(positional[0], sc).get("chapters")
+        if escritos is not None:
+            caps = escritos
     for i, (ts, titulo) in enumerate(caps, start=1):
         sys.stdout.write(f"CHAPTER{i:02d}={ts}\n")
         sys.stdout.write(f"CHAPTER{i:02d}NAME={titulo}\n")
     return 0
 
 
+def _capitulos_de_xml(ruta):
+    """Los capítulos de un XML de Matroska como `[[inicio, nombre], …]`, o
+    None si el fichero no es aceptable para el mkvpropedit real.
+
+    El real (comprobado con la v88 del NAS y la v102, 2026-10-17) rechaza con
+    código 2 una `EditionEntry` sin ningún `ChapterAtom`: «At least one
+    <ChapterAtom> element is needed». Es lo que hacía fallar «Aplicar
+    cambios» de Tab 2 sobre cualquier MKV sin capítulos.
+    """
+    import xml.etree.ElementTree as ET
+    try:
+        raiz = ET.parse(ruta).getroot()
+    except (OSError, ET.ParseError):
+        return None
+    ediciones = raiz.findall("EditionEntry")
+    caps = []
+    for ed in ediciones:
+        atomos = list(ed.iter("ChapterAtom"))
+        if not atomos:
+            return None
+        for atom in atomos:
+            inicio = (atom.findtext("ChapterTimeStart") or "").strip()[:12]
+            caps.append([inicio, atom.findtext("ChapterDisplay/ChapterString") or ""])
+    return caps if ediciones else None
+
+
+def _pistas_conocidas(destino, sc):
+    """Las pistas del MKV (escenario o cabecera), o None si no se sabe."""
+    spec = sc.get("mkvs", {}).get(destino.name)
+    if spec is not None:
+        return spec["tracks"]
+    return read_props(destino, sc).get("tracks")
+
+
 def mkvpropedit(sc):
     """`mkvpropedit` edita cabeceras in-place: no produce fichero nuevo.
 
-    Entiende `--set segment-uid=0x...` porque es donde va la marca de
-    procedencia: sin eso el ciclo firmar -> verificar no se puede ejecutar
-    en un test y lo único comprobable sería el argv, que pasa en verde
-    aunque la firma que se escriba sea otra.
+    Entiende `--edit info --set segment-uid=0x...` (la marca de procedencia),
+    `--set title=`, `--edit track:N --set name=|flag-default=|flag-forced=` y
+    `--chapters`. Solo entendía las dos primeras, así que aplicar los nombres,
+    los flags o los capítulos de Tab 2 y de la Fase E no cambiaba nada que el
+    `mkvmerge -J` siguiente pudiera ver: invertir el `flag-forced` o poner
+    todos los capítulos a cero pasaba en verde (17 de 17 mutaciones de Tab 2
+    sobrevivían, revisión de Codex del 2026-10-17).
+
+    Lo que se escribe va a la cabecera del CONTENIDO, como la firma: la Fase H
+    renombra el fichero y un sidecar indexado por ruta se queda atrás.
     """
     positional = [a for a in ARGV if not a.startswith("-")]
     destino = Path(positional[0]) if positional else None
+    if destino is None or not destino.exists():
+        sys.stderr.write("Error: The file '%s' does not exist.\n" % (destino,))
+        return 2
+    props = read_props(destino, sc)
+    pistas = _pistas_conocidas(destino, sc)
+    editadas = dict(props.get("pistas_editadas") or {})
     cambios = {}
-    for arg in ARGV:
-        if arg.startswith("segment-uid="):
-            cambios["segment_uid"] = arg.split("=", 1)[1].removeprefix("0x").lower()
-        elif arg.startswith("title="):
-            cambios["title"] = arg.split("=", 1)[1]
-    if cambios and destino and destino.exists():
-        props = read_props(destino, sc)
+    seleccion = None
+    i = 0
+    while i < len(ARGV):
+        arg = ARGV[i]
+        siguiente = ARGV[i + 1] if i + 1 < len(ARGV) else ""
+        if arg == "--edit":
+            seleccion = siguiente
+            if seleccion.startswith("track:") and seleccion[6:].isdigit() \
+                    and pistas is not None and not 1 <= int(seleccion[6:]) <= len(pistas):
+                sys.stderr.write("Error: No track corresponding to the edit "
+                                 "specification '%s' was found.\n" % seleccion)
+                return 2
+            i += 2
+            continue
+        if arg == "--set" and "=" in siguiente:
+            clave, valor = siguiente.split("=", 1)
+            if clave == "segment-uid":
+                cambios["segment_uid"] = valor.removeprefix("0x").lower()
+            elif clave == "title":
+                cambios["title"] = valor
+            elif seleccion and seleccion.startswith("track:"):
+                pista = dict(editadas.get(seleccion[6:]) or {})
+                if clave == "name":
+                    pista["track_name"] = valor
+                elif clave == "flag-default":
+                    pista["default"] = valor == "1"
+                elif clave == "flag-forced":
+                    pista["forced"] = valor == "1"
+                editadas[seleccion[6:]] = pista
+            i += 2
+            continue
+        if arg == "--chapters":
+            if siguiente == "":
+                cambios["chapters"] = []          # `--chapters ''` los borra
+            else:
+                caps = _capitulos_de_xml(siguiente)
+                if caps is None:
+                    sys.stderr.write("Error: The XML chapter file '%s' contains an "
+                                     "error: At least one <ChapterAtom> element is "
+                                     "needed.\n" % siguiente)
+                    return 2
+                cambios["chapters"] = caps
+            i += 2
+            continue
+        i += 1
+    if editadas:
+        cambios["pistas_editadas"] = editadas
+    if cambios:
         props.update(cambios)
         # Solo la primera línea: reescribir el fichero entero cambiaría su
         # tamaño, y hay tests que lo miran. El mkvpropedit real tampoco
@@ -1563,7 +1680,18 @@ def ffprobe(sc):
     media = sc.get("media", {})
     positional = [a for a in ARGV if not a.startswith("-")]
     name = Path(positional[-1]).name if positional else ""
-    info = media.get(name, {})
+    info = media.get(name)
+    if info is None:
+        # Lo que el escenario declare para ese nombre gana —es la intención
+        # del test—; si no declaró nada, el recuento es el del CONTENIDO, como
+        # en el real. Sacarlo siempre del escenario (1000 por defecto) hacía
+        # que un MKV con medio vídeo dentro contestara la película entera: un
+        # mux que truncara pasaba en verde por 244 tests (revisión de Codex
+        # de la suite, 2026-10-17).
+        del_fichero = props_conocidas(positional[-1], sc) if positional else None
+        info = ({"frames": del_fichero.get("frames", 1000),
+                 "duration": del_fichero.get("duration", 7200.0)}
+                if del_fichero is not None else {})
     joined = " ".join(ARGV)
 
     # Conteo de paquetes por pista de subtítulos: una línea por paquete con el
@@ -1638,7 +1766,11 @@ def ffmpeg(sc):
     # ver que se muestreaba el vídeo equivocado. Los dos errores son los del
     # ffmpeg de producción (n7.1.5), copiados de un TS sintético en el NAS.
     mapa = opt("-map")
-    videos = _videos_del_ts(sc, Path(opt("-i") or "").name) if mapa else None
+    videos = None
+    if mapa:
+        videos = _videos_del_ts(sc, Path(opt("-i") or "").name)
+        if videos is None:
+            videos = _videos_del_mkv(sc, entrada, props)
     if videos is not None:
         elegido = _resolver_map(videos, mapa)
         if elegido is None:
@@ -1697,6 +1829,19 @@ def ffmpeg(sc):
     # y la última con `Lsize=` en vez de `size=`.
     dur = float(props.get("duration") or 7200.0)
     frames_tot = int(props.get("frames") or 1000)
+    # `-t N` corta la entrada a N segundos: el progreso del real termina en
+    # `time=00:00:N`. El fake lo ignoraba y anunciaba la película entera, así
+    # que quitar el `-t 30` de un muestreo —volcar decenas de GB para leer 720
+    # frames— no cambiaba nada que un test pudiera ver (revisión de Codex de
+    # la suite, 2026-10-17).
+    if opt("-t") is not None:
+        try:
+            limite = float(opt("-t"))
+        except ValueError:
+            limite = dur
+        if limite < dur:
+            frames_tot = max(1, int(frames_tot * limite / dur))
+            dur = limite
     # Con el muxer `tee` (dos salidas) el real no sabe qué tamaño dar:
     # `size=N/A` en el progreso y `Lsize=N/A` al final (CLAUDE.md: «a ffmpeg
     # no se le puede preguntar cuando escribe con tee»). El fake daba el
@@ -1763,6 +1908,32 @@ def _videos_del_ts(sc, name):
     for x in sorted(videos, key=lambda x: x["orden"]):
         unicos.setdefault(x["pid"] if x["pid"] is not None else id(x), x)
     return list(unicos.values())
+
+
+def _videos_del_mkv(sc, ruta, props):
+    """Los vídeos de un MKV tal como los ve ffmpeg, o None si no es un MKV.
+
+    Salen de las pistas declaradas con `define_mkv` o de las que escribió el
+    mux falso en la cabecera; sin ninguna de las dos, un MKV tiene un vídeo.
+    El RPU viaja con cada uno (el mkvmerge actual combina BL+EL en la misma
+    pista), así que lo que se modela es que el `-map` exista y que el códec de
+    SALIDA sea `copy`: la validación de `-map` y de la recodificación solo
+    existía para los m2ts, y quitar los siete `-c:v copy` del pipeline CMv4.0
+    —recodificar con libx265 durante días y perder el RPU en el NAS—
+    sobrevivía a 222 tests (revisión de Codex de la suite, 2026-10-17)."""
+    if not ruta or not Path(ruta).name.lower().removesuffix(".tmp").endswith(".mkv"):
+        return None
+    spec = sc.get("mkvs", {}).get(Path(ruta).name)
+    pistas = spec["tracks"] if spec is not None else props.get("tracks")
+    if not pistas:
+        pistas = [{"type": "video", "codec": "HEVC/H.265/MPEG-H"}]
+    videos = []
+    for i, p in enumerate(x for x in pistas if x.get("type") == "video"):
+        codec = str(p.get("codec", "HEVC")).upper()
+        formato = ("HEVC" if "HEVC" in codec or "H.265" in codec else
+                   "AVC" if "AVC" in codec or "H.264" in codec else codec)
+        videos.append({"pid": None, "format": formato, "el": True, "orden": i})
+    return videos
 
 
 def _resolver_map(videos, mapa):
@@ -1913,6 +2084,13 @@ def _pistas_del_mux(entradas, sc):
     return pistas, ruta_video
 
 
+def _capitulos_del_j(ruta, name, del_fichero, sc):
+    caps = del_fichero.get("chapters")
+    if caps is None:
+        caps = sc.get("chapters", {}).get(name, [])
+    return [{"num_entries": len(caps)}] if caps else []
+
+
 def mkvmerge(sc):
     # `-J` y `--identify --identification-format json` son EQUIVALENTES en
     # mkvmerge, y el pipeline usa las dos: Tab 2 y la Fase A van con `-J`, la
@@ -1936,8 +2114,11 @@ def mkvmerge(sc):
             spec = {"tracks": [{"type": "video", "codec": "HEVC/H.265/MPEG-H",
                                 "dimensions": "3840x2160", "fps": 23.976}],
                     "title": "", "duration_s": 7200.0}
+        del_fichero = read_props(positional[-1], sc) if positional else {}
+        editadas = del_fichero.get("pistas_editadas") or {}
         out = []
         for i, t in enumerate(spec["tracks"]):
+            t = dict(t, **editadas.get(str(i + 1), {}))
             props = {
                 "language": t.get("language", "und"),
                 "track_name": t.get("track_name", ""),
@@ -1967,7 +2148,6 @@ def mkvmerge(sc):
         # nombre para que sea estable entre llamadas—. Con `""` el test de
         # «un MKV ajeno no da falso positivo» pasaría por el motivo
         # equivocado: por no haber UID, no por ser otro.
-        del_fichero = read_props(positional[-1], sc) if positional else {}
         uid = spec.get("segment_uid")
         if uid is None:
             uid = del_fichero.get("segment_uid")
@@ -2001,7 +2181,10 @@ def mkvmerge(sc):
         sys.stdout.write(json.dumps({
             "container": {"supported": True, "properties": propiedades},
             "tracks": out,
-            "chapters": [],
+            # Como el real: `[{"num_entries": N}]` por edición, `[]` sin
+            # capítulos. Los escritos con mkvpropedit ganan al escenario.
+            "chapters": _capitulos_del_j(positional[-1] if positional else "", name,
+                                         del_fichero, sc),
         }))
         return 0
     out = opt("-o")

@@ -67,6 +67,17 @@ def _ids(suite):
             yield t.id()
 
 
+def modulos_sin_tests(ids, carpeta: Path) -> list[str]:
+    """Los `test_*.py` de la carpeta que no aportan ningún test a la colección.
+
+    `--estricto` vigilaba los skips, pero un módulo que se cae del discovery
+    —renombrado fuera del patrón, una clase que deja de heredar de TestCase—
+    no produce ningún skip: la revisión de Codex del 2026-10-17 redujo la
+    colección a un solo test y el lanzador salió con 0."""
+    con_tests = {i.split(".", 1)[0] for i in ids}
+    return sorted(f.stem for f in carpeta.glob("test_*.py") if f.stem not in con_tests)
+
+
 def _previsto(test_id: str) -> bool:
     return any(test_id.startswith(k) for k in SKIPS_PREVISTOS)
 
@@ -98,6 +109,8 @@ def main(argv=None) -> int:
             if not _previsto(test.id()):
                 problemas.append(f"skip no previsto: {test.id()} — {motivo}")
         if not args.modulos:
+            for m in modulos_sin_tests(todos, TESTS):
+                problemas.append(f"módulo sin ningún test en la colección: {m}")
             for k in SKIPS_PREVISTOS:
                 if not any(t.startswith(k) for t in todos):
                     problemas.append(f"SKIPS_PREVISTOS cita un test que no existe: {k}")

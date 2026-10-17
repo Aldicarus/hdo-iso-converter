@@ -56,6 +56,9 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[2]
 
+sys.path.insert(0, str(RAIZ / "app" / "tests"))
+from correr_suite import DIRECTORIOS as _DIRECTORIOS, FUERA_DEL_ENTORNO as _FUERA_DEL_ENTORNO  # noqa: E402
+
 
 def _respaldo_dir(raiz: Path) -> Path:
     # `hashlib` y no `hash()`: el de un `str` cambia en cada proceso, y una
@@ -64,40 +67,50 @@ def _respaldo_dir(raiz: Path) -> Path:
     return Path(tempfile.gettempdir()) / f"mutar_respaldo_{clave}"
 
 
-def recuperar_respaldos(raiz: Path) -> list[str]:
-    """Restaura los ficheros que una ejecución anterior dejó mutados."""
+def recuperar_respaldos(raiz: Path) -> tuple[list[str], list[str]]:
+    """Restaura los ficheros que una ejecución anterior dejó mutados.
+
+    Devuelve `(recuperados, fallidos)`. **Un respaldo solo se borra si se
+    pudo restaurar**: borraba los `.orig` siempre, así que un error de
+    permisos al restaurar dejaba el fichero mutado y SIN su original
+    (revisión de Codex de la suite, 2026-10-17)."""
     d = _respaldo_dir(raiz)
-    recuperados = []
+    recuperados, fallidos = [], []
     if not d.exists():
-        return recuperados
+        return recuperados, fallidos
     for meta in sorted(d.glob("*.json")):
         try:
             info = json.loads(meta.read_text(encoding="utf-8"))
-            destino = raiz / info["fichero"]
-            original = (d / info["copia"]).read_bytes()
-            destino.write_bytes(original)
-            recuperados.append(info["fichero"])
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError):
+            fallidos.append(meta.name)
             continue
-        finally:
-            meta.unlink(missing_ok=True)
-    for f in d.glob("*.orig"):
-        f.unlink(missing_ok=True)
-    return recuperados
+        copia = d / info.get("copia", "")
+        try:
+            (raiz / info["fichero"]).write_bytes(copia.read_bytes())
+        except (OSError, KeyError):
+            fallidos.append(info.get("fichero", meta.name))
+            continue
+        recuperados.append(info["fichero"])
+        meta.unlink(missing_ok=True)
+        copia.unlink(missing_ok=True)
+    return recuperados, fallidos
 
 
 def ejecutar(modulos: list[str], raiz: Path, python: str, timeout: float) -> tuple[int, str]:
     """Ejecuta los módulos con los directorios de la app en una caja propia."""
     caja = Path(tempfile.mkdtemp(prefix="mutar_caja_"))
-    for d in ("config", "tmp", "output"):
-        (caja / d).mkdir()
+    # Los MISMOS directorios y claves que aísla `correr_suite`: aquí solo se
+    # fijaban tres de los siete, así que una mutación podía escribir en el
+    # `LIBRARY_DIR` o el `ISOS_DIR` reales.
     env = dict(os.environ,
                PYTHONPATH=str(raiz / "app" / "tests"),
                PYTHONDONTWRITEBYTECODE="1",
-               PYTHONPYCACHEPREFIX=str(caja / "pyc"),
-               CONFIG_DIR=str(caja / "config"),
-               TMP_DIR=str(caja / "tmp"),
-               OUTPUT_DIR=str(caja / "output"))
+               PYTHONPYCACHEPREFIX=str(caja / "pyc"))
+    for nombre in _DIRECTORIOS:
+        (caja / nombre.lower()).mkdir()
+        env[nombre] = str(caja / nombre.lower())
+    for nombre in _FUERA_DEL_ENTORNO:
+        env.pop(nombre, None)
     r = subprocess.run([python, "-m", "unittest", *modulos], cwd=raiz / "app" / "tests",
                        capture_output=True, text=True, timeout=timeout, env=env)
     fallos = sorted({l.split(" ", 1)[1].split(" (")[0]
@@ -124,9 +137,13 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     raiz = args.raiz.resolve()
 
-    rec = recuperar_respaldos(raiz)
+    rec, fallidos = recuperar_respaldos(raiz)
     if rec:
         print(f"⚠ restaurados de una ejecución que murió a medias: {', '.join(rec)}")
+    if fallidos:
+        print(f"✗ no se pudieron restaurar (el respaldo se conserva en "
+              f"{_respaldo_dir(raiz)}): {', '.join(fallidos)}")
+        return 2
 
     muts = json.loads(args.mutaciones.read_text(encoding="utf-8"))
     if args.solo:
@@ -135,12 +152,19 @@ def main(argv=None) -> int:
         print("no hay mutaciones que ejecutar")
         return 1
 
-    base = sorted({mod for m in muts for mod in m["modulos"]})
-    rc, resumen = ejecutar(base, raiz, args.python, args.timeout)
-    print(f"base ({len(base)} módulos): {resumen}", flush=True)
-    if rc != 0:
-        print("✗ la base no está en verde: una mutación «cazada» no demostraría nada")
-        return 2
+    # La base es CADA selección exacta de módulos, en su orden: la unión en
+    # verde no garantiza que un subconjunto lo esté (un módulo que dependa de
+    # lo que otro dejó al importarse falla solo), y una mutación asignada a
+    # ese subconjunto se daría por «cazada» por un fallo previo (revisión de
+    # Codex de la suite, 2026-10-17; medido entonces: 40 de 40 en verde).
+    selecciones = list(dict.fromkeys(tuple(m["modulos"]) for m in muts))
+    for sel in selecciones:
+        rc, resumen = ejecutar(list(sel), raiz, args.python, args.timeout)
+        if rc != 0:
+            print(f"✗ la base no está en verde con {', '.join(sel)}: {resumen}")
+            print("  una mutación «cazada» ahí no demostraría nada")
+            return 2
+    print(f"base: {len(selecciones)} selecciones de módulos en verde", flush=True)
 
     # SIGTERM se convierte en excepción para que el `finally` restaure.
     def _al_terminar(*_):

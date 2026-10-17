@@ -91,6 +91,45 @@ class TestMutar(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.codigo.read_text(), CODIGO)
 
+    def test_la_base_es_cada_seleccion_no_la_union(self):
+        """`test_b` solo pasa si `test_a` se importó antes: la unión está en
+        verde y `test_b` solo, en rojo. Una mutación asignada a `test_b` no
+        puede contar como cazada (revisión de Codex de la suite)."""
+        t = self.raiz / "app" / "tests"
+        (t / "test_a.py").write_text("import builtins\nbuiltins.PREPARADO = True\n"
+                                     "import unittest\nclass A(unittest.TestCase):\n"
+                                     "    def test_a(self):\n        pass\n")
+        (t / "test_b.py").write_text("import builtins, unittest\nclass B(unittest.TestCase):\n"
+                                     "    def test_b(self):\n"
+                                     "        self.assertTrue(getattr(builtins, 'PREPARADO', False))\n")
+        f = self.raiz / "muts.json"
+        f.write_text(json.dumps([
+            {"id": "con a", "fichero": "app/calc.py", "viejo": "return a + b",
+             "nuevo": "return a - b", "modulos": ["test_a", "test_b", "test_calc"]},
+            {"id": "solo b", "fichero": "app/calc.py", "viejo": "return x * 2",
+             "nuevo": "return 0", "modulos": ["test_b"]}]))
+        r = subprocess.run([sys.executable, str(HERRAMIENTA), str(f), "--raiz", str(self.raiz)],
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("test_b", r.stdout)
+        self.assertEqual(self.codigo.read_text(), CODIGO)
+
+    def test_un_respaldo_que_no_se_puede_restaurar_no_se_borra(self):
+        d = self.mutar._respaldo_dir(self.raiz.resolve())
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "2.orig").write_bytes(CODIGO.encode())
+        (d / "2.orig.json").write_text(json.dumps({"fichero": "app/calc.py", "copia": "2.orig"}))
+        self.codigo.write_text("def suma(a, b):\n    return 0\n")     # quedó mutado
+        self.codigo.chmod(0o444)
+        self.addCleanup(self.codigo.chmod, 0o644)
+        rc, out = self._correr({"id": "x", "viejo": "return a + b", "nuevo": "return a - b"})
+        self.assertEqual(rc, 2, out)
+        self.assertIn("no se pudieron restaurar", out)
+        self.assertTrue((d / "2.orig").exists(), "se ha borrado el único original")
+        self.codigo.chmod(0o644)
+        self.mutar.recuperar_respaldos(self.raiz.resolve())
+        self.assertEqual(self.codigo.read_text(), CODIGO)
+
 
 if __name__ == "__main__":
     unittest.main()

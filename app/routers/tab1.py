@@ -1874,7 +1874,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     from phases.phase_a import (run_full_analysis_for_mpls,
                                 run_full_analysis_for_m2ts, find_main_m2ts)
     from phases.phase_b import apply_rules, build_series_mkv_name
-    from phases.iso_mount import Source, SourceError
+    from phases.iso_mount import Source, SourceError, safe_source_path
     from models import Chapter
 
     # Qué episodios procesar y qué reportar ya lo decidió el endpoint: el

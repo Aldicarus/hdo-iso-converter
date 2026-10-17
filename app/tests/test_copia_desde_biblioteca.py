@@ -112,7 +112,14 @@ class TestLaCopiaCompleta(CopiaCase):
 
         st = self.tab2._mkv_apply_state
         self.assertEqual(st["step"], "done", st.get("error"))
-        self.assertEqual(self.dst.read_bytes(), self.contenido, "la copia no es idéntica")
+        # mkvpropedit reescribe la cabecera de la COPIA (el falso, en su
+        # primera línea): el resto tiene que ser byte a byte el original.
+        cab, _, cuerpo = self.dst.read_bytes().partition(b"\n")
+        self.assertTrue(cab.startswith(b"#HARNESS-PROPS "), "la edición no llegó a la copia")
+        self.assertEqual(cuerpo, self.contenido, "la copia no es idéntica")
+        editadas = json.loads(cab[len(b"#HARNESS-PROPS "):])["pistas_editadas"]
+        self.assertIn("Castellano TrueHD Atmos 7.1",
+                      [p.get("track_name") for p in editadas.values()])
         self.assertEqual(self.src.read_bytes(), self.contenido, "se ha tocado la biblioteca")
         [prop] = self.tb.find("mkvpropedit")
         self.assertEqual(Path(prop.argv[0]), self.dst, "mkvpropedit no edita la copia")

@@ -82,6 +82,10 @@ class ApiTestCase(unittest.TestCase):
         from services import settings_store as _settings
         from services import rec999_drive as _drive, rec999_sheet as _sheet, tmdb as _tmdb
         from routers import tab2 as _r_tab2
+        from routers import cmv40 as _r_cmv40
+        from phases import iso_mount as _iso_mount, mkv_analyze as _mkv_analyze
+        from phases import phase_a as _phase_a
+        import queue_manager as _qm_mod
         import paths as _paths
         self._parches = [
             # `settings_store` resuelve CONFIG_DIR en el import y escribe
@@ -128,7 +132,31 @@ class ApiTestCase(unittest.TestCase):
             (_tmdb, "CACHE_PATH", self.config_dir / "tmdb_cache.json"),
             (_drive, "CACHE_PATH", self.config_dir / "rec999_drive_cache.json"),
             (_sheet, "CACHE_PATH", self.config_dir / "rec999_sheet_cache.csv"),
+            # Y las trece que la sonda de rutas encontró sin redirigir el
+            # 2026-10-17 (`test_aislamiento_de_la_suite::TestTrasElArnes…`
+            # recorre los módulos cargados y falla con la siguiente). Entre
+            # ellas el alias `CMV40_WORK_BASE` del router, con el que un test
+            # de creación habría creado el workdir en la base de verdad.
+            (self.main, "_UPDATE_CHECK_CACHE_PATH", self.config_dir / "update_check_cache.json"),
+            (_r_cmv40, "CMV40_WORK_BASE", self.work_base),
+            (pipeline, "TMP_DIR", str(self.tmp_dir)),
+            (pipeline, "CMV40_RPU_DIR", self.tmp / "cmv40_rpus"),
+            (_iso_mount, "MOUNT_BASE", self.tmp / "bd"),
+            (_mkv_analyze, "OUTPUT_DIR", str(self.output_dir)),
+            (_mkv_analyze, "TMP_DIR", str(self.tmp_dir)),
+            (_phase_a, "TMP_DIR", str(self.tmp_dir)),
+            (_qm_mod, "_CONFIG_DIR", self.config_dir),
+            (_qm_mod, "_QUEUE_STATE_FILE", self.config_dir / "queue_state.json"),
+            (_tmdb, "CONFIG_DIR", self.config_dir),
+            (_drive, "CONFIG_DIR", self.config_dir),
+            (_sheet, "CONFIG_DIR", self.config_dir),
         ]
+        # Un parche sobre un atributo que no existe no redirige nada: lo crea
+        # en el módulo equivocado y el de verdad sigue apuntando al original
+        # (revisión de Codex de la suite: cambiar `_r_tab2` por `_tmdb` en una
+        # fila dejaba el guard en verde).
+        for mod, attr, _ in self._parches:
+            assert hasattr(mod, attr), f"parche sobre {mod.__name__}.{attr}, que no existe"
         self._originales = [(mod, attr, getattr(mod, attr, None))
                             for mod, attr, _ in self._parches]
         for mod, attr, nuevo in self._parches:

@@ -129,6 +129,17 @@ class TestLaRutaRapidaMideElMkv(FaseHCase):
         self.assertIn("v2.9", str(ctx.exception))
         self.assertFalse(self.entregado(s))
 
+    async def test_el_muestreo_del_mkv_son_treinta_segundos(self):
+        """Sin el `-t`, ffmpeg volcaría el HEVC entero —decenas de GB— para
+        que dovi_tool lea 720 frames (revisión de Codex de la suite)."""
+        s = self.preparar(artefactos=("source_injected.hevc",))
+        self.mkv_de_la_fase_g(s, INJ_FEL)
+        await self.fase_h(s)
+        [m] = [c for c in self.tb.find("ffmpeg") if any(a.endswith(".mkv.tmp") for a in c.argv)]
+        self.assertIsNotNone(m.opt("-t"), m.argv)
+        self.assertLessEqual(float(m.opt("-t")), 30)
+        self.assertEqual(m.opt("-c:v"), "copy", "recodificar pierde el RPU")
+
     async def test_no_extrae_el_rpu_entero(self):
         """El muestreo son 30 s: la ruta rápida sigue sin pagar el
         `extract-rpu` completo que justifica la otra."""
@@ -247,8 +258,10 @@ class TestLaFaseGYLaHEnCadena(FaseHCase):
         from phases.cmv40_pipeline import run_phase_g_remux
         s = self.preparar(**kw)
         self.tb.define_mkv("source.mkv", tracks=self.PISTAS_ORIGEN)
-        salida = await run_phase_g_remux(s, self.log)
-        self.tb.define_media(Path(salida).name, duration=7200.0, frames=FRAMES)
+        await run_phase_g_remux(s, self.log)
+        # Sin `define_media` para la salida: el recuento que da `ffprobe` es
+        # el del MKV que construyó el mux, no uno declarado a mano. Con el
+        # declarado, un mux que truncara el vídeo pasaba en verde.
         return s, await self.fase_h(s)
 
     async def test_drop_in(self):
@@ -260,6 +273,15 @@ class TestLaFaseGYLaHEnCadena(FaseHCase):
         s, r = await self._g_y_h(trust=False, artefactos=("BL.hevc", "EL_injected.hevc"))
         self.assertTrue(self.entregado(s))
         self.assertEqual(r["cm_version"], "v4.0")
+
+    async def test_un_hevc_truncado_da_un_mkv_que_no_se_entrega(self):
+        """De punta a punta: un HEVC con la mitad de los frames, el mux de
+        verdad de la Fase G y la ruta rápida de la H, que tiene que pararlo
+        con el recuento del propio MKV (revisión de Codex de la suite)."""
+        corto = RpuProps(**dict(INJ_FEL.as_dict(), frames=FRAMES // 2))
+        with self.assertRaises(RuntimeError) as ctx:
+            await self._g_y_h(artefactos=("source_injected.hevc",), inyectado=corto)
+        self.assertIn(str(FRAMES // 2), str(ctx.exception))
 
     async def test_un_mkv_sin_el_audio_del_origen_no_se_entrega(self):
         """La Fase H cuenta las pistas: un remux que dejara fuera el audio o

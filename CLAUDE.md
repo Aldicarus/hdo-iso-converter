@@ -3422,6 +3422,16 @@ restaura desde el contenido original guardado (nunca con `git checkout`),
 deja una copia en disco que recupera si una ejecución muere a medias, aísla
 los directorios, no escribe bytecode y sale con 1 si alguna sobrevive. Una
 mutación nueva va al JSON con los módulos que tienen que cazarla.
+- **La base es CADA selección de módulos, en su orden**, no la unión: un
+  módulo que depende de lo que otro dejó al importarse falla solo, y una
+  mutación asignada a ese subconjunto se contaría como «cazada» por un fallo
+  previo. Medido al cambiarlo: las 40 selecciones del catálogo estaban en
+  verde, así que ninguna cazada anterior era falsa.
+- **Un respaldo solo se borra si se pudo restaurar.** Se borraban siempre, y
+  un error de permisos al restaurar dejaba el fichero mutado y sin original.
+- Aísla los **siete** directorios y quita las mismas claves que
+  `correr_suite` (los importa de ahí): fijaba tres.
+
 - Cubren motor de reglas/series, match TMDb TV, clasificación L8 RPU, cache + quality audit de MKV, la abstracción Source y **las fases C/F/G/H del pipeline CMv4.0 ejecutadas de verdad** (via `cmv40_harness.py`). No requieren discos reales ni los binarios instalados.
 - **El pipeline de Tab 1 se ejecuta en tests** (`test_fases_de_tab1`, `test_orquestador_tab1`, `test_validacion_final`): las fases D y E con el argv real que recibe mkvmerge, `_run_pipeline` con las dos rutas y el reintento con el M2TS —que reintenta, que reintenta **una sola vez** y que con origen m2ts no vuelve a entrar—, y `_validate_final_mkv` con su tabla ISO 639. Se usa un origen `bdmv_folder`, que en `Source` es un no-op: ejercita el orquestador entero sin montar nada.
 - **Los endpoints de Tab 1 y Tab 2 se prueban por HTTP** (`test_endpoints_tab1_tab2`, sobre `api_harness`): path traversal del file browser, el whitelist del borrado, que `PUT /api/sessions/{id}` no acepte `has_fel`/`audio_dcp`, que los secretos no salgan en crudo. Los que salen a la red (TMDb, Google, GitHub) quedan fuera a propósito.
@@ -3441,6 +3451,49 @@ mutación nueva va al JSON con los módulos que tienen que cazarla.
   cores AC-3 no existen** — por eso ningún test podía ver que Fase E los tomaba por pistas
   independientes. Otro caso de la regla de fakes fieles, como el `MaxCLL` con unidad de mediainfo.
 - Un test de una fase **ejecuta la fase**. Los `assertIn` sobre el fuente del pipeline no cuentan como cobertura: pasan en verde aunque el comportamiento esté invertido. Al añadir un test de comportamiento, verificar que falla reintroduciendo el bug.
+
+### La auditoría completa con Codex del 2026-10-17: lo que hacía falta para ver algo
+
+Siete paquetes —el código entero por zonas y la suite—, cada hallazgo
+verificado por separado contra el código. La cifra que lo resume: **de 80
+mutaciones nuevas propuestas fuera del catálogo, sobrevivían 79**. El
+catálogo de 131 cazadas medía lo que ya se probaba; lo demás no lo veía
+nadie, y casi siempre por lo mismo: **un fake que ignora una opción**.
+
+- **`ffmpeg` valida `-map` y el códec también sobre un MKV** (`_videos_del_mkv`):
+  solo lo hacía con un m2ts declarado, y quitar los siete `-c:v copy` del
+  pipeline CMv4.0 —días de libx265 en el Celeron, el RPU perdido— sobrevivía
+  a 222 tests. Y **respeta `-t`** (el progreso termina en el límite).
+- **`ffprobe` cuenta los frames del CONTENIDO** cuando el test no los declara:
+  un mux que truncara el vídeo contestaba la película entera (sobrevivía a
+  244 tests). Lo declarado con `define_media` sigue ganando.
+- **`mkvpropedit` aplica `--edit track:N --set name|flag-default|flag-forced`
+  y `--chapters`**, y el `mkvmerge -J` / `mkvextract` siguientes lo ven. Una
+  `EditionEntry` vacía falla con código 2 y `--chapters ''` borra, **las dos
+  cosas comprobadas con la v88 del NAS y la v102**: el falso solo entendía la
+  firma y el título, y las 17 mutaciones de Tab 2 sobrevivían.
+- **El `editor` de `dovi_tool` respeta `rpu_levels`**: solo los niveles de la
+  lista vienen del donante. Copiaba siempre lo mismo, así que ningún test
+  podía ver de dónde salía el L1 de un merge. Y el donante y el `info -f`
+  exigen que el fichero exista.
+- **Las rutas de módulo se comprueban por su EFECTO**
+  (`test_aislamiento_de_la_suite::TestTrasElArnes…`): monta el arnés y recorre
+  los módulos cargados; un atributo que siga apuntando a un directorio
+  original es un sitio donde un test escribe fuera de su caja. Salieron
+  trece, entre ellos el alias `CMV40_WORK_BASE` del router. Y el arnés rechaza
+  un parche sobre un atributo que no existe.
+- **El guard de nombres va por ámbitos** (`test_imports_alcanzables`): un
+  import local de una función le «definía» el nombre al módulo entero, y así
+  pasó en verde el `NameError` de crear una serie desde ficheros M2TS —roto
+  de v3.0.0 a v3.3.1—. Recorre ya todos los ficheros de la app, no una lista.
+- **`--estricto` exige que cada `test_*.py` aporte tests**: un módulo que se
+  cae del discovery no produce ningún skip, y la colección reducida a uno
+  salía con 0.
+- **mkvtoolnix y mediainfo NO se fijan, y está comprobado**: el repositorio de
+  Bunkus dejó de publicar para jammy en la 88 y Ubuntu 22.04 congela
+  MediaInfoLib en la 21.09, así que un build desde cero —el del CI de cada
+  release— instala exactamente las versiones del contrato. Si se sube la
+  base de la imagen, eso deja de ser verdad y hay que recapturar.
 
 ### CI — `.github/workflows/tests.yml`
 
