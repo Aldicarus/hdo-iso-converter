@@ -617,6 +617,55 @@ class TestParcialesQueSeQuedan(OrquestadorCase):
                          "el intermedio se ha entregado con el nombre definitivo")
 
 
+class TestLosCoresAc3NoLleganAlMkv(OrquestadorCase):
+    """Un TrueHD viaja con su núcleo AC-3 en el mismo stream, y mkvmerge los
+    lista como dos pistas con `multiplexed_tracks`. Las dos puntas del
+    emparejado quitan los cores, así que un disco cuyo audio son solo el
+    castellano y el inglés TrueHD —con todos los subtítulos incluidos— no
+    tiene exclusiones y va por la ruta con intermedio. Pero el intermedio es
+    un mux SIN selección, y saca los cores como pistas propias (un MKV ya no
+    lleva `multiplexed_tracks`), y `mkvpropedit` no puede quitar pistas: el
+    MKV final salía con dos AC-3 de más. Ningún disco del corpus del NAS ha
+    caído en este caso; los que traen cores tienen más audio y van por la
+    ruta directa."""
+
+    PISTAS = [
+        VIDEO,
+        dict(AUDIO_ES, id=1, multiplexed_tracks=[1, 2]),
+        {"id": 2, "type": "audio", "codec": "AC-3", "language": "spa",
+         "channels": 6, "multiplexed_tracks": [1, 2]},
+        dict(AUDIO_EN, codec="TrueHD Atmos", channels=8, id=3, multiplexed_tracks=[3, 4]),
+        {"id": 4, "type": "audio", "codec": "AC-3", "language": "eng",
+         "channels": 6, "multiplexed_tracks": [3, 4]},
+    ]
+
+    async def test_el_mkv_final_lleva_solo_las_dos_pistas_incluidas(self):
+        import json
+        import subprocess
+        from models import BDInfoResult
+        for nombre in (self.mpls.name, self.m2ts.name):
+            self.tb.define_mkv(nombre, tracks=self.PISTAS, duration_s=7200.0)
+        incluidas = [
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio",
+                   "Castellano TrueHD Atmos 7.1", position=0, ch=8),
+            _audio("English", "Dolby TrueHD/Atmos Audio",
+                   "Inglés TrueHD Atmos 7.1", position=1, ch=8),
+        ]
+        bd = BDInfoResult(video_tracks=[], audio_tracks=[t.raw for t in incluidas],
+                          subtitle_tracks=[], duration_seconds=7200.0,
+                          has_fel=False, vo_language="English",
+                          mkvmerge_raw={"tracks": [dict(t, id=t.get("id", 0),
+                                                        properties={"multiplexed_tracks": t.get("multiplexed_tracks")})
+                                                   for t in self.PISTAS]})
+        s = await self._correr(self._sesion(incluidos=incluidas, bdinfo_result=bd))
+        self.assertEqual(s.status, "done", s.error_message)
+        out = subprocess.run(["mkvmerge", "-J", s.output_mkv_path],
+                             capture_output=True, text=True).stdout
+        audio = [t["codec"] for t in json.loads(out)["tracks"] if t["type"] == "audio"]
+        self.assertEqual(audio, ["TrueHD Atmos", "TrueHD Atmos"],
+                         "los cores AC-3 han llegado al MKV final")
+
+
 class TestNingunModuloNuevoDejaElLockColgando(unittest.TestCase):
     """Quien conduzca `_run_pipeline` tiene que limpiar los locks del save.
 

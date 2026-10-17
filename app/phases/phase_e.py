@@ -91,8 +91,28 @@ async def needs_reordering(session: Session, source_path: str, log_callback=None
     return _check_reordering(session, track_map)
 
 
+def _el_origen_tiene_cores(session) -> bool:
+    """¿El disco trae un TrueHD con su núcleo AC-3 multiplexado?
+
+    Lo dice el `mkvmerge -J` que guardó la Fase A, con la misma función con
+    la que las dos puntas quitan los cores."""
+    bd = getattr(session, "bdinfo_result", None)
+    raw = ((bd.mkvmerge_raw if bd is not None else None) or {}).get("tracks") or []
+    return bool(_find_subordinate_track_ids(raw))
+
+
 def _check_reordering(session: Session, track_map: dict) -> bool:
     """Lógica pura de detección de reordenación."""
+    # Con cores AC-3, SIEMPRE por la ruta directa. El intermedio es un mux sin
+    # selección, así que saca cada núcleo como pista propia —un MKV ya no lleva
+    # `multiplexed_tracks`—, y `mkvpropedit` no puede quitar pistas: el MKV
+    # final salía con los AC-3 de más. Las dos rutas cuestan una sola copia de
+    # los datos, así que esto no tiene precio. Ningún disco del corpus ha
+    # caído aquí (los que traen cores tienen más audio y ya iban por la
+    # directa), pero un disco con solo castellano e inglés TrueHD, y todos sus
+    # subtítulos incluidos, lo haría.
+    if _el_origen_tiene_cores(session):
+        return True
     mkv_audio_ids = [idx for idx, t in sorted(track_map.items()) if t["type"] == "audio"]
     mkv_sub_ids   = [idx for idx, t in sorted(track_map.items()) if t["type"] == "subtitles"]
 
