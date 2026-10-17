@@ -1066,6 +1066,7 @@
   "tab1.ningun_mpls_paso_los_filtros_de": "No MPLS passed the episode-candidate filters (duration 15-90 min, ≥1 audio, m2ts ≥40% of the median). Switch to movie mode if this is a single-title disc.",
   "tab1.no_disponible_comprueba_que_sigue_en": "{type_label} not available: {source_path}. Check that it's still in /mnt/isos.",
   "tab1.no_hay_capitulos_que_restaurar_para": "There are no chapters to restore for M2TS sources with no MPLS. The auto-generated chapters stay as they are.",
+  "tab1.no_se_borra_en_marcha": "This project is running: cancel it before deleting it",
   "tab1.no_se_encontraron_capitulos_en_el": "No chapters found on the disc",
   "tab1.no_se_encontro_el_m2ts_principal": "The main M2TS needed to work around the playlist failure wasn't found.",
   "tab1.no_se_pudo_acceder_al_bdmv": "The source BDMV couldn't be reached.",

@@ -75,6 +75,25 @@ class TestSesiones(ApiTestCase):
         self.assertEqual(self.client.delete(f"/api/sessions/{sid}").status_code, 200)
         self.assertIsNone(self.leer_sesion_tab1(sid))
 
+    def test_borrar_una_sesion_en_marcha_da_409_y_no_la_borra(self):
+        """El pipeline la guarda al terminar —y con cada línea del log—, así
+        que borrarla mientras corría la recreaba."""
+        sid = self.crear_sesion_tab1(status="running")
+        r = self.client.delete(f"/api/sessions/{sid}")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIsNotNone(self.leer_sesion_tab1(sid))
+
+    def test_borrar_una_sesion_en_cola_la_saca_de_la_cola(self):
+        import queue_manager as qm
+        sid = self.crear_sesion_tab1(status="queued")
+        cola = self.main.queue_manager
+        cola._queue.append(qm.TrabajoEnCola(tab="rip", tipo=qm.TIPO_RIP, clave=sid, que="x"))
+        self.addCleanup(cola._queue.clear)
+        self.assertEqual(self.client.delete(f"/api/sessions/{sid}").status_code, 200)
+        self.assertIsNone(self.leer_sesion_tab1(sid))
+        self.assertEqual([t.clave for t in cola._queue], [],
+                         "correría después sobre un proyecto borrado")
+
     def test_el_sidebar_no_arrastra_los_campos_pesados(self):
         """El listado es un summary: `output_log` y `bdinfo_result` se vacían.
         Con muchos proyectos eran decenas de MB por llamada."""

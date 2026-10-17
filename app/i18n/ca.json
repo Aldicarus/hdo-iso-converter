@@ -1066,6 +1066,7 @@
   "tab1.ningun_mpls_paso_los_filtros_de": "Cap MPLS no ha passat els filtres de candidat a episodi (durada 15-90 min, ≥1 àudio, m2ts ≥40% de la mediana). Canvia a mode pel·lícula si és un disc d'un sol títol.",
   "tab1.no_disponible_comprueba_que_sigue_en": "{type_label} no disponible: {source_path}. Comprova que segueix a /mnt/isos.",
   "tab1.no_hay_capitulos_que_restaurar_para": "No hi ha capítols per restaurar en orígens M2TS sense MPLS. Els capítols auto-generats es mantenen.",
+  "tab1.no_se_borra_en_marcha": "Aquest projecte s'està executant: cancel·la'l abans d'esborrar-lo",
   "tab1.no_se_encontraron_capitulos_en_el": "No s'han trobat capítols al disc",
   "tab1.no_se_encontro_el_m2ts_principal": "No s'ha trobat el M2TS principal per sortejar la fallada del playlist.",
   "tab1.no_se_pudo_acceder_al_bdmv": "No s'ha pogut accedir al BDMV de l'origen.",

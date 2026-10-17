@@ -662,8 +662,17 @@ async def get_session(session_id: str):
 
 @router.delete("/api/sessions/{session_id}", summary="Elimina una sesión")
 async def remove_session(session_id: str):
+    # El pipeline tiene la sesión en la mano y la guarda al terminar —y con
+    # cada línea del log—, así que borrarla mientras corre la RECREABA; y una
+    # que esperaba en la cola se ejecutaba igual sobre un proyecto borrado
+    # (auditoría con Codex del 2026-10-17). En marcha: 409. En cola: sale.
+    sesion = load_session(session_id)
+    if sesion and (sesion.status == "running"
+                   or queue_manager.get_status().get("running") == session_id):
+        raise HTTPException(status_code=409, detail=tr('tab1.no_se_borra_en_marcha'))
     if not delete_session(session_id):
         raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
+    await queue_manager.descartar([session_id])
     return {"ok": True}
 
 

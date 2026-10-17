@@ -1066,6 +1066,7 @@
   "tab1.ningun_mpls_paso_los_filtros_de": "Ningún MPLS pasó los filtros de candidato a episodio (duración 15-90 min, ≥1 audio, m2ts ≥40% mediana). Cambia a modo película si es un disco de un solo título.",
   "tab1.no_disponible_comprueba_que_sigue_en": "{type_label} no disponible: {source_path}. Comprueba que sigue en /mnt/isos.",
   "tab1.no_hay_capitulos_que_restaurar_para": "No hay capítulos que restaurar para fuentes M2TS sin MPLS. Los capítulos auto-generados se mantienen.",
+  "tab1.no_se_borra_en_marcha": "Este proyecto se está ejecutando: cancélalo antes de borrarlo",
   "tab1.no_se_encontraron_capitulos_en_el": "No se encontraron capítulos en el disco",
   "tab1.no_se_encontro_el_m2ts_principal": "No se encontró el M2TS principal para sortear el fallo del playlist.",
   "tab1.no_se_pudo_acceder_al_bdmv": "No se pudo acceder al BDMV del origen.",
