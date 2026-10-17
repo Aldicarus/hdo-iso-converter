@@ -140,6 +140,49 @@ class TestCancelarAMitadDelMux(CancelarCase):
         self.assertEqual(list(self.salida.rglob("*")), [])
 
 
+class TestCancelarEntreDosPasos(CancelarCase):
+    """Una cancelación que llega sin proceso registrado.
+
+    El endpoint mata lo que esté en `_active_processes`, y el `--identify`
+    no se registra: cancelar ahí ponía la marca, nadie la miraba antes del
+    mux, y el rip podía acabar en `done` (auditoría con Codex del
+    2026-10-17)."""
+
+    IDENT = 2.0
+
+    def _identifies(self):
+        return [c for c in self.tb.find("mkvmerge") if "--identify" in c.argv]
+
+    async def _cancelar_en_el_identify(self, s, n):
+        self.tb.retrasar_cuando_arg("mkvmerge", "--identify", self.IDENT)
+        self.tb.retrasar_cuando_arg("mkvmerge", "--gui-mode", TARDA, parcial=True)
+        t0 = time.monotonic()
+        rip = asyncio.create_task(self.tab1._run_pipeline(s.id))
+        for _ in range(300):
+            if len(self._identifies()) >= n:
+                break
+            await asyncio.sleep(0.05)
+        self.assertEqual(len(self._identifies()), n, "no se llegó al identify esperado")
+        await self.tab1.cancel_running_session(s.id)
+        await asyncio.wait_for(rip, timeout=TARDA - 5)
+        self.assertLess(time.monotonic() - t0, TARDA - 5, "se ha esperado al mux entero")
+        return self.storage.load_session(s.id)
+
+    async def test_durante_el_identify_de_la_ruta_no_arranca_ningun_mux(self):
+        s = await self._cancelar_en_el_identify(self._sesion(ruta_directa=True), 1)
+        self.assertEqual(self._muxes(), [], "ha arrancado el mux con el rip cancelado")
+        self.assertEqual(s.status, "pending")
+        self.assertIsNotNone(s.last_cancelled_at)
+
+    async def test_durante_el_identify_de_la_fase_e_el_mux_muere_al_nacer(self):
+        """El segundo `--identify` es el de dentro de la Fase E: ya no hay
+        punto de control antes del mux, así que lo mata el registro."""
+        s = await self._cancelar_en_el_identify(self._sesion(ruta_directa=True), 2)
+        self.assertEqual(s.status, "pending", "el rip ha acabado como si nada")
+        self.assertIsNotNone(s.last_cancelled_at)
+        self.assertEqual(list(self.salida.rglob("*")), [], "queda algo en /mnt/output")
+
+
 class TestElEndpoint(CancelarCase):
 
     async def test_una_sesion_que_no_corre_da_400(self):

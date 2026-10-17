@@ -2970,8 +2970,19 @@ async def _run_pipeline(session_id: str) -> None:
             raise RuntimeError(tr('cmv40.cancelado_por_el_usuario'))
 
     def _register_proc(proc):
-        """Registra el subprocess activo para poder matarlo desde el endpoint cancel."""
+        """Registra el subprocess activo para poder matarlo desde el endpoint cancel.
+
+        Y si la cancelación ya llegó, lo mata al nacer: el endpoint solo mata
+        lo que esté registrado, así que una cancelación que caía entre dos
+        pasos —o durante un `--identify`, que no se registra— dejaba arrancar
+        el mux siguiente y el rip podía acabar en `done` (auditoría con Codex
+        del 2026-10-17)."""
         _active_processes[session_id] = proc
+        if _cancel_flags.get(session_id) and proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
 
     try:
         from phases.iso_mount import Source, SourceError
@@ -3057,6 +3068,7 @@ async def _run_pipeline(session_id: str) -> None:
 
         while True:
             do_reorder = await needs_reordering(session, extraction_source, log)
+            _check_cancel()
             try:
                 if do_reorder:
                     # ── RUTA DIRECTA: source → MKV final (1 sola copia) ──
