@@ -88,6 +88,14 @@ class RpuProps:
     # siempre: el summary decía 0 y el export 138 del MISMO RPU, y hoy los
     # dos salen de aquí (revisión de Codex del 2026-10-17).
     l5: tuple = (138, 138, 0, 0)
+    # Los target displays del L8 (índices de la spec de Dolby). Uno, el 1
+    # (100 nits), como Supergirl. Era la mitad de un dato repartido en dos
+    # sitios: el summary anunciaba siempre cuatro targets (100, 600, 1000 y
+    # 2000 nits) y el export de ese MISMO RPU traía uno — y el contrato lo
+    # tapaba quitando justo esos campos de la comparación (auditoría de la
+    # suite con Codex del 2026-10-17, P7 #8). Hoy los dos salen de aquí, o
+    # de `define_rpu_levels(l8_indices=...)` si el test los declara.
+    l8_indices: tuple = (1,)
 
     def to_summary(self) -> str:
         """Reconstruye el texto que `_parse_dovi_summary` sabe leer.
@@ -125,8 +133,10 @@ class RpuProps:
             f"  L5 offsets: top={top}, bottom={bottom}, left={left}, right={right}",
             "  L2 trims: 100 nits, 600 nits, 1000 nits",
         ]
+        nits = nits_de_l8(self.l8_indices) if self.has_l8 else []
+        if nits:
+            lines.append("  L8 trims: " + ", ".join(f"{n} nits" for n in nits))
         if self.has_l8:
-            lines.append("  L8 trims: 100 nits, 600 nits, 1000 nits, 2000 nits")
             # Formato REAL, copiado de `dovi_tool info --summary` sobre un
             # bin retail CMv4.0 del repo (2026-09-23): la línea es
             # `L9 MDP: DCI-P3 D65`. Aquí decía `L9 source primaries:`, una
@@ -149,14 +159,29 @@ class RpuProps:
             "l1_max_cll": self.l1_max_cll, "l1_max_fall": self.l1_max_fall,
             "l6_max_cll": self.l6_max_cll, "l6_max_fall": self.l6_max_fall,
             "l5": list(self.l5),
+            "l8_indices": list(self.l8_indices),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "RpuProps":
         campos = {k: v for k, v in d.items() if k in cls.__annotations__}
-        if "l5" in campos:
-            campos["l5"] = tuple(campos["l5"])
+        for k in ("l5", "l8_indices"):
+            if k in campos:
+                campos[k] = tuple(campos[k])
         return cls(**campos)
+
+
+def tabla_l8() -> dict[int, int]:
+    """La tabla índice → nits de producción: el fake no lleva la suya."""
+    from phases.rpu_analyze import L8_NITS_POR_INDICE
+    return dict(L8_NITS_POR_INDICE)
+
+
+def nits_de_l8(indices) -> list[int]:
+    """Los nits de unos índices L8, ordenados y sin repetir, como los escribe
+    `dovi_tool info --summary`. Un índice fuera de la tabla no da línea."""
+    tabla = tabla_l8()
+    return sorted({tabla[int(i)] for i in indices if int(i) in tabla})
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -212,7 +237,11 @@ class FakeToolbox:
         self._scenario: dict = {"rpus": {}, "media": {}, "fail": {},
                                 "fail_json": [], "mediainfo": {},
                                 "chapters": {}, "mkvs": {},
-                                "pgs": {}, "levels": {}}
+                                "pgs": {}, "levels": {},
+                                # La tabla de producción, para que el binario
+                                # falso escriba los nits del summary sin
+                                # importar la app.
+                                "l8_nits": {str(k): v for k, v in tabla_l8().items()}}
         self._old_path: str | None = None
 
     # ── configuración del escenario ──────────────────────────────────
@@ -758,6 +787,8 @@ DEFAULT_PROPS = {
     # Ver `RpuProps`: lo que leen los trust gates de la Fase B.
     "l1_max_cll": 1000.6, "l1_max_fall": 138.55,
     "l6_max_cll": 1000, "l6_max_fall": 400, "l5": [138, 138, 0, 0],
+    # Los target displays L8 (ver `RpuProps.l8_indices`).
+    "l8_indices": [1],
     # El `SegmentUID` de Matroska, donde va la marca de procedencia. Viaja
     # con el resto de props —o sea en la cabecera del CONTENIDO— porque el
     # pipeline mueve el fichero (`.mkv.tmp` -> `.mkv` de la Fase H) y un
@@ -803,15 +834,37 @@ def read_props(path, sc):
     path = Path(path)
     cab = props_in_file(path)
     if cab is not None:
-        return cab
+        return _con_l8_declarado(cab, path, sc)
     mp = meta_path(path)
     if mp.exists():
         d = dict(DEFAULT_PROPS)
         d.update(json.loads(mp.read_text()))
-        return d
+        return _con_l8_declarado(d, path, sc)
     d = dict(DEFAULT_PROPS)
     d.update(sc.get("rpus", {}).get(path.name, {}))
-    return d
+    return _con_l8_declarado(d, path, sc)
+
+
+def _con_l8_declarado(props, path, sc):
+    """Los targets L8 que el test declaró con `define_rpu_levels` para ESTE
+    nombre pasan a las props, y con ellas a todo lo que salga del fichero:
+    un RPU editado, inyectado o renombrado conserva sus targets, en el
+    summary y en el export."""
+    decl = ((sc or {}).get("levels", {}).get(path.name) or {}).get("l8_indices")
+    if decl is not None:
+        props = dict(props)
+        props["l8_indices"] = [int(i) for i in decl]
+        props["l8_declarado"] = True
+    return props
+
+
+def indices_l8(props):
+    """Los target displays L8 de un RPU. Summary, export e `info -f` los leen
+    de aquí: eran tres datos distintos del mismo fichero. Lo declarado manda;
+    sin declarar, un RPU sin L8 no tiene ninguno."""
+    if not props.get("l8_declarado") and not props.get("has_l8"):
+        return []
+    return [int(i) for i in (props.get("l8_indices") or [])]
 
 
 def props_in_file(path):
@@ -861,7 +914,7 @@ def produce(path, props=None):
         p.write_bytes(FILLER)
 
 
-def summary(props):
+def summary(props, sc=None):
     if props["profile"] == 8:
         profile_line = "Profile: 8"
     elif props["el_type"]:
@@ -887,8 +940,11 @@ def summary(props):
         "  L5 offsets: top=%d, bottom=%d, left=%d, right=%d" % (top, bottom, left, right),
         "  L2 trims: 100 nits, 600 nits, 1000 nits",
     ]
+    tabla = (sc or {}).get("l8_nits") or {}
+    nits = sorted({int(tabla[str(i)]) for i in indices_l8(props) if str(i) in tabla})
+    if nits:
+        lines.append("  L8 trims: " + ", ".join("%d nits" % n for n in nits))
     if props["has_l8"]:
-        lines.append("  L8 trims: 100 nits, 600 nits, 1000 nits, 2000 nits")
         # Ver `RpuProps.to_summary`: el formato real es `L9 MDP: ...` y de
         # L11 no hay linea. Las dos copias tienen que decir lo mismo y hay
         # un test que las cruza — esta se quedo atras y costo un ciclo.
@@ -1123,8 +1179,8 @@ def dovi_tool(sc, sub, json_args):
         bloques = []
         if props.get("cm_version") == "v4.0":
             bloques.append('{"Level254": {"dm_mode": 0, "dm_version_index": 2}}')
-        if props.get("has_l8", False):
-            bloques.append('{"Level8": {"target_display_index": 1}}')
+        for idx in indices_l8(props)[:1]:
+            bloques.append('{"Level8": {"target_display_index": %d}}' % idx)
         sys.stdout.write(
             "Parsing RPU file...\n{\n"
             '  "dovi_profile": %s,\n'
@@ -1141,7 +1197,7 @@ def dovi_tool(sc, sub, json_args):
             target = positional[-1] if positional else None
         if _falta(target):
             return 1
-        sys.stdout.write(summary(read_props(target, sc)))
+        sys.stdout.write(summary(read_props(target, sc), sc))
         return 0
 
     if sub == "editor":
@@ -1378,10 +1434,9 @@ def dovi_tool(sc, sub, json_args):
                         # Sin índices declarados, el RPU con L8 trae UNO (el
                         # 1, como Supergirl): el summary del mismo RPU dice
                         # «L8 trims», y un export vacío lo contradecía.
-                        indices = niveles.get("l8_indices")
-                        if indices is None:
-                            indices = [1] if props.get("has_l8") else []
-                        for idx in indices:
+                        # Los MISMOS que anuncia el summary del fichero
+                        # (`indices_l8`): ya llevan lo declarado para él.
+                        for idx in indices_l8(props):
                             rows.append({
                                 "frame": i, "length": 25,
                                 "target_display_index": idx,

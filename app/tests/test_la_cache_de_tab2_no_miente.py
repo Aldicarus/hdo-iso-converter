@@ -256,6 +256,16 @@ class TestDosHevcNoSonUnaFel(Tab2Case):
     def test_un_fel_sigue_siendo_fel(self):
         self.assertTrue(self._has_fel("FEL"))
 
+    def test_un_fel_en_una_sola_pista_tambien(self):
+        """El MKV que sale de Tab 1: mkvmerge combina la EL con la BL en UNA
+        pista HEVC, así que «dos HEVC» decía «sin FEL» sobre los propios
+        rips de la app mientras la radiografía leía Profile 7 FEL."""
+        self.tb.define_mkv(self.mkv.name, tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H",
+             "dimensions": "3840x2160", "fps": 23.976},
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa", "channels": 8}])
+        self.assertTrue(self._has_fel("FEL"))
+
 
 _Uso = collections.namedtuple("_Uso", "total used free")
 

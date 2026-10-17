@@ -1,0 +1,337 @@
+[
+ {
+  "id": "T4-07 el análisis que coincide con una edición se guarda igual",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        if inicial and any(inicial.get(k) != fingerprint.get(k)",
+  "nuevo": "        if False and any(inicial.get(k) != fingerprint.get(k)",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-09 forzar reanálisis vuelve a usar la caché",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "            use_cache=not force_refresh,\n",
+  "nuevo": "            use_cache=True,\n",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-10 el cache_hit se anuncia antes de validar",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "            try:\n                # Reconstruir el MkvAnalysisResult desde el JSON cacheado.",
+  "nuevo": "            await _emit(\"cache_hit\")\n            try:\n                # Reconstruir el MkvAnalysisResult desde el JSON cacheado.",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-11a un mkvextract que falla vuelve a ser «sin capítulos»",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        if result.returncode != 0:\n            return None\n    except Exception:\n        return None",
+  "nuevo": "        if result.returncode != 0:\n            return []\n    except Exception:\n        return []",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-11b el sniff DV que falla al medir vuelve a ser «sin DV»",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "            raise RuntimeError(\n                f\"dovi_tool info --summary: rc={proc.returncode} {stderr.decode()[:200]}\")",
+  "nuevo": "            return None",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-11c un paso fallido no impide persistir",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "    if result._lectura_incompleta:\n        _logger.info(",
+  "nuevo": "    if False:\n        _logger.info(",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-S1 invalidar por ruta vuelve a parar en la huella",
+  "fichero": "app/storage.py",
+  "viejo": "            borrada = invalidate_mkv_cache(fp[\"sha256_1mb\"])",
+  "nuevo": "            return invalidate_mkv_cache(fp[\"sha256_1mb\"])",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-S2 apply no valida la ruta contra los roots",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    src_path = _resolve_mkv_path_safe(body.file_path)\n    if not src_path.is_file():",
+  "nuevo": "    src_path = Path(body.file_path)\n    if not src_path.is_file():",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-N2 /mnt/isos vuelve a editarse in situ",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    for raiz in (paths.LIBRARY_DIR, paths.ISOS_DIR):",
+  "nuevo": "    for raiz in (paths.LIBRARY_DIR,):",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-12a sin la etiqueta NUMBER_OF_FRAMES",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "                if n > 0:\n                    return n",
+  "nuevo": "                if n < 0:\n                    return n",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-12b la duración vuelve a ser la del contenedor",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "    duracion = _segundos_de_tag(props.get(\"tag_duration\")) or duracion_contenedor_s",
+  "nuevo": "    duracion = duracion_contenedor_s",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-13 dos HEVC vuelven a ser FEL aunque dovi_tool diga MEL",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        has_fel = dovi_info.el_type == \"FEL\"",
+  "nuevo": "        pass",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-08a el pre-flight de espacio vuelve a correr antes del pipe",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        piped_ok = False\n        try:\n            from phases.cmv40_pipeline import _ffmpeg_extract_rpu_piped",
+  "nuevo": "        _comprobar_espacio(str(tmpdir), int(expected_hevc * 1.1))\n        piped_ok = False\n        try:\n            from phases.cmv40_pipeline import _ffmpeg_extract_rpu_piped",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-08b la reserva no comprueba el espacio",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "            _comprobar_espacio(str(tmpdir), int(expected_hevc * 1.1))\n            # ── Paso 1",
+  "nuevo": "            # ── Paso 1",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-08c el TMP_DIR inservible cae al temporal en silencio",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        _logger.warning(\"TMP_DIR %s no se puede usar (%s): los temporales del \"",
+  "nuevo": "        _logger.debug(\"TMP_DIR %s no se puede usar (%s): los temporales del \"",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-21a el tope agotado abandona el proceso",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        try:\n            proc.kill()\n        except ProcessLookupError:\n            pass\n        await proc.wait()\n        raise",
+  "nuevo": "        raise",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-21b la duración vuelve al wait_for pelado",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "        out, _ = await _comunicar_o_matar(proc, _TOPE_DURACION_S)",
+  "nuevo": "        out, _ = await asyncio.wait_for(proc.communicate(), timeout=_TOPE_DURACION_S)",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-21c el frame de L254 vuelve al wait_for pelado",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "            out, _ = await _comunicar_o_matar(proc, _TOPE_INFO_FRAME_S)",
+  "nuevo": "            out, _ = await asyncio.wait_for(proc.communicate(), timeout=_TOPE_INFO_FRAME_S)",
+  "modulos": [
+   "test_la_cache_de_tab2_no_miente"
+  ]
+ },
+ {
+  "id": "T4-14 la agregación vuelve a juntar títulos parecidos",
+  "fichero": "app/services/cmv40_recommend.py",
+  "viejo": "        if _identidad(r.title_normalized) != identidad:\n            continue\n",
+  "nuevo": "",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes",
+   "test_cmv40_sheet_verdict"
+  ]
+ },
+ {
+  "id": "T4-15 la temporada muda no se completa",
+  "fichero": "app/services/tmdb.py",
+  "viejo": "    if params.get(\"language\") == _LOCALE_RESPALDO or not any(",
+  "nuevo": "    if True or not any(",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-15b solo se completan los episodios sin nombre",
+  "fichero": "app/services/tmdb.py",
+  "viejo": "            if not (e.get(campo) or \"\").strip() and es.get(campo):",
+  "nuevo": "            if es.get(campo):",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-16a el listado de Drive se etiqueta con la carpeta de ahora",
+  "fichero": "app/services/rec999_drive.py",
+  "viejo": "    _save_cache(files, folder_id)",
+  "nuevo": "    _save_cache(files, get_cmv40_drive_folder_id())",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-16b la caché en memoria de Drive no mira la carpeta",
+  "fichero": "app/services/rec999_drive.py",
+  "viejo": "            and _cache_folder_id == folder_id\n",
+  "nuevo": "",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-16c la copia de la hoja no mira de qué hoja es",
+  "fichero": "app/services/rec999_sheet.py",
+  "viejo": "        if (datos.get(\"sheet_id\"), datos.get(\"gid\")) != tuple(hoja):",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-16d la memoria de la hoja no mira de qué hoja es",
+  "fichero": "app/services/rec999_sheet.py",
+  "viejo": "    if (not force_refresh and _cache_rows is not None and _cache_sheet == hoja\n",
+  "nuevo": "    if (not force_refresh and _cache_rows is not None\n",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-17a lo leído por XLSX no deja copia",
+  "fichero": "app/services/rec999_sheet.py",
+  "viejo": "            return await _aceptar(parsed, \"xlsx\")",
+  "nuevo": "            return await _aceptar(parsed, \"xlsx\", guardar=False)",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-17b un CSV sin filas sustituye la copia buena",
+  "fichero": "app/services/rec999_sheet.py",
+  "viejo": "        parsed = parse_csv_text(await _fetch_csv())\n        if parsed:",
+  "nuevo": "        parsed = parse_csv_text(await _fetch_csv())\n        if True:",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-18 el legacy de Drive vuelve detrás del enlace de la app",
+  "fichero": "app/services/settings_store.py",
+  "viejo": "    for variable in (\"CMV40_DRIVE_FOLDER_URL\", \"CMV40_DRIVE_FOLDER_ID\"):",
+  "nuevo": "    for variable in (\"CMV40_DRIVE_FOLDER_URL\",):",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-19 sin carpeta, «no comprobado» vuelve a aprobar",
+  "fichero": "app/services/rec999_drive.py",
+  "viejo": "    drive_probado = bool(folder_id)",
+  "nuevo": "    drive_probado = True; drive_ok = not folder_id",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-22a un 403 de GitHub vuelve a ser un éxito vacío",
+  "fichero": "app/main.py",
+  "viejo": "    if fetch_error is None and rate_limited and not latest_tag:",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-22b la caché vieja vuelve a apagar el aviso",
+  "fichero": "app/main.py",
+  "viejo": "                \"update_available\": (bool(latest_c) and _semver_gt(latest_c, current)\n                                     and latest_c != ignored_version),",
+  "nuevo": "                \"update_available\": False,",
+  "modulos": [
+   "test_los_servicios_no_mezclan_origenes"
+  ]
+ },
+ {
+  "id": "T4-P7-8a el summary falso vuelve a anunciar cuatro targets L8",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "    tabla = (sc or {}).get(\"l8_nits\") or {}\n    nits = sorted({int(tabla[str(i)]) for i in indices_l8(props) if str(i) in tabla})\n    if nits:\n        lines.append(\"  L8 trims: \" + \", \".join(\"%d nits\" % n for n in nits))",
+  "nuevo": "    if props[\"has_l8\"]:\n        lines.append(\"  L8 trims: 100 nits, 600 nits, 1000 nits, 2000 nits\")",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "T4-P7-8b el pintor to_summary vuelve a cuatro targets",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "        nits = nits_de_l8(self.l8_indices) if self.has_l8 else []",
+  "nuevo": "        nits = [100, 600, 1000, 2000] if self.has_l8 else []",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "T4-P7-8c lo declarado no viaja con el RPU",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "        props[\"l8_indices\"] = [int(i) for i in decl]\n        props[\"l8_declarado\"] = True",
+  "nuevo": "        pass",
+  "modulos": [
+   "test_contrato_de_los_fakes",
+   "test_mkv_dovi_levels"
+  ]
+ },
+ {
+  "id": "T4-P7-8d el export vuelve a mirar solo la declaración por nombre",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "                        for idx in indices_l8(props):",
+  "nuevo": "                        for idx in (niveles.get(\"l8_indices\") if niveles.get(\"l8_indices\") is not None else ([1] if props.get(\"has_l8\") else [])):",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "T4-04a el remux de un proyecto parado vuelve a ofrecerse",
+  "fichero": "app/main.py",
+  "viejo": "                if not tf.is_file() or tf.name in de_proyectos:",
+  "nuevo": "                if not tf.is_file():",
+  "modulos": [
+   "test_limpieza_solo_lo_huerfano"
+  ]
+ },
+ {
+  "id": "T4-04b el borrado no vuelve a escanear",
+  "fichero": "app/main.py",
+  "viejo": "        if path not in vigentes:",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_limpieza_solo_lo_huerfano"
+  ]
+ }
+]
