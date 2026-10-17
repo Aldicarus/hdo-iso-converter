@@ -677,6 +677,36 @@ class TestUnaCabeceraCompartidaNoFusionaLosEpisodios(unittest.IsolatedAsyncioTes
                          ["00801.m2ts", "00802.m2ts", "00803.m2ts"])
 
 
+class TestDosEpisodiosEnElMismoM2ts(unittest.IsolatedAsyncioTestCase):
+    """Un m2ts con dos episodios seguidos: dos MPLS sobre el MISMO fichero
+    que reproducen tramos distintos. El dedupe los tomaba por variantes del
+    mismo título y se comía uno (auditoría con Codex del 2026-10-17)."""
+
+    async def asyncSetUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="mpls_sel_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tb = FakeToolbox(self.tmp)
+        self.tb.install()
+        self.addCleanup(self.tb.uninstall)
+
+    async def _candidatos(self, playlists):
+        for nombre in playlists:
+            self.tb.define_mkv(nombre, tracks=PISTAS_PELICULA, duration_s=45 * 60.0)
+        disco = _disco(self.tmp / "Serie", playlists, {"00900": PELICULA})
+        return await phase_a.identify_episode_candidates(str(disco))
+
+    async def test_tramos_distintos_son_dos_episodios(self):
+        c = await self._candidatos({"00801.mpls": [("00900", 0, 45 * 60)],
+                                    "00802.mpls": [("00900", 45 * 60, 90 * 60)]})
+        self.assertEqual([x["mpls_name"] for x in c], ["00801.mpls", "00802.mpls"])
+
+    async def test_tramos_que_se_solapan_siguen_siendo_variantes(self):
+        """Montaje de cine y extendido: casi todo el metraje en común."""
+        c = await self._candidatos({"00801.mpls": [("00900", 0, 45 * 60)],
+                                    "00802.mpls": [("00900", 0, 47 * 60)]})
+        self.assertEqual(len(c), 1)
+
+
 # ── Restaurar capítulos: el MPLS de la sesión ──────────────────────────
 
 class TestRestaurarCapitulosLeeElMplsDeLaSesion(ApiTestCase):

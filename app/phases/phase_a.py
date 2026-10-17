@@ -475,6 +475,28 @@ def _segmentos_del_mpls(mpls_path: str) -> list[tuple[str, int, int]] | None:
         return None
 
 
+def _tramos_sobre(mpls_path: str, m2ts_path: str | None) -> list[tuple[int, int]] | None:
+    """Los intervalos `(IN, OUT)` que un MPLS reproduce de ESE m2ts, o None
+    si no se pueden leer."""
+    if not m2ts_path:
+        return None
+    tramos = _segmentos_del_mpls(mpls_path)
+    if tramos is None:
+        return None
+    clip = Path(m2ts_path).stem
+    propios = [(ini, fin) for c, ini, fin in tramos if c == clip]
+    return propios or None
+
+
+def _se_solapan(a: list[tuple[int, int]] | None,
+                b: list[tuple[int, int]] | None) -> bool:
+    """¿Reproducen algo en común? Sin datos de uno de los dos, se asume que
+    sí: es lo que se hacía antes de mirar los tramos."""
+    if a is None or b is None:
+        return True
+    return any(min(f1, f2) > max(i1, i2) for i1, f1 in a for i2, f2 in b)
+
+
 def _clips_del_mpls(mpls_path: str) -> list[str] | None:
     """Los clips (``00000``, ``00800``…) que reproduce un MPLS, en orden."""
     tramos = _segmentos_del_mpls(mpls_path)
@@ -929,22 +951,33 @@ async def identify_episode_candidates(
     # la versión completa, que es lo que el usuario querría procesar.
     # Sin esto, un disco de película con 4 variantes de MPLS al mismo
     # m2ts aparece como "serie de 4 capítulos" (caso reportado).
+    #
+    # Pero compartir fichero no es reproducir lo mismo: un m2ts con dos
+    # episodios seguidos tiene dos MPLS que reproducen sus minutos 0-45 y
+    # 45-90, y el dedupe se comía uno (auditoría con Codex del 2026-10-17).
+    # Solo son variantes si sus tramos SOBRE ESE FICHERO se solapan; sin
+    # tramos legibles, como antes.
     discarded_by_dup: list[dict] = []
     if any(c.get("m2ts_resolved_path") for c in candidates):
-        by_m2ts: dict[str, dict] = {}
+        by_m2ts: dict[str, list[dict]] = {}
         for c in candidates:
             key = c.get("m2ts_resolved_path") or c["mpls_path"]  # fallback
-            existing = by_m2ts.get(key)
+            tramos = _tramos_sobre(c["mpls_path"], c.get("m2ts_resolved_path"))
+            grupo = by_m2ts.setdefault(key, [])
+            existing = next((e for e in grupo
+                             if _se_solapan(tramos, e["_tramos"])), None)
+            c["_tramos"] = tramos
             if existing is None:
-                by_m2ts[key] = c
+                grupo.append(c)
+            # Conservamos la duración más larga; las otras al log
+            elif c["duration_minutes"] > existing["duration_minutes"]:
+                discarded_by_dup.append(existing)
+                grupo[grupo.index(existing)] = c
             else:
-                # Conservamos la duración más larga; las otras al log
-                if c["duration_minutes"] > existing["duration_minutes"]:
-                    discarded_by_dup.append(existing)
-                    by_m2ts[key] = c
-                else:
-                    discarded_by_dup.append(c)
-        candidates = list(by_m2ts.values())
+                discarded_by_dup.append(c)
+        candidates = [c for grupo in by_m2ts.values() for c in grupo]
+        for c in candidates + discarded_by_dup:
+            c.pop("_tramos", None)
 
     # ── Filtro por tamaño del m2ts referenciado ──────────────────
     # Combina dos umbrales (se aplica el MÁS ALTO de los dos):
