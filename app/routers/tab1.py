@@ -2921,7 +2921,14 @@ async def _run_pipeline(session_id: str) -> None:
     # relanzar deja de ser cierto que el proyecto esté parado porque lo
     # paraste tú. Se limpia aquí y no en el `except`, que es donde se pone.
     session.last_cancelled_at   = None
-    save_session(session)
+    # Fuera del `try` de abajo, así que su `finally` no soltaría el hueco: un
+    # save que falla (el /config lleno) dejaba la cola entera esperando a un
+    # rip que nunca corrió (auditoría con Codex del 2026-10-17).
+    try:
+        save_session(session)
+    except Exception:
+        workload.liberar(session_id)
+        raise
     _rip_progress_reset(session_id, session.mkv_name or session_id,
                         _rip_origen(session.source_type or "iso"))
 

@@ -320,6 +320,20 @@ class TestFallos(OrquestadorCase):
     async def test_una_sesion_que_no_existe_no_revienta(self):
         await self.main._run_pipeline("no_existe_esta_sesion")
 
+    async def test_si_el_primer_guardado_falla_no_deja_el_hueco_ocupado(self):
+        """Ese save va antes del `try` cuyo `finally` suelta el hueco: con el
+        /config lleno la cola se quedaba esperando a un rip que nunca corrió
+        (auditoría con Codex del 2026-10-17)."""
+        import workload
+        from unittest.mock import patch
+        workload.limpiar()
+        self.addCleanup(workload.limpiar)
+        s = self._sesion()
+        with patch.object(self.main, "save_session", side_effect=OSError("disco lleno")):
+            with self.assertRaises(OSError):
+                await self.main._run_pipeline(s.id)
+        self.assertIsNone(workload.bloqueado_por(), "el hueco del rip sigue ocupado")
+
     async def test_el_log_va_numerado_como_las_fases_que_se_ven(self):
         """Las cuatro fases de una conversión llevan letra en la UI y el log
         usa la MISMA. Decía `[Fase D]` para lo que la columna llama la
