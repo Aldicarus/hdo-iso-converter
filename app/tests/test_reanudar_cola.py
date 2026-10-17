@@ -47,6 +47,9 @@ class ColaCase(unittest.IsolatedAsyncioTestCase):
         self._orig = (storage.CONFIG_DIR, paths.CONFIG_DIR)
         storage.CONFIG_DIR = paths.CONFIG_DIR = self.tmp
         self.addCleanup(lambda: setattr(paths, "CONFIG_DIR", self._orig[1]))
+        # El recovery barre los intermedios huérfanos de /mnt/tmp.
+        self.addCleanup(setattr, paths, "TMP_DIR", paths.TMP_DIR)
+        paths.TMP_DIR = str(self.tmp)
         self.addCleanup(lambda: setattr(storage, "CONFIG_DIR", self._orig[0]))
         cache = getattr(storage, "_sessions_summary_by_file", None)
         if isinstance(cache, dict):

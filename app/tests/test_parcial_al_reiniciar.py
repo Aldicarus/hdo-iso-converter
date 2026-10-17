@@ -52,13 +52,17 @@ class RecoveryCase(unittest.TestCase):
         self.output = self.tmp / "output"
         self.output.mkdir()
 
-        orig = (storage.CONFIG_DIR, paths.CONFIG_DIR, paths.OUTPUT_DIR_MKV)
+        orig = (storage.CONFIG_DIR, paths.CONFIG_DIR, paths.OUTPUT_DIR_MKV, paths.TMP_DIR)
         storage.CONFIG_DIR = paths.CONFIG_DIR = self.tmp / "config"
         storage.CONFIG_DIR.mkdir()
         paths.OUTPUT_DIR_MKV = self.output
+        self.trabajo = self.tmp / "tmp"
+        self.trabajo.mkdir()
+        paths.TMP_DIR = str(self.trabajo)
 
         def _restaurar_dirs():
-            storage.CONFIG_DIR, paths.CONFIG_DIR, paths.OUTPUT_DIR_MKV = orig
+            (storage.CONFIG_DIR, paths.CONFIG_DIR, paths.OUTPUT_DIR_MKV,
+             paths.TMP_DIR) = orig
         self.addCleanup(_restaurar_dirs)
 
         cache = getattr(storage, "_sessions_summary_by_file", None)
@@ -176,6 +180,27 @@ class TestElNombreDeTrabajo(RecoveryCase):
         self.recuperar()
 
         self.assertTrue(resto.exists())
+
+
+class TestLosIntermediosHuerfanos(RecoveryCase):
+    """Un reinicio durante la Fase D dejaba el `*_intermediate.mkv` en
+    /mnt/tmp para siempre: la fase limpia cuando mkvmerge falla, no cuando
+    matan al proceso, y el barrido de huérfanos no mira ese patrón."""
+
+    def test_se_borran_al_arrancar(self):
+        self.sesion("a", "A.mkv")
+        huerfano = self.trabajo / "00800_intermediate.mkv"
+        huerfano.write_bytes(b"\x00" * 4096)
+        self.recuperar()
+        self.assertFalse(huerfano.exists())
+
+    def test_lo_demas_de_tmp_no(self):
+        otros = [self.trabajo / "notas.mkv", self.trabajo / "cmv40" / "x_intermediate.mkv"]
+        otros[1].parent.mkdir()
+        for f in otros:
+            f.write_bytes(b"\x00")
+        self.recuperar()
+        self.assertTrue(all(f.exists() for f in otros))
 
 
 class TestLoQueNoSeToca(RecoveryCase):

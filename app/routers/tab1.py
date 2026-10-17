@@ -302,6 +302,31 @@ def recuperar_sesiones_interrumpidas() -> None:
         _logger.info("[Startup] %d sesión(es) interrumpida(s) reseteada(s) a 'pending'", rotas)
     if esperando:
         _logger.info("[Startup] %d sesión(es) siguen encoladas y se reanudarán", esperando)
+    _borrar_intermedios_huerfanos()
+
+
+def _borrar_intermedios_huerfanos() -> None:
+    """Los `*_intermediate.mkv` que una Fase D dejó en /mnt/tmp al morir.
+
+    La fase limpia lo suyo cuando mkvmerge FALLA, no cuando a todo el proceso
+    lo mata un reinicio; y el barrido de huérfanos no mira ese patrón, así
+    que decenas de GB se quedaban en /mnt/tmp para siempre (auditoría con
+    Codex del 2026-10-17). Al arrancar no corre ningún rip, así que todo
+    intermedio que haya es de uno que murió. Solo el primer nivel: es donde
+    los escribe `run_phase_d`, y los workdirs de Tab 2 y CMv4.0 van en
+    subdirectorios."""
+    try:
+        restos = [f for f in Path(paths.TMP_DIR).glob("*_intermediate.mkv") if f.is_file()]
+    except OSError as e:
+        _logger.warning("[Startup] no se pudo mirar %s: %s", paths.TMP_DIR, e)
+        return
+    for f in restos:
+        try:
+            tam = f.stat().st_size
+            f.unlink()
+            _logger.info("[Startup] intermedio huérfano borrado (%.2f GB): %s", tam / 1e9, f)
+        except OSError as e:
+            _logger.warning("[Startup] no se pudo borrar el intermedio %s: %s", f, e)
 
 
 async def reanudar_cola() -> None:
