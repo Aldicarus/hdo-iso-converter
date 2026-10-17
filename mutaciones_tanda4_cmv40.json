@@ -241,5 +241,248 @@
   "modulos": [
    "test_cmv40_cada_proyecto_lo_suyo"
   ]
+ },
+ {
+  "id": "T4-28 Cambiar target conserva la decisión y el análisis del bin viejo",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        for campo in _CMV40_CAMPOS_DEL_TARGET:\n            setattr(session, campo, CMv40Session.model_fields[campo]\n                    .get_default(call_default_factory=True))",
+  "nuevo": "        pass",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-29 Cambiar target conserva el tier del bin viejo en el nombre",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        _cmv40_apply_quality_label_to_output_name(session, \"CMv4.0\")",
+  "nuevo": "        pass",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-30 restaurar el sync borra sin haber leído el original",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if frames <= 0:\n        raise HTTPException(status_code=500, detail=tr(\n            'cmv40.no_se_pudo_leer_el_target_original',",
+  "nuevo": "    if False:\n        raise HTTPException(status_code=500, detail=tr(\n            'cmv40.no_se_pudo_leer_el_target_original',",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-31 restaurar el sync deja el gráfico de la corrección",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    for nombre in (\"RPU_synced.bin\", \"RPU_synced.tmp.bin\", \"editor_config.json\",\n                   \"per_frame_data.json\"):",
+  "nuevo": "    for nombre in (\"RPU_synced.bin\", \"RPU_synced.tmp.bin\", \"editor_config.json\"):",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-32 rebobinar bajo la corrección deja su gráfico",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            (wd / \"per_frame_data.json\").unlink(missing_ok=True)\n        for name in _cmv40_artifacts_to_delete(target_phase):",
+  "nuevo": "            pass\n        for name in _cmv40_artifacts_to_delete(target_phase):",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-33 la caché del gráfico ignora el delta",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            and cache.get(\"sync_delta\") == sync_delta):",
+  "nuevo": "            ):",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-34 el lote del log sale del buffer antes de llegar al fichero",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        with _cmv40_log_io_lock:\n            n = len(buf)\n            if n:\n                append_cmv40_log(session_id, buf[:n])\n                del buf[:n]",
+  "nuevo": "        with _cmv40_log_io_lock:\n            n = len(buf)\n            lote = buf[:n]\n            del buf[:n]\n        if n:\n            append_cmv40_log(session_id, lote)",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-35 una línea seguida de silencio se queda en RAM",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            _cmv40_log_programar_volcado(session_id)\n            return",
+  "nuevo": "            return",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-36 el relato se compone con la clasificación guardada",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        session.model_copy(update=l8_hoy) if l8_hoy else session,",
+  "nuevo": "        session,",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-37 una línea cortada del historial se traga la siguiente",
+  "fichero": "app/historial.py",
+  "viejo": "        previo = \"\" if _acaba_en_salto(f) else \"\\n\"",
+  "nuevo": "        previo = \"\"",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-38 las Fase B rápidas se registran como diferidas",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "                           workload.CLASE_DIFERIDO\n                           if phase_name in _CMV40_FASES_DIFERIDAS\n                           else workload.CLASE_INTERACTIVO)",
+  "nuevo": "                           workload.CLASE_DIFERIDO)",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-39 el porcentaje del job con su propia regla de drop-in",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    pesos = (_CMV40_PHASE_WEIGHTS_DROPIN if va_por_drop_in(session)\n             else _CMV40_PHASE_WEIGHTS_MERGE)",
+  "nuevo": "    pesos = (_CMV40_PHASE_WEIGHTS_DROPIN if (session.target_type == \"trusted_p7_fel_final\" and session.target_trust_ok)\n             else _CMV40_PHASE_WEIGHTS_MERGE)",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-40 el modelo de ETA ignora lo que el job hizo",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        if hecho in (\"restore_dropin\", \"restore_merge\"):",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-41 el pre-flight no vuelca su log al terminar",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "                # fichero ya, no cuando llegue la siguiente línea del log.\n                await _cmv40_log_volcar(session.id, forzar=True)\n",
+  "nuevo": "                # fichero ya, no cuando llegue la siguiente línea del log.\n",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4-42 el pre-flight desde otro MKV por el pipe conserva la corrección del bin anterior",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        # 2026-10-17).\n        _descartar_correccion_de_otro_target(session, wd)\n        # Aquí el HEVC no interesa",
+  "nuevo": "        # 2026-10-17).\n        # Aquí el HEVC no interesa",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T4-43 la Fase A no mide la cadencia",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if fps:\n        session.source_fps = fps",
+  "nuevo": "    if False:\n        session.source_fps = fps",
+  "modulos": [
+   "test_cmv40_fase_a"
+  ]
+ },
+ {
+  "id": "T4-44 el desfase negativo solo se detecta hasta -100",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        base = max(0, -offset)\n        for i in range(base, base + compare_len):",
+  "nuevo": "        base = 0\n        for i in range(base, base + compare_len):",
+  "modulos": [
+   "test_cmv40_sync_offset"
+  ]
+ },
+ {
+  "id": "T4-45 la Fase F inyecta un Profile 7 en una salida single-layer",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if inject.needs_profile8 and info_a_inyectar.profile not in (None, 8):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_cmv40_fase_f_matriz"
+  ]
+ },
+ {
+  "id": "T4-46 la Fase H valida un HEVC viejo de otra ruta",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        pre_mux_hevc = (del_plan if del_plan.exists()",
+  "nuevo": "        pre_mux_hevc = (del_plan if False",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T4-47 el pre-flight rechaza un .BIN en mayúsculas",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    # `Peli.BIN` salía en la lista y el pre-flight y la Fase B lo rechazaban.\n    if not src.is_file() or src.suffix.lower() != \".bin\":",
+  "nuevo": "    # `Peli.BIN` salía en la lista y el pre-flight y la Fase B lo rechazaban.\n    if not src.is_file() or src.suffix != \".bin\":",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T4-48 la Fase B rechaza un .BIN en mayúsculas",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))\n    if not src.is_file() or src.suffix.lower() != \".bin\":",
+  "nuevo": "        raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))\n    if not src.is_file() or src.suffix != \".bin\":",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T4-49 el porcentaje de frames significativos cuenta bloques",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "    _fijar_frames_significativos(analysis, frames_significativos, frames_with_l8)",
+  "nuevo": "    _fijar_frames_significativos(analysis, frames_significativos, {(r.get(\"frame\"), r.get(\"target_display_index\")) for r in l8 if isinstance(r, dict)})",
+  "modulos": [
+   "test_rpu_analyze"
+  ]
+ },
+ {
+  "id": "T4-50 la Fase H publica con un rename que pisa el destino",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        os.link(origen, destino)\n    except FileExistsError:",
+  "nuevo": "        os.rename(origen, destino); return True\n    except FileExistsError:",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T4-51 la copia entre filesystems sigue tras cancelar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            # lo que llevaba copiado.\n            parar.set()\n            raise",
+  "nuevo": "            # lo que llevaba copiado.\n            raise",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T4-52 la corrección de sync con un timeout fijo de 120 s",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    ], log_callback=log_callback, timeout=1500)\n    if rc != 0:\n        salida_tmp.unlink(missing_ok=True)",
+  "nuevo": "    ], log_callback=log_callback, timeout=120)\n    if rc != 0:\n        salida_tmp.unlink(missing_ok=True)",
+  "modulos": [
+   "test_pipeline_timeouts"
+  ]
+ },
+ {
+  "id": "T4-53 analyze_rpu_combos con 60 s por defecto",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "    export_timeout: int = 1500,",
+  "nuevo": "    export_timeout: int = 60,",
+  "modulos": [
+   "test_pipeline_timeouts"
+  ]
+ },
+ {
+  "id": "T4-54 un origen sin bloques L5 se toma por un fallo de lectura",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if src is None or tgt is None or total <= 0:",
+  "nuevo": "    if not src or not tgt or total <= 0:",
+  "modulos": [
+   "test_cmv40_gate_l5"
+  ]
  }
 ]

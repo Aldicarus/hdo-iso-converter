@@ -1573,7 +1573,7 @@ async def _enrich_dovi_from_json_export(dovi: DoviInfo, rpu_path: str) -> None:
     niveles = await export_levels(
         Path(rpu_path),
         ("level3", "level4", "level8", "level9", "level10", "level11"),
-        timeout=900)
+        timeout=1500)
     if not niveles:
         _logger.info("export --levels no disponible sobre %s", rpu_path)
         return

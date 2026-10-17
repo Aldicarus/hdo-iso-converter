@@ -58,6 +58,23 @@ class TestUnBinNuevoNoHeredaLaCorreccion(PhaseTestCase):
         await preflight_target_path(s, str(nuevo), self.log)
         self.assertFalse((self.wd / "RPU_synced.bin").exists())
 
+    async def test_por_el_pre_flight_desde_otro_mkv_por_el_pipe(self):
+        """El pipe ffmpeg|extract-rpu escribe `RPU_target.bin` directamente, y
+        el descarte solo estaba en el camino en dos pasos (auditoría con
+        Codex del 2026-10-17, reproducido)."""
+        from phases.cmv40_pipeline import preflight_target_mkv
+        s, _ = self._proyecto_con_correccion()
+        otro = self.tmp / "Otro.mkv"
+        write_artifacts(self.tmp, otro.name, props=TGT)
+        self.tb.define_media(otro.name, duration=60.0, frames=1000)
+        await preflight_target_mkv(s, str(otro), self.log)
+        self.assertTrue(self.tb.find("ffmpeg"), "no se ha extraído nada")
+        self.assertTrue(any("pipe:1" in " ".join(c.argv) for c in self.tb.find("ffmpeg")),
+                        "el escenario no ha ido por el pipe")
+        self.assertFalse((self.wd / "RPU_synced.bin").exists(),
+                         "la Fase F inyectaría la corrección del bin anterior")
+        self.assertIsNone(s.sync_config)
+
     async def test_el_mismo_bin_la_conserva(self):
         """La Fase B que vuelve a analizar el bin que ya bajó el pre-flight no
         cambia de bin: la corrección sigue siendo suya."""
@@ -69,6 +86,29 @@ class TestUnBinNuevoNoHeredaLaCorreccion(PhaseTestCase):
         await run_phase_b_target_from_path(s, str(nuevo), self.log)
         self.assertTrue((self.wd / "RPU_synced.bin").exists())
         self.assertEqual(s.sync_config, CORRECCION)
+
+
+class TestUnBinEnMayusculasSeAcepta(PhaseTestCase):
+    """El listado de la carpeta local no distingue mayúsculas y ofrecía
+    `Peli.BIN`; el pre-flight y la Fase B lo rechazaban por el sufijo
+    (auditoría con Codex del 2026-10-17)."""
+
+    def _bin(self):
+        b = self.tmp / "Peli.BIN"
+        write_artifacts(self.tmp, b.name, props=TGT)
+        self.tb.define_rpu(b.name, **TGT.as_dict())
+        self.tb.define_rpu("RPU_target.bin", **TGT.as_dict())
+        return b
+
+    async def test_el_pre_flight(self):
+        from phases.cmv40_pipeline import preflight_target_path
+        await preflight_target_path(make_session(self.wd), str(self._bin()), self.log)
+        self.assertTrue((self.wd / "RPU_target.bin").exists())
+
+    async def test_la_fase_b(self):
+        from phases.cmv40_pipeline import run_phase_b_target_from_path
+        await run_phase_b_target_from_path(make_session(self.wd), str(self._bin()), self.log)
+        self.assertTrue((self.wd / "RPU_target.bin").exists())
 
 
 class TestLosTrimsL8SeLeenTodos(unittest.TestCase):

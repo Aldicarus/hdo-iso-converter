@@ -780,5 +780,40 @@ class TestLaRecomendacionNoSeInventaLaRuta(unittest.TestCase):
         self.assertEqual(vistos, {"drop_in", "merge"}, "el barrido no ejercita las dos ramas")
 
 
+class TestLosFramesSignificativosSonFrames(unittest.TestCase):
+    """El porcentaje de metraje con trims de verdad contaba BLOQUES: con dos
+    targets por frame, uno trabajado y otro neutro, cien frames salían al
+    50 % cuando los cien llevan trim (auditoría con Codex del 2026-10-17)."""
+
+    def test_dos_targets_por_frame(self):
+        from phases.rpu_analyze import analysis_desde_paths
+        d = Path(tempfile.mkdtemp())
+        l1 = [{"frame": f, "min_pq": 0, "max_pq": 2081, "avg_pq": 819} for f in range(100)]
+        l8 = []
+        for f in range(100):
+            for idx, slope in ((1, 2048 + 600), (2, 2048)):
+                l8.append({"frame": f, "target_display_index": idx,
+                           "trim_slope": slope, "trim_offset": 2048,
+                           "trim_power": 2048, "trim_chroma_weight": 2048,
+                           "trim_saturation_gain": 2048, "ms_weight": 0})
+        (d / "l1.json").write_text(json.dumps(l1))
+        (d / "l8.json").write_text(json.dumps(l8))
+        a = analysis_desde_paths({"level1": d / "l1.json", "level8": d / "l8.json"})
+        self.assertAlmostEqual(a.l8_frames_significativos_pct, 1.0)
+
+    def test_la_mitad_de_los_frames(self):
+        from phases.rpu_analyze import analysis_desde_paths
+        d = Path(tempfile.mkdtemp())
+        l1 = [{"frame": f, "min_pq": 0, "max_pq": 2081, "avg_pq": 819} for f in range(100)]
+        l8 = [{"frame": f, "target_display_index": 1,
+               "trim_slope": 2048 + (600 if f < 50 else 0), "trim_offset": 2048,
+               "trim_power": 2048, "trim_chroma_weight": 2048,
+               "trim_saturation_gain": 2048, "ms_weight": 0} for f in range(100)]
+        (d / "l1.json").write_text(json.dumps(l1))
+        (d / "l8.json").write_text(json.dumps(l8))
+        a = analysis_desde_paths({"level1": d / "l1.json", "level8": d / "l8.json"})
+        self.assertAlmostEqual(a.l8_frames_significativos_pct, 0.5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

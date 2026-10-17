@@ -1329,10 +1329,11 @@ def dovi_tool(sc, sub, json_args):
                 if "=" not in spec:
                     continue
                 lv, dest = spec.split("=", 1)
-                if lv == "level5" and niveles.get("l5_pattern"):
+                if lv == "level5" and niveles.get("l5_pattern") is not None:
                     # Perfil L5 declarado por tramos: recorre el frame count
                     # ENTERO del RPU (sin el tope de 200) y deja sin registro
-                    # los frames que ningún tramo cubre.
+                    # los frames que ningún tramo cubre. Un patrón VACÍO es un
+                    # RPU sin un solo bloque L5: el export sale `[]`.
                     Path(dest).write_text(json.dumps(
                         rows_l5(niveles["l5_pattern"], props["frames"])))
                     continue

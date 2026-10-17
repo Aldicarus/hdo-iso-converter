@@ -266,9 +266,13 @@ class TestProfile8EnSingleLayer(FaseFTestCase):
         self.assertEqual(props.frames, FRAMES)
         self.assertTrue(props.has_l8)
 
-    async def test_si_la_conversion_falla_se_sigue_con_el_rpu_original(self):
-        # El vídeo es correcto igualmente; solo la señalización queda mal. La
-        # fase avisa y continúa en vez de tirar el trabajo hecho.
+    async def test_si_la_conversion_falla_la_fase_para_antes_de_inyectar(self):
+        # Seguía con el RPU original «porque el vídeo es correcto», pero la
+        # Fase H comprueba el perfil del MKV entregado y rechaza un Profile 7
+        # en una salida single-layer: inyectar y remuxar (~20 min en UHD) era
+        # gastar para llegar a un rechazo seguro (auditoría con Codex del
+        # 2026-10-17). Se para en la F, sin tocar el HEVC.
+        from phases.cmv40_pipeline import run_phase_f_inject
         session = self.build(
             source_workflow="p7_mel", target_type="trusted_p7_mel_final",
             source_props=SRC_MEL, target_props=TGT_P7_MEL_V40,
@@ -277,9 +281,11 @@ class TestProfile8EnSingleLayer(FaseFTestCase):
         # Solo la conversión falla; el merge previo debe seguir funcionando.
         self.tb.fail_when_json("dovi_tool", "editor", {"mode": 2},
                                stderr="mode 2 no soportado")
-        inj = await self.run_f(session)
-        self.assertEqual(inj.opt_name("--rpu-in"), "RPU_merged.bin",
-                         "se inyecta el merged sin convertir, no se aborta")
+        with self.assertRaises(RuntimeError) as cm:
+            await run_phase_f_inject(session, self.log)
+        self.assertIn("8", str(cm.exception))
+        self.assertFalse(self.tb.ran("dovi_tool", "inject-rpu"),
+                         "inyectó un RPU que la Fase H va a rechazar")
         self.assertTrue(self.log.says("conversión a Profile 8.1 falló"))
 
 

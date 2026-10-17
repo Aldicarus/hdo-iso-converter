@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -554,6 +555,28 @@ async def _contar_frames(media_path: str) -> tuple[int, bool]:
     except Exception:
         pass
     return 0, False
+
+
+#: Las cadencias de vídeo que existen. La medida (frames / duración del
+#: contenedor) se ajusta a la más cercana: la duración del contenedor puede
+#: llevar unas décimas de más por el audio, y eso no puede convertir un
+#: 23,976 en un 23,98.
+_FPS_ESTANDAR = (23.976, 24.0, 25.0, 29.97, 30.0, 47.952, 48.0, 50.0, 59.94, 60.0)
+
+
+def _fps_del_video(frames: int, duracion_s: float) -> float | None:
+    """La cadencia del vídeo, o None si los dos números no la dicen.
+
+    None —y no la medida en bruto— cuando no cae a menos de un 1 % de una
+    cadencia real: con una duración de contenedor muy distinta de la del
+    vídeo (un subtítulo que acaba mucho después), el cociente es un número
+    sin sentido, y el valor por defecto es mejor que inventarse uno.
+    """
+    if not frames or frames <= 0 or not duracion_s or duracion_s <= 0:
+        return None
+    bruto = frames / duracion_s
+    cercano = min(_FPS_ESTANDAR, key=lambda f: abs(f - bruto))
+    return cercano if abs(cercano - bruto) / cercano <= 0.01 else None
 
 
 # Ratios medidos vs wall-time de ffmpeg HEVC extract (anclaje empírico).
@@ -1812,7 +1835,7 @@ async def _medir_niveles_del_export(rpu: Path, dovi_info,
     try:
         from phases.rpu_analyze import contar_l3, export_levels, rellenar_l9_l11
         niveles = await export_levels(
-            rpu, ("level3", "level9", "level11"), timeout=300)
+            rpu, ("level3", "level9", "level11"), timeout=1500)
         if niveles is None:
             return
         combos, frames, _ = contar_l3(niveles.get("level3") or [])
@@ -2107,6 +2130,15 @@ async def run_phase_a_analyze_source(
                 tr('cmv40_pipeline.el_rpu_extraido_tiene_frames_pero', frame_count=dovi_info.frame_count, frame_count2=frame_count, p3=format(ratio, '.1%'))
             )
 
+    # La cadencia del vídeo, medida. `source_fps` nacía a 23,976 y nada lo
+    # escribía (auditoría con Codex del 2026-10-17): el umbral en SEGUNDOS
+    # del tramo L5 divergente de la Fase B y los tiempos del gráfico de
+    # sincronización contaban un máster de 60 fps como si fuera de cine.
+    fps = _fps_del_video(exacto_mkv if es_exacto else dovi_info.frame_count,
+                         duration)
+    if fps:
+        session.source_fps = fps
+
     # Detectar workflow según perfil y subperfil (ver CMv40Session.source_workflow)
     session.source_workflow = _detect_workflow(dovi_info)
     workflow_label = (
@@ -2346,7 +2378,9 @@ async def preflight_target_path(
     src = Path(rpu_path)
     if not src.exists():
         raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))
-    if not src.is_file() or src.suffix != ".bin":
+    # Sin distinguir mayúsculas, como el listado (`list_available_rpus`): un
+    # `Peli.BIN` salía en la lista y el pre-flight y la Fase B lo rechazaban.
+    if not src.is_file() or src.suffix.lower() != ".bin":
         raise RuntimeError(tr('cmv40_pipeline.fichero_no_es_un_bin_valido', rpu_path=rpu_path))
 
     if log_callback:
@@ -2391,6 +2425,12 @@ async def preflight_target_mkv(
                 '[Pre-flight] ┌─ ' + tr('cmv40_pipeline.extrayendo_hevc_del_mkv_target_2', p1=Path(source_mkv_path).name)
             )
 
+        # El pipe ESCRIBE `RPU_target.bin`, así que el bin de antes ya no
+        # está desde aquí — y con él, su corrección. Solo se descartaba en el
+        # camino en dos pasos: por el pipe, la Fase F inyectaba después el
+        # `RPU_synced.bin` del bin anterior (auditoría con Codex del
+        # 2026-10-17).
+        _descartar_correccion_de_otro_target(session, wd)
         # Aquí el HEVC no interesa, solo su RPU: va directo por un pipe sin
         # tocar disco. Antes se escribían decenas de GB para releerlos y
         # borrarlos a continuación.
@@ -2417,7 +2457,6 @@ async def preflight_target_mkv(
                 raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_codigo', rc=rc))
 
             await _log(log_callback, '[Pre-flight] ' + tr('cmv40_pipeline.extrayendo_rpu_del_hevc_target'))
-            _descartar_correccion_de_otro_target(session, wd)
             rc, out, err = await _run([
                 DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
             ], timeout=_adaptive_timeout(
@@ -2546,7 +2585,7 @@ async def run_phase_b_target_from_path(
     src = Path(rpu_path)
     if not src.exists():
         raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))
-    if not src.is_file() or src.suffix != ".bin":
+    if not src.is_file() or src.suffix.lower() != ".bin":
         raise RuntimeError(tr('cmv40_pipeline.fichero_no_es_un_bin_valido', rpu_path=rpu_path))
 
     if _bin_already_cached(session, "path", str(src), rpu_target):
@@ -3223,7 +3262,7 @@ L5_NEUTRO = (0, 0, 0, 0)
 
 
 async def _l5_por_frame(rpu_path: Path, frame_count: int,
-                        timeout: int = 1800) -> dict[int, tuple[int, int, int, int]]:
+                        timeout: int = 1800) -> dict[int, tuple[int, int, int, int]] | None:
     """L5 de cada frame del RPU, indexado por su número de frame REAL.
 
     Sustituye a un muestreo de 24 frames que devolvía **el índice de la fila**
@@ -3248,9 +3287,15 @@ async def _l5_por_frame(rpu_path: Path, frame_count: int,
     `L5_NEUTRO`, no "sin dato" — 76.774 de los 190.021 frames en el caso
     medido. Quien compare tiene que aplicar ese valor por defecto o inventará
     divergencias en el 40% de la película.
+
+    Por eso **None y `{}` no son lo mismo**: None es que no se pudo leer;
+    `{}` es un RPU leído sin un solo bloque L5 —toda la película en el
+    neutro—. Los dos daban `{}` y el refinamiento se rendía, conservando el
+    ACK estático, justo con un origen sin L5 y un bin con L5 solo en el logo
+    (auditoría con Codex del 2026-10-17).
     """
     if frame_count <= 0:
-        return {}
+        return None
 
     # Vía rápida: solo el nivel que interesa.
     try:
@@ -3291,14 +3336,14 @@ async def _l5_por_frame(rpu_path: Path, frame_count: int,
             raise
         except Exception as e:
             _logger.warning("dovi_tool export para L5 falló: %s", e)
-            return {}
+            return None
         if rc != 0 or not export_json.exists():
-            return {}
+            return None
         try:
             data = json.loads(export_json.read_text(encoding="utf-8"))
         except Exception as e:
             _logger.warning("L5 export JSON ilegible: %s", e)
-            return {}
+            return None
     finally:
         export_json.unlink(missing_ok=True)
 
@@ -3533,7 +3578,7 @@ async def _refinar_gate_l5(gates: dict,
     tgt = await _l5_por_frame(rpu_target, target_frames)
     g["sampled_method"] = "per_frame_completo"
 
-    if not src or not tgt or total <= 0:
+    if src is None or tgt is None or total <= 0:
         await _log(
             log_callback,
             _et() + tr('cmv40_pipeline.no_se_pudieron_leer_los_bloques')
@@ -4113,7 +4158,7 @@ async def run_phase_e_correct_sync(
         "-i", str(entrada),
         "-j", str(config_json),
         "-o", str(salida_tmp),
-    ], log_callback=log_callback, timeout=120)
+    ], log_callback=log_callback, timeout=1500)
     if rc != 0:
         salida_tmp.unlink(missing_ok=True)
         raise RuntimeError(tr('cmv40_pipeline.dovi_tool_editor_fallo', p1=err[:300]))
@@ -4372,7 +4417,16 @@ async def run_phase_f_inject(
 
     # Validación de frame count antes de inyectar
     rc, summary, err = await _run([DOVI_TOOL_BIN, "info", "--summary", str(rpu_to_inject)], timeout=30)
-    rpu_frames = _parse_dovi_summary(summary).frame_count
+    info_a_inyectar = _parse_dovi_summary(summary)
+    rpu_frames = info_a_inyectar.frame_count
+    # Una salida single-layer con un RPU que sigue en Profile 7 —la
+    # conversión falló y `_ensure_profile8_rpu` devolvió el original— la
+    # rechaza la Fase H, que comprueba el perfil del MKV entregado. Seguir
+    # gastaba la inyección y el remux (~20 min en UHD) para llegar a un
+    # rechazo ya seguro (auditoría con Codex del 2026-10-17): se para aquí.
+    if inject.needs_profile8 and info_a_inyectar.profile not in (None, 8):
+        raise RuntimeError(tr('cmv40_pipeline.sin_profile8_no_se_inyecta',
+                              profile=info_a_inyectar.profile))
     if rpu_frames != session.source_frame_count:
         raise RuntimeError(
             tr('cmv40_pipeline.frame_count_mismatch_rpu_tiene_frames', rpu_frames=rpu_frames, source_frame_count=session.source_frame_count)
@@ -4549,7 +4603,7 @@ async def _merge_cmv40_into_p7(
             "-i", str(rpu_source_p7),
             "-j", str(cfg_path),
             "-o", str(output),
-        ], log_callback=log_callback, timeout=300)
+        ], log_callback=log_callback, timeout=1500)
     finally:
         cfg_path.unlink(missing_ok=True)
 
@@ -5092,6 +5146,65 @@ async def _comprobar_pistas_del_origen(session, salida_json: str,
                               a=final[0], s=final[1], a0=origen[0], s0=origen[1]))
 
 
+def _publicar_sin_pisar(origen: Path, destino: Path, nombre: str) -> bool:
+    """Da a `origen` el nombre `destino` SIN sustituir uno que ya exista.
+
+    `os.rename` reemplaza el destino en silencio; `os.link` falla si existe,
+    y es atómico. Devuelve False si están en filesystems distintos (EXDEV) —
+    el caller copia—, y lanza si el destino ya existe. Donde el filesystem no
+    admite enlaces duros, se cae al `rename` con la comprobación previa, que
+    es lo que había. Síncrono: va a un thread."""
+    import errno
+    try:
+        os.link(origen, destino)
+    except FileExistsError:
+        raise RuntimeError(tr('cmv40_pipeline.ya_existe_un_mkv_con_ese_2',
+                              output_mkv_name=nombre))
+    except OSError as e:
+        if e.errno == errno.EXDEV:
+            return False
+        if destino.exists():
+            raise RuntimeError(tr('cmv40_pipeline.ya_existe_un_mkv_con_ese_2',
+                                  output_mkv_name=nombre))
+        try:
+            os.rename(origen, destino)
+        except OSError as e2:
+            if e2.errno == errno.EXDEV:
+                return False
+            raise
+        return True
+    os.unlink(origen)
+    return True
+
+
+#: Trozo de la copia entre filesystems: entre trozo y trozo se mira si hay que
+#: parar.
+_TROZO_COPIA = 8 * 1024 * 1024
+
+
+class _CopiaParada(Exception):
+    """La tarea que esperaba la copia se canceló."""
+
+
+def _copiar_por_trozos(origen: Path, destino: Path, parar) -> None:
+    """Copia `origen` a `destino` mirando `parar` entre trozos. Si para o
+    falla, borra lo copiado. Síncrono: va a un thread."""
+    destino.unlink(missing_ok=True)       # un `.parcial` de un intento muerto
+    try:
+        with open(origen, "rb") as fi, open(destino, "xb") as fo:
+            while True:
+                if parar.is_set():
+                    raise _CopiaParada()
+                trozo = fi.read(_TROZO_COPIA)
+                if not trozo:
+                    break
+                fo.write(trozo)
+        shutil.copystat(origen, destino)
+    except BaseException:
+        destino.unlink(missing_ok=True)
+        raise
+
+
 def resolve_validation_target(session: CMv40Session, wd: Path) -> tuple[Path, bool]:
     """Decide QUÉ fichero valida la Fase H y si el rename ya está hecho.
 
@@ -5285,13 +5398,23 @@ async def run_phase_h_validate(
         # existen a la vez EL_injected.hevc y el DV_dual.hevc que salió del
         # mux, y hay que validar el segundo — es el stream completo que
         # mkvmerge multiplexó, no solo su capa de mejora.
+        #
+        # Primero el que la Fase G multiplexó SEGÚN EL PLAN de esta pasada. La
+        # lista en orden fijo cogía el primero que existiera, y un
+        # `source_injected.hevc` que quedó de un drop-in anterior ganaba al
+        # `DV_dual.hevc` nuevo de un merge rehecho: si el prewarm faltaba, la
+        # H validaba el RPU de OTRO stream y entregaba el nuevo (auditoría con
+        # Codex del 2026-10-17). La lista queda para proyectos de antes del
+        # plan, cuyo HEVC puede no llamarse como dice hoy la tabla.
+        del_plan = wd / plan.remux.hevc_for_mkv
         pre_mux_candidates = [
             wd / "source_injected.hevc",   # drop-in P7 FEL (con force_interactive)
             wd / "DV_dual.hevc",           # p7_fel con merge: salida del dovi_tool mux
             wd / "EL_injected.hevc",       # p7_fel: capa de mejora, si no hubo mux
             wd / "BL_injected.hevc",       # p7_mel y p8: single-layer
         ]
-        pre_mux_hevc = next((p for p in pre_mux_candidates if p.exists()), None)
+        pre_mux_hevc = (del_plan if del_plan.exists()
+                        else next((p for p in pre_mux_candidates if p.exists()), None))
 
         full_rpu = wd / "_validate_full_rpu.bin"
         # Fase G lo deja extraído mientras hacía el remux (ver
@@ -5528,19 +5651,25 @@ async def run_phase_h_validate(
         raise RuntimeError(tr('cmv40_pipeline.ya_existe_un_mkv_con_ese_2', output_mkv_name=session.output_mkv_name))
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Intento 1: os.rename (instantáneo si mismo filesystem — caso normal
-    # porque Fase G escribe directamente a /mnt/output)
-    same_fs_rename_ok = False
-    try:
-        os.rename(str(output_mkv), str(final_path))
-        same_fs_rename_ok = True
+    # Intento 1: publicar sin pisar (instantáneo si mismo filesystem — caso
+    # normal porque Fase G escribe directamente a /mnt/output). El
+    # `final_path.exists()` de arriba no basta: `os.rename` SUSTITUYE el
+    # destino, así que un fichero que apareciera entre la comprobación y el
+    # rename se perdía sin un error (auditoría con Codex del 2026-10-17).
+    same_fs_rename_ok = await asyncio.to_thread(
+        _publicar_sin_pisar, output_mkv, final_path, session.output_mkv_name)
+    if same_fs_rename_ok:
         await _log(log_callback, _et() + tr('cmv40_pipeline.rename_atomico_tmp_mkv_instantaneo_mismo'))
         await _emit_progress(log_callback, 95, tr('cmv40_pipeline.renombrado_a_nombre_final'))
-    except OSError:
-        # Distintos filesystems (legacy workdir→output): fallback a copy+delete
-        pass
 
     if not same_fs_rename_ok:
+        # Distintos filesystems (legacy workdir→output). Se copia a un nombre
+        # de trabajo y se publica al terminar: `shutil.move` daba al destino
+        # su nombre DEFINITIVO desde el primer byte —un reinicio a mitad
+        # dejaba un MKV truncado con pinta de entregado— y, como el hilo no
+        # se para al cancelar la tarea, seguía copiando y borraba el origen
+        # con la fase ya cancelada.
+        parcial = OUTPUT_DIR / f"{session.output_mkv_name}.parcial"
         total_bytes = output_mkv.stat().st_size
         await _log(
         log_callback,
@@ -5553,8 +5682,8 @@ async def run_phase_h_validate(
         async def _monitor_move():
             while not stop_mon.is_set():
                 try:
-                    if final_path.exists():
-                        cur = final_path.stat().st_size
+                    if parcial.exists():
+                        cur = parcial.stat().st_size
                         pct = min(99.0, (cur / total_bytes) * 100.0)
                         phase_pct = 55.0 + pct * 0.4
                         elapsed = time.monotonic() - start_mon
@@ -5572,8 +5701,20 @@ async def run_phase_h_validate(
                     pass
 
         mon_task = asyncio.create_task(_monitor_move())
+        parar = threading.Event()
         try:
-            await asyncio.to_thread(shutil.move, str(output_mkv), str(final_path))
+            await asyncio.to_thread(_copiar_por_trozos, output_mkv, parcial, parar)
+            # Ya en el mismo filesystem que el destino: en exclusiva.
+            if not await asyncio.to_thread(_publicar_sin_pisar, parcial, final_path,
+                                           session.output_mkv_name):
+                raise RuntimeError(tr('cmv40_pipeline.ya_existe_un_mkv_con_ese_2',
+                                      output_mkv_name=session.output_mkv_name))
+            output_mkv.unlink(missing_ok=True)
+        except BaseException:
+            # El hilo no muere con la tarea: se le pide que pare, y él borra
+            # lo que llevaba copiado.
+            parar.set()
+            raise
         finally:
             stop_mon.set()
             try:
@@ -5941,7 +6082,15 @@ def detect_sync_offset(per_frame_data: dict, max_offset: int = 200) -> dict:
 
     for offset in range(-max_offset, max_offset + 1):
         errors = []
-        for i in range(compare_len):
+        # La ventana arranca donde las DOS series tienen datos. Empezaba
+        # siempre en el frame 0 del origen, así que con un offset negativo
+        # (al origen le sobran frames al principio: el logo del BD) las
+        # primeras `-offset` comparaciones caían fuera del target: a -150
+        # solo quedaban 50 y no llegaban al solape mínimo, mientras +150
+        # tenía las 200. El rango detectable era -100..+200, no ±200
+        # (auditoría con Codex del 2026-10-17).
+        base = max(0, -offset)
+        for i in range(base, base + compare_len):
             tgt_i = i + offset
             if 0 <= tgt_i < len(tgt_w) and i < len(src_w):
                 errors.append((src_w[i] - tgt_w[tgt_i]) ** 2)

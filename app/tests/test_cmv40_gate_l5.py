@@ -313,6 +313,18 @@ class TestLaFaseSeEjecuta(GateL5Case):
              [b + 1, self.FRAMES - 1, [275, 275, 0, 0]]],
         )
 
+    async def test_un_origen_sin_ningun_bloque_l5_se_compara_como_neutro(self):
+        """Un RPU leído sin un solo bloque L5 —toda la película en el
+        neutro— se confundía con un fallo de lectura: el refinamiento se
+        rendía y el ACK estático se quedaba, con un bin que solo lleva L5 en
+        el logo (auditoría con Codex del 2026-10-17)."""
+        g, log = await self.refinar(self.preparar(
+            frames=self.FRAMES, patron_src=[],
+            patron_tgt=[[0, 199, [276, 276, 0, 0]]]), self.FRAMES)
+        self.assertNotEqual(g["severity"], "ack_required", g.get("why"))
+        self.assertIn("perfil_source", g, "no llegó a comparar")
+        self.assertTrue(g["ok"])
+
     async def test_la_ausencia_de_bloque_no_cuenta_como_divergencia(self):
         src, tgt = self._mandalorian()
         g, log = await self.refinar(self.preparar(
