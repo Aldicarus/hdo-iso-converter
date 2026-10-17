@@ -456,8 +456,9 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, se avisa y se inyecta el RPU original — el vídeo es correcto igualmente. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
 8. **Fase H — Validación**: dos rutas según el modo:
-   - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Solo verifica integridad del MKV con `mkvmerge -J` y frame count con `ffprobe`. ~segundos.
+   - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Verifica el frame count con `ffprobe` —**falla** con más de ±2 frames cuando el recuento lo da `ffprobe`; si es una estimación por duración, solo lo registra—, el Dolby Vision del propio MKV (ver abajo) y `mkvmerge -J`. ~segundos. Hasta el 2026-10-17 el frame count solo se registraba y el resultado era un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito a mano: un MKV truncado se entregaba.
    - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
+   - **Las dos rutas miran el MKV que se entrega** (`_dv_del_mkv_entregado` y `_comprobar_pistas_del_origen`): un muestreo de 30 s (`ffmpeg -t 30` + `extract-rpu --limit 720`, el mismo del pre-flight) comprueba el perfil (8 si la salida es single-layer, 7 si no), la capa y CM v4.0 del RPU que lleva **el fichero**, y `mkvmerge -J` que conserve el audio y los subtítulos del MKV origen. La rama merge valida el HEVC PREVIO al mux, así que un remux que tomara el vídeo del origen —la mutación P3-2, que sobrevivía a la suite entera— o que dejara fuera su audio salía en verde. El muestreo lleva `--limit` a propósito: es la marca de «esto no es el `extract-rpu` completo» que ya usaban los tests del precache. Cubierto por `test_cmv40_fase_h_mira_el_mkv.py`, con la Fase G y la H en cadena.
    Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
 
    **El nombre y el texto de la fase SALEN DE LA RUTA** (`plan.validate.fast_path`,
@@ -510,6 +511,10 @@ Las fases C/F/G/H no se podían invocar en un test —lanzan `ffmpeg`/`dovi_tool
 
 **El `mkvmerge` falso entiende `-J` y `--identify`**, que en mkvmerge son equivalentes y el pipeline usa las dos (Tab 2 y Fase A van con `-J`, la Fase E de Tab 1 con `--identify`). Cuando solo entendía `-J`, una llamada con `--identify` caía a la rama del mux y devolvía líneas de progreso donde se esperaba JSON: el mapa de pistas salía **vacío** y el test del orden de pistas pasaba en verde sin ordenar nada.
 
+**El mux del `mkvmerge` falso CONSTRUYE el MKV con lo que el argv pide** (`_entradas_del_mux` + `_pistas_del_mux`): cada opción de entrada se aplica al fichero que la sigue, el vídeo —y con él el RPU del MKV— sale de la primera entrada sin `--no-video`, `--audio-tracks`/`--subtitle-tracks`/`--track-name`/`--default-track`/`--track-order` se respetan, y las pistas resultantes van en la cabecera del fichero para que el `-J` posterior las lea de ahí (lo que el escenario declare para ese nombre sigue ganando: es la intención del test). Antes heredaba el RPU del primer `.hevc` del argv, estuviera o no detrás de un `--no-video`, y el `-J` contestaba el escenario: un remux que tomara el vídeo del origen o dejara fuera su audio salía idéntico a uno bueno. Una entrada que no existe falla como el real (código 2). Al hacerlo salió un caso real que ningún fake podía ver: el intermedio de Tab 1 es un mux sin selección y saca los cores AC-3 como pistas propias (ver «Mapeo de pistas»).
+
+**Y el `dovi_tool` falso se salta los valores de sus opciones**: `extract-rpu --limit 720 X` tomaba el `720` por la entrada y devolvía los valores POR DEFECTO, así que todo muestreo con `--limit` —el del análisis básico de Tab 2 incluido— leía un CMv2.9 inventado en vez del RPU del fichero. El `ffprobe` falso puede contestar `N/A` (`define_media(frames=None)`), que es lo que el real da sobre algunos MKV.
+
 **Las props viajan en la cabecera del CONTENIDO, no en la ruta.** El sidecar está indexado por ruta absoluta, así que en cuanto el pipeline **mueve** un artefacto la metadata se queda apuntando al nombre viejo y el fichero movido vuelve a los valores por defecto — sin fallar, simplemente contestando otra cosa. Lo destapó el `os.replace` del RPU corregido de la Fase E, pero afecta igual al `.mkv.tmp` → `.mkv` de la Fase H. El `dovi_tool` real lleva la metadata dentro del fichero: `produce` escribe la cabecera que ya existía para el pipe y `read_props`/`props_of` la prefieren al sidecar.
 
 Con eso un test afirma **qué RPU se inyecta en qué HEVC** en cada rama, y el criterio de aceptación es de mutación: reintroducir el bug (quitar la llamada a `_ensure_profile8_rpu`) tiene que hacer fallar un test. Verificado también para el demux truncado de Proyecto Salvación, el adelanto del RPU en drop-in y la validación de L8.
@@ -526,6 +531,8 @@ Cubierto en `test_cmv40_fase_f_matriz.py` (29 tests) y `test_cmv40_fases_cgh.py`
 ### Fase A en una sola pasada: ffmpeg | extract-rpu por un pipe
 
 Los dos pasos grandes de Fase A recorren el vídeo entero y se estorbaban: medido sobre John Wick 4 (243.552 frames, MKV de 88 GB), ffmpeg tarda 574s limitado por DISCO con la CPU ociosa, y `extract-rpu` 372s limitado por CPU (100% de un core) con el disco medio ocioso — ~946s en serie usando media máquina cada vez. `_ffmpeg_extract_rpu_piped` los conecta por un `os.pipe()` (ensanchado a 4 MB con `F_SETPIPE_SZ`) usando el muxer `tee` de ffmpeg para escribir `source.hevc` y alimentar el pipe a la vez. Verificado bit a bit: mismo MD5 que por el camino clásico. Ante cualquier problema devuelve `False` **sin lanzar**, para que el caller recurra al camino en dos pasos.
+
+**En el camino de reserva (dos pasos), un ffmpeg que falla o al que cancelan borra su `source.hevc`.** Se quedaba, y el reintento lo reutilizaba si pasaba del 50 % del tamaño del MKV (`existing_too_small`): el truncado lo cazaba el frames gate, pero después de gastar el resto de la fase. `test_cmv40_fase_h_mira_el_mkv::TestFaseANoDejaElHevcAMedias`.
 
 Consecuencia contraintuitiva pero estructural: **ffmpeg termina bastante antes que el pipeline**. Medido en 5 jobs, la "cola" en la que `extract-rpu` sigue solo es el 23-38% de la fase (71s/263s · 119s/495s · 198s/519s · 201s/733s · 197s/863s). `source.hevc` queda con su mtime final mientras `RPU_source.bin` se escribe minutos después.
 
@@ -634,6 +641,18 @@ dicts**, así que `assertNotIn("analyze_source", self.fases_lanzadas)` pasa
 siempre; y el espía de fases registra **cuando la task corre**, que con el
 `TestClient` depende de cuándo ceda el loop — lo determinista es afirmar a
 qué dispatcher se llama.
+
+### Un bin nuevo no hereda la corrección del anterior
+
+La Fase F usa `RPU_synced.bin` con solo que el fichero exista, y los endpoints
+de la Fase B no comprueban la fase del proyecto. El reset de la interfaz
+(«Cambiar target») sí borraba la corrección, pero un bin nuevo provisto por la
+API sin pasar por él recibía los frames quitados y duplicados del de antes.
+`_descartar_correccion_de_otro_target` borra `RPU_synced*` y
+`editor_config.json` y vacía `sync_config` en los seis sitios que escriben un
+`RPU_target.bin` nuevo (tres del pre-flight, tres de la Fase B); la Fase B que
+vuelve a analizar el bin que ya bajó el pre-flight no cambia de bin y no toca
+nada. `test_cmv40_bin_nuevo.py`.
 
 ### Abortar antes de gastar, no después
 
@@ -2588,6 +2607,7 @@ Seis decisiones que no son obvias:
   después de `_ensure_profile8_rpu`— porque deducirlo en la Fase H sería
   replicar la matriz de `cmv40_strategy`, que es justo lo que ese módulo
   existe para evitar.
+- **El RPU extraído se borraba ANTES de llegar aquí** (en el `finally` de la validación de la Fase H) y el precache usaba el inyectado, contra lo que dice el punto siguiente. Corregido el 2026-10-17: hoy sobrevive de verdad.
 - **Se prefiere el RPU EXTRAÍDO del stream** (`_validate_full_rpu.bin`, el
   prewarm de la Fase G) al inyectado. Los dos describen el mismo RPU, pero el
   primero es evidencia de lo que hay dentro del fichero y el segundo es lo que
@@ -3173,6 +3193,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 
 ### Mapeo de pistas (Phase E)
 - **Por contenido, no por posición**: `_match_tracks_to_source()` busca cada pista incluida en el source por coincidencia de idioma + codec.
+- **Un origen con cores AC-3 va SIEMPRE por la ruta directa** (`_el_origen_tiene_cores` en `_check_reordering`). Las dos puntas del emparejado quitan los cores, así que un disco cuyo audio es solo castellano e inglés TrueHD —con todos los subtítulos incluidos— no tiene exclusiones y caía en la ruta con intermedio; pero el intermedio es un mux SIN selección, saca cada núcleo como pista propia (un MKV ya no lleva `multiplexed_tracks`) y `mkvpropedit` no puede quitar pistas: el MKV final salía con dos AC-3 de más. Comprobado en el NAS el 2026-10-17: ninguna sesión del corpus ha caído aquí, porque los discos con cores traen más audio y ya iban por la directa. Las dos rutas cuestan una copia de los datos. `test_orquestador_tab1::TestLosCoresAc3NoLleganAlMkv`.
 - **Y primero, por su puesto en el disco** (`_puestos_en_el_disco`). La pista incluida lleva una COPIA del `raw` que la Fase A sacó del `mkvmerge -J` del mismo origen, en su orden, así que se reconoce por igualdad en `bdinfo_result.audio_tracks` / `.subtitle_tracks` y se toma el id que ocupa el mismo puesto entre las de su idioma. Es lo único que separa dos pistas que el resto de señales da por iguales: dentro de una categoría el matcher cogía el **primer id libre**, y con la normal y la SDH —las dos completas— recuperar la SDH y descartar la normal entregaba el contenido normal con la etiqueta SDH (The Mandalorian and Grogu: castellano normal 5591, SDH 23022, forzado 248 paquetes). Lo mismo con la AC-3 5.1 principal y la de comentarios. Solo se usa si el origen tiene, de ese idioma, exactamente las pistas que vio la Fase A, y si el códec del puesto casa; si no (el M2TS del reintento, una sesión sin `bdinfo_result`), mandan las reglas de siempre. Cubierto por `test_track_mapping::TestLaPosicionEnElDisco` y `test_fases_de_tab1::TestFaseEDirectaPorContenido`. **El golden de los 41 discos no lo ejercita**: sus fixtures no guardan la lista de pistas de la Fase A, así que va por las reglas de siempre.
 - Audio: compara `raw.language` (inglés) con ISO 639-2 del source + subcadenas de codec.
   - **Desambiguación por canales físicos** (`_parse_channels` + `audio_channels` en track_map):

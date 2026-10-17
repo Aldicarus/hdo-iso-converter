@@ -2158,6 +2158,7 @@ async def preflight_target_drive(
         )
 
     try:
+        _descartar_correccion_de_otro_target(session, wd)
         written = await download_file(file_id, rpu_target, progress_cb=None)
     except Exception as e:
         raise RuntimeError(tr('cmv40_pipeline.descarga_del_repo_dovitools_fallo', e=e))
@@ -2193,6 +2194,7 @@ async def preflight_target_path(
         )
         await log_callback('[Pre-flight] ┌─ ' + tr('cmv40_pipeline.copiando_bin_local', p1=src.name))
 
+    _descartar_correccion_de_otro_target(session, wd)
     shutil.copy2(src, rpu_target)
 
     session.target_rpu_source = "path"
@@ -2254,6 +2256,7 @@ async def preflight_target_mkv(
                 raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_codigo', rc=rc))
 
             await _log(log_callback, '[Pre-flight] ' + tr('cmv40_pipeline.extrayendo_rpu_del_hevc_target'))
+            _descartar_correccion_de_otro_target(session, wd)
             rc, out, err = await _run([
                 DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
             ], timeout=_adaptive_timeout(
@@ -2337,6 +2340,19 @@ async def _preflight_validate_bin(
             )
 
 
+def _descartar_correccion_de_otro_target(session: CMv40Session, wd: Path) -> None:
+    """Un `RPU_target.bin` NUEVO deja sin sentido la corrección de sync que se
+    hizo sobre el anterior. La Fase F usa `RPU_synced.bin` solo con que el
+    fichero exista, así que un bin nuevo provisto sin pasar por «rehacer»
+    —por la API de la Fase B en cualquier fase, que no la comprueba— recibía
+    los frames quitados y duplicados del bin de antes. El reset de la
+    interfaz sí lo borraba; esto lo hace en los sitios por los que entra un
+    bin."""
+    for nombre in ("RPU_synced.bin", "RPU_synced.tmp.bin", "editor_config.json"):
+        (wd / nombre).unlink(missing_ok=True)
+    session.sync_config = None
+
+
 def _bin_already_cached(
     session: CMv40Session,
     expected_source: str,
@@ -2388,6 +2404,7 @@ async def run_phase_b_target_from_path(
             _et() + '📋 Plan' + tr('cmv40_pipeline.copiar_el_rpu_target_desde_carpeta')
         )
         await log_callback(_et() + '┌─ ' + tr('cmv40_pipeline.copiando_rpu_target_local', p1=src.name))
+    _descartar_correccion_de_otro_target(session, wd)
     shutil.copy2(src, rpu_target)
     await _emit_progress(log_callback, 70, tr('cmv40_pipeline.analizando_rpu'))
 
@@ -2449,6 +2466,7 @@ async def run_phase_b_target_from_drive(
         await _emit_progress(log_callback, pct, label)
 
     try:
+        _descartar_correccion_de_otro_target(session, wd)
         written = await download_file(file_id, rpu_target, progress_cb=_progress)
     except Exception as e:
         raise RuntimeError(tr('cmv40_pipeline.descarga_de_drive_fallo', e=e))
@@ -2526,6 +2544,7 @@ async def run_phase_b_target_from_mkv(
             est_rpu = frame_count / FPS_EXTRACT_RPU
         else:
             est_rpu = 120.0
+        _descartar_correccion_de_otro_target(session, wd)
         rc, out, err = await _run_with_time_estimate([
             DOVI_TOOL_BIN, "extract-rpu", str(temp_hevc), "-o", str(rpu_target),
         ], estimated_s=est_rpu, log_callback=log_callback, proc_callback=proc_callback,
