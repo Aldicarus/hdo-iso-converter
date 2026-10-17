@@ -3089,9 +3089,18 @@ function setMkvGenericChapterNames() {
  * que el backend lo copie a /mnt/output antes de editar. Lógica replicada
  * del helper backend `_mkv_needs_copy_to_output`.
  */
-function _mkvFileIsInLibrary(filePath) {
-  if (!filePath) return false;
-  return filePath.startsWith('/mnt/library/');
+/**
+ * El sitio de SOLO LECTURA donde vive el MKV, o null. La biblioteca y
+ * Downloaded (/mnt/isos) se montan `ro`, así que editar in-place no es
+ * posible y el backend exige la copia a /mnt/output (409 sin
+ * `copy_to_output`). Solo miraba la biblioteca: con un MKV de Downloaded
+ * «Aplicar cambios» enseñaba el 409 en vez de ofrecer la copia.
+ */
+function _mkvSitioDeSoloLectura(filePath) {
+  if (!filePath) return null;
+  if (filePath.startsWith('/mnt/library/')) return 'biblioteca';
+  if (filePath.startsWith('/mnt/isos/')) return 'descargados';
+  return null;
 }
 
 async function applyMkvEdits() {
@@ -3101,11 +3110,15 @@ async function applyMkvEdits() {
 
   // Si el MKV está en Biblioteca read-only → confirmación previa.
   // Tras "Aceptar", el backend copia a /mnt/output y luego edita.
-  if (_mkvFileIsInLibrary(filePath)) {
+  const sitio = _mkvSitioDeSoloLectura(filePath);
+  if (sitio) {
     const sizeGb = (a.file_size_bytes || 0) / 1e9;
+    const enBiblioteca = sitio === 'biblioteca';
     showConfirm(
-      tr('tab2.mkv_en_biblioteca_read_only'),
-      tr('tab2.este_mkv_esta_en_la_biblioteca') + ' ' +
+      enBiblioteca ? tr('tab2.mkv_en_biblioteca_read_only')
+                   : tr('tab2.mkv_en_descargados_read_only'),
+      (enBiblioteca ? tr('tab2.este_mkv_esta_en_la_biblioteca')
+                    : tr('tab2.este_mkv_esta_en_descargados')) + ' ' +
       tr('tab2.la_app_copiara_el_fichero_gb', {p1: sizeGb.toFixed(1)}) + ' ' +
       tr('tab2.los_cambios_sobre_la_copia_la') + ' ' +
       tr('tab2.esto_puede_tardar_varios_minutos_para'),

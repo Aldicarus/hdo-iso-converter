@@ -118,6 +118,24 @@ _CUERPO = """
       out.casos.cancelada = await caso('Alien.mkv', '/mnt/library/Alien.mkv', true,
         {ok: true, queued: true},
         [{active: true, step: 'copying', pct: 10}, {active: true, step: 'cancelled'}]);
+      // Downloaded (/mnt/isos) también es de solo lectura: «Aplicar» tiene
+      // que ofrecer la copia, no mandar la edición y comerse el 409.
+      for (const [nombre, ruta] of [['Up.mkv', '/mnt/isos/Up.mkv'],
+                                    ['Coco.mkv', '/mnt/library/Coco.mkv'],
+                                    ['Soul.mkv', '/mnt/output/Soul.mkv']]) {
+        const confirmados = [];
+        const real = window.showConfirm;
+        window.showConfirm = (titulo) => confirmados.push(titulo);
+        for (const q of openMkvProjects.slice()) _doCloseMkvProject(q.id);
+        openMkvProject(analisis(nombre, ruta));
+        llamadas.length = 0;
+        responder = (url) => (url === '/api/mkv/apply'
+          ? {ok: true, new_path: ruta, output: ''} : null);
+        await applyMkvEdits();
+        window.showConfirm = real;
+        out.casos['confirma_' + nombre] = {confirmados,
+          aplicoSinPreguntar: llamadas.includes('/api/mkv/apply')};
+      }
     } catch (e) { out.errores.push('EXCEPCIÓN: ' + e.message); }
     out.errores = out.errores.concat(window.__errores);
     document.getElementById('__out').textContent = JSON.stringify(out);
@@ -163,8 +181,22 @@ class TestAplicarCambios(unittest.TestCase):
 
     def test_ningun_desenlace_lanza(self):
         for nombre, c in self.c.items():
+            if nombre.startswith("confirma_"):
+                continue
             with self.subTest(nombre):
                 self.assertIsNone(c["excepcion"])
+
+    def test_un_mkv_de_downloaded_tambien_ofrece_la_copia(self):
+        """/mnt/isos se monta de solo lectura como la biblioteca, y el
+        backend exige la copia: solo se miraba la biblioteca."""
+        c = self.c["confirma_Up.mkv"]
+        self.assertEqual(c["confirmados"], ["MKV en Downloaded (read-only)"])
+        self.assertFalse(c["aplicoSinPreguntar"])
+        self.assertEqual(self.c["confirma_Coco.mkv"]["confirmados"],
+                         ["MKV en Biblioteca (read-only)"])
+        soul = self.c["confirma_Soul.mkv"]
+        self.assertEqual(soul["confirmados"], [])
+        self.assertTrue(soul["aplicoSinPreguntar"], "en output se edita in-place")
 
     def test_sin_copia_avisa_y_reanaliza(self):
         c = self.c["sinCopia"]
