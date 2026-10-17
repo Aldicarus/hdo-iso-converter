@@ -484,5 +484,14 @@
   "modulos": [
    "test_cmv40_gate_l5"
   ]
+ },
+ {
+  "id": "T4-55 la Fase B desde Drive vuelve a llevar la marca de la petición",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "@router.post(\"/api/cmv40/{session_id}/target-rpu-from-drive\",\n          summary=\"Fase B3: RPU target descargado del repositorio REC_9999 en Drive\")",
+  "nuevo": "@router.post(\"/api/cmv40/{session_id}/target-rpu-from-drive\",\n          summary=\"Fase B3: RPU target descargado del repositorio REC_9999 en Drive\",\n          dependencies=[Depends(workload.marca(\n              lambda: tr('cmv40.wl_descarga_del_rpu'),\n              workload.TAB_CMV40))])",
+  "modulos": [
+   "test_clasificacion_del_trabajo"
+  ]
  }
 ]

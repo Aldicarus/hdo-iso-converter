@@ -4427,11 +4427,12 @@ class CMv40TargetDriveRequest(BaseModel):
     file_name: str = ""
 
 
+# Sin `Depends(workload.marca(...))` **a propósito**, como los pre-flight:
+# contesta `{started: true}` y la descarga sigue en la fase, que se registra
+# ella misma —interactiva desde el 2026-10-17—. La marca apuntaba un segundo
+# trabajo de milisegundos con otra clave (auditoría con Codex).
 @router.post("/api/cmv40/{session_id}/target-rpu-from-drive",
-          summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive",
-          dependencies=[Depends(workload.marca(
-              lambda: tr('cmv40.wl_descarga_del_rpu'),
-              workload.TAB_CMV40))])
+          summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive")
 async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest):
     session = load_cmv40_session(session_id)
     if not session:

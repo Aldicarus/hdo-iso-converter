@@ -5189,7 +5189,7 @@ class _CopiaParada(Exception):
 def _copiar_por_trozos(origen: Path, destino: Path, parar) -> None:
     """Copia `origen` a `destino` mirando `parar` entre trozos. Si para o
     falla, borra lo copiado. Síncrono: va a un thread."""
-    destino.unlink(missing_ok=True)       # un `.parcial` de un intento muerto
+    destino.unlink(missing_ok=True)       # un `.part` de un intento muerto
     try:
         with open(origen, "rb") as fi, open(destino, "xb") as fo:
             while True:
@@ -5669,7 +5669,7 @@ async def run_phase_h_validate(
         # dejaba un MKV truncado con pinta de entregado— y, como el hilo no
         # se para al cancelar la tarea, seguía copiando y borraba el origen
         # con la fase ya cancelada.
-        parcial = OUTPUT_DIR / f"{session.output_mkv_name}.parcial"
+        parcial = OUTPUT_DIR / f"{session.output_mkv_name}.part"
         total_bytes = output_mkv.stat().st_size
         await _log(
         log_callback,

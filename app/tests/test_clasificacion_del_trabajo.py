@@ -98,6 +98,9 @@ SE_REGISTRAN_EN_SU_TASK = {
     # el mismo `_cmv40_dispatch_preflight` que el orquestador, así que la task
     # que se registra es la de siempre.
     "POST /api/cmv40/{session_id}/retry-preflight",
+    # La Fase B desde Drive: contesta `{started: true}` y la descarga corre en
+    # el wrapper de fase, que la registra como interactiva (2026-10-17).
+    "POST /api/cmv40/{session_id}/target-rpu-from-drive",
 }
 
 

@@ -363,7 +363,7 @@ class TestLaCopiaEntreSistemasDeFicheros(FaseHCase):
             await self.fase_h(s)
         self.assertTrue(self.entregado(s))
         self.assertTrue(self.copiado, "el escenario no ha pasado por la copia")
-        self.assertEqual(list(self.output_dir.glob("*.parcial")), [])
+        self.assertEqual(list(self.output_dir.glob("*.part")), [])
 
     def _entre_dispositivos(self):
         """`os.rename` y `os.link` del `.mkv.tmp` hacia /mnt/output fallan
@@ -429,7 +429,7 @@ class TestLaCopiaEntreSistemasDeFicheros(FaseHCase):
                 mock.patch.object(cmv40_pipeline, "_TROZO_COPIA", 1024), \
                 mock.patch.object(cmv40_pipeline, "open", _open, create=True):
             tarea = asyncio.create_task(self.fase_h(s))
-            parcial = self.output_dir / f"{s.output_mkv_name}.parcial"
+            parcial = self.output_dir / f"{s.output_mkv_name}.part"
             for _ in range(200):
                 if parcial.exists():
                     break
