@@ -3577,6 +3577,79 @@ algo, con su test y su mutación:
   respaldo «para sesiones anteriores al campo `auto_pipeline`» se aplicaba a
   todas, porque el modelo lo pone a `False` por defecto (`_cmv40AutoAlAbrir`).
 
+#### El frontend (tanda 3)
+
+Unos sesenta hallazgos en los siete scripts, casi todos de **cuatro clases**.
+Ninguno lo veía un test porque los que había ejecutaban funciones sueltas:
+lo que falla es lo que pasa ENTRE dos piezas cuando una respuesta vuelve
+tarde. Los cubren tres módulos que cargan el `index.html` real con
+`apiFetch` en manos del test —`test_tanda3_tab1_y_comun`,
+`test_tanda3_tab3`, `test_tanda3_tab2_workbar`, con el runner común
+`frontend_sources.pagina_en_chrome`— y 78 mutaciones (`T3-*` en
+`mutaciones.json`).
+
+- **Estado leído DESPUÉS de un `await`.** `currentSession`, `E()` y el
+  proyecto activo cambian mientras una petición vuela, y había flujos que los
+  leían al volver —o peor, que cambiaban el activo ANTES del `await` y lo
+  restauraban después (`_checkIsoAvailability`): durante esos segundos lo que
+  el usuario escribía iba a otro proyecto, y al crear una serie hay una
+  comprobación en vuelo por episodio—. «Guardar y cerrar» un proyecto
+  inactivo dejaba `currentSession` en el cerrado (S4). La regla: **el
+  proyecto se captura al empezar** (`saveSession(project)`), y pintar en uno
+  que no se ve va por **`enProyecto(project, fn)`** (`core.js`), que cambia
+  el activo solo durante un bloque SÍNCRONO. Lo mismo en Tab 3 con un GET que
+  vuelve tarde: lleva su número y uno más viejo que el aplicado se descarta
+  (`_cmv40LeerSesion`), y en la columna, el historial, el browser, la
+  consulta rápida y el modal de trabajo, un contador por petición.
+- **Un fallo, o una intención, leído como éxito.** `saveSession` no devolvía
+  nada y se ejecutaba con el PUT fallido (F05); cancelar una copia ponía
+  «cancelada, parcial borrado» al pulsar, sin mirar la respuesta, y con la
+  copia en cola o ya terminada (F09); el toggle del auto y el cancel de
+  CMv4.0 cambiaban la interfaz sin que el servidor aceptara (H6); un fallo de
+  `/api/trabajos` era «ya no hay trabajo» y disparaba el aviso de terminado
+  (H14); el acuse `{ok, started}` de «Aplicar corrección» se asignaba como
+  sesión y el panel se quedaba sin fase (H2 — `_cmv40AssignSession` solo
+  acepta algo con `id` y `phase`). Y el respaldo que inventa: 23,976 fps y
+  los 720 frames de la muestra como total del MKV, un porcentaje sacado de
+  las fases hechas, «el trabajo continúa en segundo plano» con el auto
+  apagado. **Sin respuesta no consta nada**, y lo que no consta no se dice.
+- **Escapado según el contexto, con su helper.** `showToast` pinta HTML y el
+  `detail` de un error —con nombres de fichero— iba sin escapar; se escapa
+  en `apiFetch`, una vez, y un 422 de FastAPI (una lista) sale legible
+  (`textoDeDetalle`). En un handler inline `escHtml` no basta: el navegador
+  decodifica las entidades ANTES de interpretar el JavaScript, así que un
+  apóstrofo —«Ocean's Eleven»— mataba dieciséis botones. **`jsArg(x)`**
+  (`core.js`) da un literal JSON escapado para el atributo y va sin comillas
+  alrededor: `onclick="abrir(${jsArg(ruta)})"`.
+- **Lo que el repintado se lleva.** Las casillas del sync, que crea otra
+  función DESPUÉS del repintado del padre, se perdían al expandir otra card:
+  lo anclado que no encuentra su sitio se guarda y lo recoge el siguiente
+  repintado que sí lo tenga (`olvidarAnclaje` al aplicar). La lista del repo
+  se quedaba en blanco al reexpandir la card B, el aviso de «sin datos» se
+  llevaba el canvas, y la guarda del clic de la columna repintaba en el
+  `pointerup` —antes que el `click`, o sea perdiéndolo—; ahora en la tarea
+  siguiente (reproducido en Chrome).
+
+Cuatro contratos del backend que el frontend lee, escritos a la vez:
+`POST /api/cmv40/{id}/cancel` deja `auto_pipeline=False`;
+`POST /api/mkv/apply/cancel` devuelve `{ok, descartada}` si la copia esperaba
+turno y `{ok: false, reason}` si no había nada; y el progreso de las series y
+del análisis extendido trae **`resultados_por_job` / `resultados_por_audit`**:
+el singleton es del ÚLTIMO trabajo, y con dos discos de la misma temporada el
+bucle de la primera preguntaba cada 700 ms para siempre.
+
+Dos cosas que conviene no repetir al escribir arneses:
+
+- **El estado nuevo que una función necesita cuelga de la FUNCIÓN**
+  (`refrescarWorkbar.pedido`, `_instalarReordenDeCola.instancia`,
+  `restaurarAnclajeDeFormulario.sinSitio`), el patrón que ya usaba
+  `_workbarConservandoElScroll.gesto`: una variable suelta del módulo dejó
+  noventa tests de arneses que cargan funciones por nombre con un
+  `ReferenceError`.
+- **Un `</script>` dentro del JS de un arnés de Chrome cierra el `<script>`**
+  y la página no ejecuta nada: el síntoma es un `SkipTest` por volcado
+  vacío, no un fallo. Se escribe `<\/script>`.
+
 ### CI — `.github/workflows/tests.yml`
 
 La suite corre en **push a main, PR y `workflow_dispatch`**, con `app/tests/correr_suite.py --estricto`: aísla los directorios de la app antes de importar nada y falla con un skip que no esté en `SKIPS_PREVISTOS` (hoy, uno: el contraste del filtro de tags, que solo existe con un tag auxiliar por delante). Hasta entonces el único workflow del repo publicaba la imagen en `release.published`, así que se podía tagear en rojo sin que nada avisara.
