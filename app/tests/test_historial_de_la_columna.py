@@ -87,6 +87,7 @@ console.log(JSON.stringify({html: _els['workbar-historial'].innerHTML}));
     def _guion(self, lineas, hay_mas=False, tope=25):
         return f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 const _els = {{}};
 for (const id of ['workbar-historial', 'workbar-search', 'workbar-scroll']) {{
   _els[id] = {{ value: '', scrollTop: 0, innerHTML: '' }};

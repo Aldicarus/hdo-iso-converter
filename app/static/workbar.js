@@ -233,7 +233,7 @@ function _workbarTarjeta(t, o) {
     <div class="wb-card wb-tab-${escHtml(t.tab || '')}${sel ? ' selected' : ''}`
       + `${o.clase ? ' ' + o.clase : ''}" data-ref="${escHtml(o.ref)}"
          data-clave="${escHtml(t.id || '')}"
-         onclick="seleccionarTrabajo('${escHtml(o.ref)}')">
+         onclick="seleccionarTrabajo(${jsArg(o.ref)})">
       <div class="wb-card-fila">
         ${_workbarMini(t)}
         <div class="wb-card-txt">
@@ -267,7 +267,7 @@ function _workbarActivoHTML(a) {
   // usuario sepa cuánto fiarse.
   const der = a.eta_s != null
     ? _relojHTML(a.segundos, '', ' · ' + tr('comun.restante_p1', {p1: _workbarTiempo(a.eta_s)})
-        + (a.eta_fuente === 'modelo' ? ' (aprox.)' : ''))
+        + (a.eta_fuente === 'modelo' ? ' ' + tr('workbar.aprox') : ''))
     : _relojHTML(a.segundos, tr('workbar.lleva') + ' ');
   const fase = a.fases_total
     ? `${a.fase_label || a.fase} · `
@@ -467,10 +467,10 @@ function _workbarRender(st) {
         meta: _relojHTML(t.segundos),
         acciones: (t.detalle || t.cancelable) ? `
           ${t.detalle ? `<button class="btn btn-ghost btn-xs"
-            onclick="event.stopPropagation();abrirDetalleDeTrabajo('${escHtml(t.id)}')"
+            onclick="event.stopPropagation();abrirDetalleDeTrabajo(${jsArg(t.id)})"
             data-i18n-tip="workbar.ver_el_detalle_de_este_trabajo" data-i18n="workbar.detalle"></button>` : ''}
           ${t.cancelable ? `<button class="btn btn-ghost btn-xs"
-            onclick="event.stopPropagation();cancelarTrabajoInteractivo('${escHtml(t.id)}')"
+            onclick="event.stopPropagation();cancelarTrabajoInteractivo(${jsArg(t.id)})"
             data-i18n-tip="workbar.detener_este_trabajo" data-i18n="ui.cancelar"></button>` : ''}` : '',
       }), '', pieConsultas)
     + _workbarListaHTML(tr('workbar.esperando_turno'), cola, j => _workbarTarjeta(j, {
@@ -480,7 +480,7 @@ function _workbarRender(st) {
         meta: `<span class="workbar-item-pos">${j.posicion}</span>`,
         acciones: `
           <button class="btn btn-ghost btn-xs"
-            onclick="event.stopPropagation();quitarDeLaCola('${escHtml(j.id)}')" data-i18n="workbar.quitar_de_la_cola" data-i18n-tip="workbar.sacarlo_de_la_cola_el_proyecto"></button>`,
+            onclick="event.stopPropagation();quitarDeLaCola(${jsArg(j.id)})" data-i18n="workbar.quitar_de_la_cola" data-i18n-tip="workbar.sacarlo_de_la_cola_el_proyecto"></button>`,
       }), 'workbar-seccion-cola')
   );
   _instalarReordenDeCola();
@@ -536,8 +536,14 @@ function _workbarFiltroQS() {
  */
 async function _workbarCargarHistorial(rev) {
   const filtro = _workbarFiltroQS();
+  // **Solo pinta la última petición.** Buscar A y luego B, y que A conteste
+  // después, dejaba los resultados de A bajo el filtro B — y ahí se quedaban,
+  // porque nada más forzaba otra carga (auditoría con Codex del 2026-10-17).
+  const f = _workbarCargarHistorial;
+  const pedido = f.pedido = (f.pedido || 0) + 1;
   const r = await apiFetch(`/api/historial?limite=${_workbarTopeHistorial}${filtro}`,
                            { silent: true }).catch(() => null);
+  if (pedido !== f.pedido || filtro !== _workbarFiltroQS()) return;
   if (!r || !Array.isArray(r.trabajos)) return;   // se conserva lo anterior
   // La revisión se apunta al CARGAR, no al pedir: si la petición falla, la
   // vuelta siguiente lo reintenta en vez de quedarse con el historial viejo
@@ -663,15 +669,26 @@ document.addEventListener('pointerdown', (e) => {
 document.addEventListener('pointerup', () => {
   const f = _workbarConservandoElScroll;
   if (!f.gesto) return;
-  f.gesto = false;
   // Lo que se quedó esperando se pinta al soltar, no en el siguiente poll.
   //
   // Uno por CAJA: este helper lo usan el cuerpo y el historial, así que con un
   // solo pendiente la segunda llamada pisaba a la primera y el cuerpo se
   // quedaba con los datos viejos hasta el poll siguiente.
-  const p = f.pendiente;
-  f.pendiente = null;
-  if (p) p.forEach((html, caja) => f(caja, html));
+  //
+  // **Y en la tarea SIGUIENTE, no aquí.** `pointerup` llega ANTES que
+  // `mouseup` y `click`: repintar en este oyente sustituía el botón justo
+  // antes de que el navegador generara el `click`, que caía en el
+  // contenedor — o sea exactamente lo que esta guarda existe para evitar.
+  // Reproducido en Chrome (auditoría con Codex del 2026-10-17). Un
+  // `setTimeout(…, 0)` corre después de toda la secuencia del gesto, y el
+  // gesto se da por terminado a la vez, para que el repintado no vuelva a
+  // quedarse esperando.
+  setTimeout(() => {
+    f.gesto = false;
+    const p = f.pendiente;
+    f.pendiente = null;
+    if (p) p.forEach((html, caja) => f(caja, html));
+  }, 0);
 }, true);
 
 function _workbarConservandoElScroll(caja, html) {
@@ -718,13 +735,13 @@ function _workbarTarjetaReciente(r) {
     meta2: espera ? '' : escHtml(cuando),
     acciones: `
       <button class="btn ${espera ? 'btn-primary' : 'btn-ghost'} btn-xs"
-        onclick="event.stopPropagation();abrirDetalleDeReciente('${escHtml(ref)}')"
+        onclick="event.stopPropagation();abrirDetalleDeReciente(${jsArg(ref)})"
         data-tooltip="${espera
           ? tr('workbar.abrir_para_decidir_que_hacer')
           : tr('workbar.ver_el_detalle_y_el_registro_de_esta')}">${
         tr(espera ? 'workbar.decidir' : 'workbar.detalle')}</button>
       <button class="btn btn-ghost btn-xs"
-        onclick="event.stopPropagation();borrarReciente('${escHtml(ref)}')"
+        onclick="event.stopPropagation();borrarReciente(${jsArg(ref)})"
         data-i18n-tip="workbar.quitarlo_de_la_lista_no_borra" data-i18n="workbar.quitar"></button>`,
   });
 }
@@ -740,11 +757,23 @@ function _workbarTarjetaReciente(r) {
  *  conserva al final lo que no se mencione, así que arrastrar aquí no puede
  *  perder nada.
  */
+// La instancia de Sortable de la lista de la cola cuelga de la FUNCIÓN y no
+// del nodo: la lista se REEMPLAZA en cada repintado, así que `lista._sortable`
+// se buscaba en el nodo nuevo —donde no está— y la del viejo no se
+// destruía nunca: una instancia y sus oyentes de más por vuelta del poll
+// (auditoría con Codex del 2026-10-17). En la función y no en una variable
+// del módulo por lo mismo que `_workbarConservandoElScroll.gesto`: los
+// arneses cargan funciones por nombre.
 function _instalarReordenDeCola() {
+  const f = _instalarReordenDeCola;
   const lista = document.querySelector('#workbar-body .workbar-seccion-cola');
+  if (f.instancia && f.instancia.el === lista) return;   // es la misma
+  if (f.instancia) {
+    try { f.instancia.destroy(); } catch (_) { /* nodo ya fuera */ }
+    f.instancia = null;
+  }
   if (!lista || typeof Sortable === 'undefined') return;
-  if (lista._sortable) lista._sortable.destroy();
-  lista._sortable = Sortable.create(lista, {
+  lista._sortable = f.instancia = Sortable.create(lista, {
     animation: 140,
     onEnd: async () => {
       const orden = [...lista.querySelectorAll('[data-clave]')]
@@ -779,8 +808,16 @@ let _workbarUltimaRevHistorial = null;
 async function refrescarWorkbar() {
   // `recientes=0`: el historial no viaja con el poll. Se carga aparte y solo
   // cuando cambia, que es lo que dice `historial_rev` — ver más abajo.
+  //
+  // **Solo pinta la lectura más reciente.** El poll va encadenado, pero hay
+  // lecturas que corren aparte —la primera, las manuales tras lanzar algo,
+  // la recuperación al volver— y una vieja que volviera tarde pisaba el
+  // estado de una más reciente (auditoría con Codex del 2026-10-17). El
+  // contador cuelga de la función por lo mismo que en `_instalarReordenDeCola`.
+  const pedido = refrescarWorkbar.pedido = (refrescarWorkbar.pedido || 0) + 1;
   const st = await apiFetch('/api/trabajos?recientes=0', { silent: true })
     .catch(() => null);
+  if (pedido !== refrescarWorkbar.pedido) return;
   // Un fallo de red NO se interpreta como "no hay nada": se conserva lo
   // último bueno. Vaciar la columna haría creer que el trabajo terminó.
   if (st && Array.isArray(st.cola)) {
@@ -989,11 +1026,13 @@ function cancelarTrabajoActivo(trabajo) {
   const acciones = {
     rip:   () => apiFetch(`/api/sessions/${a.id}/cancel`, { method: 'POST' }),
     cmv40: async () => {
-      await apiFetch(`/api/cmv40/${a.id}/cancel`, { method: 'POST' });
+      const r = await apiFetch(`/api/cmv40/${a.id}/cancel`, { method: 'POST' });
       // Sin esto el poller del auto-pipeline vuelve a arrancar la cadena a los
       // pocos segundos — visto en el NAS: cancelas la Fase A y salta el
-      // pre-flight otra vez.
-      if (typeof cmv40TrasCancelar === 'function') cmv40TrasCancelar(a.id);
+      // pre-flight otra vez. Solo si el servidor aceptó: con el POST fallido
+      // no se canceló nada, y apagar el auto aquí sería decir otra cosa de lo
+      // que pasa.
+      if (r && typeof cmv40TrasCancelar === 'function') cmv40TrasCancelar(a.id);
     },
     mkv:   () => (a.detalle === 'analisis_extendido'
                     ? _mkvQualityCancel(a.id) : cancelMkvApply()),
@@ -1126,6 +1165,11 @@ let _trabajoModalUltimo = null;   // su último progreso conocido
 let _trabajoModalSinActivo = 0;   // refrescos seguidos sin sujeto
 let _trabajoModalVista = null;    // la última vista con contenido
 let _trabajoModalCuerpo = null;   // el HTML del cuerpo que está PINTADO
+// Cuántas veces se ha abierto o cerrado el modal. Una lectura que vuelve de
+// la red pinta solo si el modal sigue siendo el mismo que la pidió: cerrar A
+// con su lectura en vuelo y abrir B dejaba que la de A pintara encima de B
+// —y «Cancelar» actuara sobre B— (auditoría con Codex del 2026-10-17).
+let _trabajoModalApertura = 0;
 
 
 /** Una cartela a partir del `tmdb_info` que ya tiene la pestaña.
@@ -1243,17 +1287,24 @@ function timelineDeTrabajo(pasos, a, titulo) {
   // El contador sale de las filas, no de `fase_n`: así cuenta igual en un
   // trabajo vivo y en uno terminado, sin dos maneras de calcular lo mismo.
   const hechas = filas.filter(f => f.hecha).length;
+  // **Sin porcentaje medido no se inventa uno.** Las fases terminadas no son
+  // un porcentaje del trabajo —la extracción de un rip es casi todo su
+  // tiempo—, y convertirlas en uno ponía «25 %» en el modal mientras la
+  // tarjeta de la columna, con el mismo dato, pintaba la barra
+  // indeterminada (auditoría con Codex del 2026-10-17). Terminado sí hay
+  // dato: lo hecho es lo que hay.
+  const medido = term || !!a.pct_medido;
   const pct = a.pct_medido ? a.pct
-            : total ? Math.round((hechas / total) * 100) : 0;
+            : term && total ? Math.round((hechas / total) * 100) : 0;
   const restante = term ? '' : (a.eta_s != null
     ? tr('comun.restante_p1', {p1: _workbarTiempo(a.eta_s)})
-      + (a.eta_fuente === 'modelo' ? ' (aprox.)' : '')
+      + (a.eta_fuente === 'modelo' ? ' ' + tr('workbar.aprox') : '')
     : '');
   return `
     <aside class="cmv40-running-timeline">
       <div class="cmv40-tl-header">
         <div class="cmv40-tl-header-top">
-          <span class="cmv40-tl-trust-badge pending">${escHtml(titulo || 'Fases')}</span>
+          <span class="cmv40-tl-trust-badge pending">${escHtml(titulo || tr('workbar.fases'))}</span>
         </div>
         <div class="cmv40-tl-progress">
           <div class="cmv40-tl-progress-meta">
@@ -1263,11 +1314,11 @@ function timelineDeTrabajo(pasos, a, titulo) {
                 ? `<span class="cmv40-tl-timer-elapsed">${escHtml(_workbarTiempo(a.segundos))}</span>`
                 : _relojHTML(a.segundos, '', '', 'cmv40-tl-timer-elapsed')}
             </span>
-            <span class="cmv40-tl-progress-pct">${hechas}/${total} · ${pct}%</span>
+            <span class="cmv40-tl-progress-pct">${hechas}/${total}${medido ? ` · ${pct}%` : ''}</span>
             <span class="cmv40-tl-timer-remaining">${escHtml(restante)}</span>
           </div>
-          <div class="cmv40-tl-progress-track">
-            <div class="cmv40-tl-progress-fill" style="width:${pct}%"></div>
+          <div class="cmv40-tl-progress-track${medido ? '' : ' indeterminada'}">
+            <div class="cmv40-tl-progress-fill" style="width:${medido ? pct : 0}%"></div>
           </div>
         </div>
       </div>
@@ -1332,7 +1383,7 @@ function _trabajoModalPinta(a, vista) {
   set('trabajo-modal-pct', a.terminal ? '' : (fase.pct_medido ? `${fase.pct}%` : '—'));
   set('trabajo-modal-eta', a.terminal ? '' : (fase.eta_s != null
     ? tr('comun.restante_p1', {p1: _workbarTiempo(fase.eta_s)})
-      + (fase.eta_fuente === 'modelo' ? ' (aprox.)' : '')
+      + (fase.eta_fuente === 'modelo' ? ' ' + tr('workbar.aprox') : '')
     : ''));
   const tiemposEl = document.getElementById('trabajo-modal-tiempos');
   if (tiemposEl) {
@@ -1535,7 +1586,24 @@ function _trabajoKvHTML(pares) {
     + '</dl>';
 }
 
+/** Cierra el modal SOLO si está enseñando uno de esos trabajos.
+ *
+ *  Terminar algo de fondo —crear una serie, una copia desde biblioteca—
+ *  llamaba a `cerrarModalDeTrabajo()` a secas, y si el usuario había abierto
+ *  entretanto el detalle de OTRO trabajo, se lo cerraba (auditoría con Codex
+ *  del 2026-10-17). Se compara contra el id del trabajo y contra su `sobre`,
+ *  que son las dos formas con que el modal se ancla. Devuelve si lo cerró.
+ */
+function cerrarModalDeTrabajoDe(...ids) {
+  const u = _trabajoModalUltimo;
+  const suyo = ids.some(x => x && ((u && (u.id === x || u.sobre === x))
+                                   || _trabajoModalRef === x));
+  if (suyo) cerrarModalDeTrabajo();
+  return suyo;
+}
+
 function cerrarModalDeTrabajo() {
+  _trabajoModalApertura++;
   _trabajoModalParar();
   _trabajoModalTipo = null;
   _trabajoModalRef = null;
@@ -1568,10 +1636,12 @@ async function _trabajoModalRefrescar() {
   // reloj. Sin esto entraba en la rama de «cambiando de fase» —pensada para
   // el hueco entre dos fases de un job vivo— y salía animado, con el botón de
   // cancelar puesto y polleando veinte veces algo que ya no cambia.
+  const apertura = _trabajoModalApertura;
   if (_trabajoModalUltimo.terminal) {
     const base = _trabajoModalUltimo;
     try {
       const vista = (await fn(base)) || {};
+      if (apertura !== _trabajoModalApertura) return;
       _trabajoModalPinta(base, _trabajoModalConResumen(base, vista));
     } catch (e) { console.error('[trabajo-modal]', e); }
     _trabajoModalParar();
@@ -1579,25 +1649,35 @@ async function _trabajoModalRefrescar() {
   }
   const act = workbarEstado.activo;
   const esElMismo = act && (act.sobre || act.id) === _trabajoModalRef;
-  if (esElMismo) { _trabajoModalUltimo = act; _trabajoModalSinActivo = 0; }
-  else _trabajoModalSinActivo += 1;
-  // Aunque el trabajo ya no esté activo se SIGUE pintando su vista: la
-  // timeline, el estado de las fases y el log los lee cada pestaña de su
-  // propia sesión, no del contrato de progreso. Lo único que deja de tener
-  // sentido es la barra.
   // Entre dos fases de un mismo proyecto la cola se queda sin `running` un
   // instante, así que «no hay activo» NO significa «terminó»: significa eso
   // durante unos segundos, o mientras el trabajo siga esperando turno.
   const enCola = (workbarEstado.cola || [])
     .some(j => (j.sobre || j.id) === _trabajoModalRef);
+  // **Esperar turno no cuenta como «sin sujeto».** El contador subía también
+  // con el trabajo en la cola y a la vuelta 21 —unos 32 s— el modal dejaba
+  // de seguir un trabajo que podía tardar cuarenta minutos en arrancar
+  // (auditoría con Codex del 2026-10-17).
+  if (esElMismo) { _trabajoModalUltimo = act; _trabajoModalSinActivo = 0; }
+  else if (enCola) _trabajoModalSinActivo = 0;
+  else _trabajoModalSinActivo += 1;
+  // Aunque el trabajo ya no esté activo se SIGUE pintando su vista: la
+  // timeline, el estado de las fases y el log los lee cada pestaña de su
+  // propia sesión, no del contrato de progreso. Lo único que deja de tener
+  // sentido es la barra.
   const enTransito = enCola || _trabajoModalSinActivo <= 8;
   const base = esElMismo ? act : {
     ..._trabajoModalUltimo,
     pct: null, pct_medido: false, eta_s: null, cancelable: enTransito,
-    paso: enTransito ? tr('workbar.cambiando_de_fase') : tr('workbar.terminado'),
+    // Fuera de la cola y sin estar corriendo, el trabajo acabó — pero CÓMO lo
+    // dice el historial, no el armazón. «Terminado» a secas se leía como
+    // éxito también cuando había fallado (auditoría con Codex del
+    // 2026-10-17); sin su línea en el historial, solo consta que ya no corre.
+    paso: enTransito ? tr('workbar.cambiando_de_fase') : _trabajoModalComoAcabo(),
   };
   try {
     const vista = (await fn(base)) || {};
+    if (apertura !== _trabajoModalApertura) return;   // ya es otro modal
     // **Una lectura fallida no sustituye a la vista buena, y lo DICE el
     // adaptador.**
     //
@@ -1628,6 +1708,14 @@ async function _trabajoModalRefrescar() {
   if (_trabajoModalSinActivo > 20) _trabajoModalParar();
 }
 
+/** Cómo acabó el trabajo que el modal seguía, según el historial. */
+function _trabajoModalComoAcabo() {
+  const id = _trabajoModalUltimo && _trabajoModalUltimo.id;
+  const r = (workbarEstado.recientes || []).find(x => id && x.id === id);
+  return r ? (_CMV40_FIN[r.estado] || tr('workbar.terminado'))
+           : tr('workbar.ya_no_esta_en_curso');
+}
+
 async function _trabajoModalAbrir(a) {
   const fn = _workbarDetalles[a.detalle];
   if (!fn) return;
@@ -1639,6 +1727,7 @@ async function _trabajoModalAbrir(a) {
   // la apertura entera — el modal no salía y había que volver a pulsar.
   // Reportado el 2026-09-23.
   _trabajoModalTipo = a.detalle;
+  const apertura = ++_trabajoModalApertura;
   // El modal se ancla al TRABAJO, no al tipo. Un proyecto CMv4.0 encadena
   // siete fases y entre una y la siguiente el contrato deja de traer activo un
   // instante; comparando el tipo, el modal se daba por terminado, se sustituía
@@ -1690,6 +1779,9 @@ async function _trabajoModalAbrir(a) {
   let vista = null, fallo = false;
   try { vista = await fn(a); }
   catch (e) { console.error('[trabajo-modal]', e); fallo = true; }
+  // Si mientras volvía se cerró este modal o se abrió otro, esta vista ya no
+  // es de nadie: ni se pinta ni se programa el refresco.
+  if (apertura !== _trabajoModalApertura) return;
   if (!fallo && vista === null) {
     cerrarModalDeTrabajo();
     return;

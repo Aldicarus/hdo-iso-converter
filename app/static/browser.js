@@ -129,6 +129,12 @@ function _renderFileBrowserRoots() {
  *  Limpia la seleccion previa: cambiar de directorio implica reset, igual
  *  que hace Finder/Explorer. */
 async function fileBrowserNavigate(relPath) {
+  // **Solo la última navegación pinta.** Pedir Biblioteca y luego Output, y
+  // que Output conteste antes, dejaba que la respuesta de Biblioteca llegara
+  // después y cambiara `base` y las filas mientras los pills seguían en
+  // Output: al confirmar, la ruta se construía con la base equivocada
+  // (auditoría con Codex del 2026-10-17).
+  const pedido = (_fileBrowser.pedido = (_fileBrowser.pedido || 0) + 1);
   _fileBrowser.selectedRel = null;
   _fileBrowser.selectedName = null;
   _updateFileBrowserConfirmBtn();
@@ -137,6 +143,7 @@ async function fileBrowserNavigate(relPath) {
   try {
     const url = `/api/library/browse?root=${encodeURIComponent(_fileBrowser.rootKey)}&path=${encodeURIComponent(relPath || '')}`;
     const data = await apiFetch(url);
+    if (pedido !== _fileBrowser.pedido) return;
     if (!data) throw new Error(tr('browser.sin_respuesta'));
     if (data.error) {
       if (listEl) listEl.innerHTML = `<div class="file-browser-empty">${escHtml(data.error)}</div>`;

@@ -131,5 +131,35 @@ class TestMutar(unittest.TestCase):
         self.assertEqual(self.codigo.read_text(), CODIGO)
 
 
+
+class TestElCatalogoSigueCasando(unittest.TestCase):
+    """Cada mutación del catálogo tiene que casar con el código de HOY.
+
+    Un arreglo que reescribe el código de una mutación la deja «no casa», y
+    eso solo se ve al ejecutar `mutar.py` entero —minutos, y nadie lo hace en
+    cada commit—. Cinco se quedaron así con la tanda 2 de la auditoría del
+    2026-10-17 (la copia de Tab 2 y la política de niveles) sin que nada
+    avisara: el catálogo decía cubrir lo que ya no cubría."""
+
+    def test_cada_viejo_aparece_una_vez_y_sus_modulos_existen(self):
+        raiz = APP_DIR.parent
+        catalogo = json.loads((APP_DIR / "tools" / "mutaciones.json").read_text())
+        malas = []
+        for m in catalogo:
+            fichero = raiz / m["fichero"]
+            n = fichero.read_text().count(m["viejo"]) if fichero.exists() else -1
+            if n != 1:
+                malas.append(f"{m['id']}: «viejo» aparece {n} veces en {m['fichero']}")
+            for mod in m["modulos"]:
+                if not (APP_DIR / "tests" / f"{mod}.py").exists():
+                    malas.append(f"{m['id']}: no existe el módulo {mod}")
+        self.assertEqual(malas, [])
+
+    def test_los_ids_no_se_repiten(self):
+        catalogo = json.loads((APP_DIR / "tools" / "mutaciones.json").read_text())
+        ids = [m["id"] for m in catalogo]
+        self.assertEqual(sorted({i for i in ids if ids.count(i) > 1}), [])
+
+
 if __name__ == "__main__":
     unittest.main()

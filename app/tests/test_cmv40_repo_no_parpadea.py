@@ -51,7 +51,7 @@ def _fn(nombre: str) -> str:
 _DRIVER = """
 'use strict';
 const nodos = {};
-const nodo = () => ({ innerHTML: '', textContent: '' });
+const nodo = () => ({ innerHTML: '', textContent: '', dataset: {} });
 globalThis.document = {
   getElementById: id => (nodos[id] = nodos[id] || nodo()),
 };
@@ -110,7 +110,9 @@ class TestElRepoSePideUnaVez(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         guion = motor_i18n() + "\n" + _DRIVER.replace(
-            "__CUERPO__", _fn("_cmv40LoadRepoForPanel"))
+            "__CUERPO__", "\n".join(_fn(n) for n in (
+                "_cmv40LoadRepoForPanel", "_cmv40GuardarListaRepo",
+                "_cmv40PintarListaRepo", "_cmv40PintarListaRepoEn")))
         r = subprocess.run(argv_node(guion), capture_output=True, text=True,
                            timeout=60)
         if r.returncode != 0:

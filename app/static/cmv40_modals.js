@@ -47,7 +47,13 @@ async function openCMv40CleanupModal() {
   if (foot) foot.style.display = 'none';
 
   const data = await apiFetch('/api/cmv40/cleanup/preview');
-  if (!data) return;
+  if (!data) {
+    // La petición terminó: el spinner de «escaneando» ya no describe nada.
+    // Antes se quedaba girando para siempre, sin reintento ni mensaje.
+    if (body) body.innerHTML = '<div class="cmv40-cleanup-empty">'
+      + escHtml(tr('cmv40_modals.no_se_pudo_escanear_los_proyectos')) + '</div>';
+    return;
+  }
   if (!data.items || !data.items.length) {
     if (body) body.innerHTML = '<div class="cmv40-cleanup-empty">' + tr('cmv40_modals.no_hay_proyectos_cmv40_todavia') + '</div>';
     return;
@@ -202,6 +208,7 @@ async function cmv40BulkCleanupExecute() {
 // Y son tres documentos paralelos, no un catálogo de claves: el manual es
 // prosa, y trocear prosa en claves la vuelve intraducible.
 let _manualCache = null;
+let _manualPedido = 0;
 
 async function _cmv40ManualSecciones() {
   if (_manualCache) return _manualCache;
@@ -209,11 +216,15 @@ async function _cmv40ManualSecciones() {
     const r = await fetch(`/static/i18n/manual/${idiomaActivo()}.json?v=${TOKEN_I18N}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     _manualCache = await r.json();
+    return _manualCache;
   } catch (e) {
+    // El fallo NO se cachea. Guardar `{}` —que es un valor verdadero— hacía
+    // que todas las aperturas siguientes devolvieran el manual vacío sin
+    // volver a pedirlo, aunque la red ya funcionara: hasta recargar la
+    // página (auditoría con Codex del 2026-10-17).
     console.error('[manual] no se pudo cargar', e);
-    _manualCache = {};
+    return {};
   }
-  return _manualCache;
 }
 
 async function _cmv40HelpSwitch(section) {
@@ -226,7 +237,11 @@ async function _cmv40HelpSwitch(section) {
   // Mientras llega: un aviso, no un panel en blanco. La primera vez son
   // ~150 KB del servidor local; las siguientes, cero.
   if (!_manualCache) content.innerHTML = `<p>${escHtml(tr('manual.cargando'))}</p>`;
+  const pedido = ++_manualPedido;
   const secciones = await _cmv40ManualSecciones();
+  // Si mientras cargaba se eligió otra sección, la pinta ESA llamada: esta
+  // pintaría encima la de antes bajo la navegación marcada en la nueva.
+  if (pedido !== _manualPedido) return;
   content.innerHTML = secciones[section] || `<p>${escHtml(tr('manual.sin_seccion'))}</p>`;
   content.scrollTop = 0;
 
@@ -244,6 +259,9 @@ async function _cmv40HelpHydrateSheetLink() {
   if (!anchor) return;
   try {
     const s = await apiFetch('/api/settings');
+    // `apiFetch` no lanza: un fallo es `null`, y leerlo como «sin
+    // configurar» afirmaba algo que no se había podido consultar.
+    if (!s) throw new Error('sin respuesta');
     const sh = s?.sheet || {};
     const url = sh.url || sh.default_url || '';
     if (!url) {
@@ -276,6 +294,7 @@ async function _cmv40HelpHydrateDriveLink() {
   if (!statusEl) return;
   try {
     const s = await apiFetch('/api/settings');
+    if (!s) throw new Error('sin respuesta');   // ver el hermano de arriba
     const df = s?.drive_folder || {};
     const apiKey = s?.google || {};
     if (df.configured) {
@@ -283,7 +302,7 @@ async function _cmv40HelpHydrateDriveLink() {
       statusEl.style.color = 'var(--green-text)';
       const srcLabel = df.source === 'settings' ? tr('cmv40_modals.configurada_desde_configuracion')
         : df.source === 'env' ? tr('cmv40_modals.configurada_por_variable_de_entorno_del')
-        : 'configurada';
+        : tr('cmv40_modals.configurada');
       const apiKeyState = apiKey.configured ? tr('cmv40_modals.api_key_configurada') : tr('cmv40_modals.api_key_sin_configurar_imprescindible');
       if (metaEl) metaEl.textContent = `${srcLabel} · ${apiKeyState}`;
     } else {
@@ -318,6 +337,10 @@ async function cmv40LookupSearch() {
   }
   const year = yearInput?.value ? parseInt(yearInput.value, 10) : null;
 
+  // Cada búsqueda invalida las que sigan en vuelo: el botón se habilita
+  // antes de las tres consultas de la ficha, así que buscar B con A aún
+  // pendiente dejaba que A terminara después y pintara encima de B.
+  const consulta = ++_cmv40LookupConsulta;
   if (btn) btn.disabled = true;
   results.innerHTML = `<div class="cmv40-lookup-loading">
     <span class="cmv40-rec-spinner-inline"></span>
@@ -329,11 +352,12 @@ async function cmv40LookupSearch() {
     method: 'POST',
     body: JSON.stringify({ title, year }),
   });
+  if (consulta !== _cmv40LookupConsulta) return;
 
   if (!search || !search.tmdb_configured) {
     // Sin TMDb: vamos directos con el texto crudo (matching peor pero funcional)
     if (btn) btn.disabled = false;
-    await _cmv40LookupFullFetch(results, title, year);
+    await _cmv40LookupFullFetch(results, title, year, consulta);
     return;
   }
 
@@ -342,7 +366,7 @@ async function cmv40LookupSearch() {
   if (candidates.length === 0) {
     if (btn) btn.disabled = false;
     // No hay match en TMDb — aún así intentamos contra la hoja/repo por si acaso
-    await _cmv40LookupFullFetch(results, title, year);
+    await _cmv40LookupFullFetch(results, title, year, consulta);
     return;
   }
 
@@ -350,7 +374,7 @@ async function cmv40LookupSearch() {
     // Una sola coincidencia → consulta directa
     const picked = (year ? candidates.find(c => c.year === year) : null) || candidates[0];
     if (btn) btn.disabled = false;
-    await _cmv40LookupFullFetch(results, picked.title_en || picked.title_es || title, picked.year || year);
+    await _cmv40LookupFullFetch(results, picked.title_en || picked.title_es || title, picked.year || year, consulta);
     return;
   }
 
@@ -403,6 +427,8 @@ function _cmv40LookupRenderSelector(container, candidates, queryTitle) {
 }
 
 let _cmv40LookupCandidates = [];
+// La consulta vigente. Una respuesta de otra anterior no pinta nada.
+let _cmv40LookupConsulta = 0;
 
 function _cmv40LookupClearYear() {
   const yearInput = document.getElementById('cmv40-lookup-year');
@@ -420,6 +446,8 @@ function _cmv40LookupClearTitle() {
   if (yearInput) yearInput.value = '';
   if (results) results.innerHTML = '';
   _cmv40LookupCandidates = [];
+  // Limpiar también olvida lo que estuviera en vuelo.
+  _cmv40LookupConsulta++;
 }
 
 async function _cmv40LookupPick(idx) {
@@ -429,10 +457,11 @@ async function _cmv40LookupPick(idx) {
   // NO tocamos los inputs del formulario — quedan como el usuario los
   // escribió. Así el año que vea en la casilla siempre refleja SU input,
   // no un valor auto-pegado que pueda envenenar la siguiente búsqueda.
-  await _cmv40LookupFullFetch(results, picked.title_en || picked.title_es, picked.year);
+  await _cmv40LookupFullFetch(results, picked.title_en || picked.title_es, picked.year,
+                              ++_cmv40LookupConsulta);
 }
 
-async function _cmv40LookupFullFetch(container, title, year) {
+async function _cmv40LookupFullFetch(container, title, year, consulta = ++_cmv40LookupConsulta) {
   container.innerHTML = `<div class="cmv40-lookup-loading">
     <span class="cmv40-rec-spinner-inline"></span>
     <span data-i18n="cmv40_modals.consultando_hoja_dovitools_repositorio_drive_para"></span> <strong>${escHtml(title)}${year ? ` (${year})` : ''}</strong>…
@@ -448,6 +477,7 @@ async function _cmv40LookupFullFetch(container, title, year) {
       body: JSON.stringify({ source_mkv_name: title + (year ? ` (${year})` : '') }),
     }).catch(() => null),
   ]);
+  if (consulta !== _cmv40LookupConsulta) return;
   _cmv40LookupRenderResults(container, recResp, repoResp, tmdbResp);
 }
 
@@ -565,10 +595,38 @@ function _cmv40LookupPipelineSummary(pt, provenance) {
  */
 function onModalOverlayClick(e, id) { if (e.target === document.getElementById(id)) closeModal(id); }
 
-// Cerrar con Escape
+// Cerrar con Escape.
+//
+// **Escape tiene que ser la misma salida que el botón, no una tercera.**
+// Quitar la clase `open` y ya está ocultaba el modal sin pasar por su cierre:
+// el del trabajo seguía polleando con el modal escondido, y un diálogo de
+// decisión cerrado así dejaba colgada la promesa que esperaba la respuesta
+// —el de conflictos al crear una serie y el de cambiar de idioma— (auditoría
+// con Codex del 2026-10-17). Los que tienen un cierre propio lo dicen aquí;
+// el resto se cierra como siempre.
+const _CIERRE_CON_ESCAPE = {
+  'trabajo-modal': () => cerrarModalDeTrabajo(),
+  // El «Cancelar» del diálogo es el que resuelve las promesas en `cancel`.
+  'confirm-modal': () => {
+    const b = document.querySelector('#confirm-modal [data-cancelar]');
+    if (b) b.click(); else closeModal('confirm-modal');
+  },
+  // Dos salidas y ninguna es «cancelar»: Escape es seguir, que es lo que
+  // pasa si no se hace nada.
+  'titulo-dudoso-modal': () => document.getElementById('titulo-dudoso-seguir')?.click(),
+  'cmv40-preflight-modal': () => cerrarPreflightCMv40(),
+};
+
+function cerrarConEscape() {
+  document.querySelectorAll('.modal-overlay.open:not([data-no-escape])').forEach(m => {
+    const cierre = _CIERRE_CON_ESCAPE[m.id];
+    if (cierre) cierre(); else m.classList.remove('open');
+  });
+}
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    document.querySelectorAll('.modal-overlay.open:not([data-no-escape])').forEach(m => m.classList.remove('open'));
+    cerrarConEscape();
     TooltipManager.hide();
   }
 });

@@ -82,9 +82,9 @@
  },
  {
   "id": "P3-3 un source P8 mergea como FEL (pisa L1/L2/L6)",
-  "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "is_fel_source = (expected_el_type or \"\").upper() == \"FEL\"",
-  "nuevo": "is_fel_source = (expected_el_type or \"\").upper() != \"MEL\"",
+  "fichero": "app/phases/cmv40_strategy.py",
+  "viejo": "    if (el_type_del_rpu or \"\").upper() == \"FEL\" and not conservar_los_del_disco:",
+  "nuevo": "    if (el_type_del_rpu or \"\").upper() != \"MEL\" and not conservar_los_del_disco:",
   "modulos": [
    "test_cmv40_reglas_que_sobrevivian"
   ]
@@ -689,8 +689,8 @@
  {
   "id": "T2-c1 la copia no mira la cancelación",
   "fichero": "app/routers/tab2.py",
-  "viejo": "                if _mkv_apply_cancel[\"requested\"]:\n                    raise MkvApplyCancelled()\n",
-  "nuevo": "",
+  "viejo": "            if _mkv_apply_cancel[\"requested\"]:\n                raise MkvApplyCancelled()\n            buf = fin.read(CHUNK)",
+  "nuevo": "            buf = fin.read(CHUNK)",
   "modulos": [
    "test_copia_desde_biblioteca"
   ]
@@ -698,8 +698,8 @@
  {
   "id": "T2-c2 cancelar no borra el parcial",
   "fichero": "app/routers/tab2.py",
-  "viejo": "    except MkvApplyCancelled:\n        # Cancelación: borra destino parcial y propaga. La rutina superior\n        # marca step=\"cancelled\" en el estado para que el frontend cierre el\n        # modal con el mensaje correcto en el siguiente poll.\n        try:\n            if dst.exists():\n                dst.unlink()",
-  "nuevo": "    except MkvApplyCancelled:\n        # Cancelación: borra destino parcial y propaga. La rutina superior\n        # marca step=\"cancelled\" en el estado para que el frontend cierre el\n        # modal con el mensaje correcto en el siguiente poll.\n        try:\n            if dst.exists():\n                pass",
+  "viejo": "        # modal con el mensaje correcto en el siguiente poll.\n        try:\n            if creado[\"dst\"] and dst.exists():\n                dst.unlink()",
+  "nuevo": "        # modal con el mensaje correcto en el siguiente poll.\n        try:\n            if creado[\"dst\"] and dst.exists():\n                pass",
   "modulos": [
    "test_copia_desde_biblioteca"
   ]
@@ -977,8 +977,8 @@
  {
   "id": "K-6 un error de E/S deja el parcial",
   "fichero": "app/routers/tab2.py",
-  "viejo": "        # Best-effort cleanup: borra destino parcial para no dejar basura\n        try:\n            if dst.exists():\n                dst.unlink()\n",
-  "nuevo": "        # Best-effort cleanup: borra destino parcial para no dejar basura\n        try:\n            if dst.exists():\n                pass\n",
+  "viejo": "        # Best-effort cleanup: borra el destino parcial, si es nuestro.\n        try:\n            if creado[\"dst\"] and dst.exists():\n                dst.unlink()",
+  "nuevo": "        # Best-effort cleanup: borra el destino parcial, si es nuestro.\n        try:\n            if creado[\"dst\"] and dst.exists():\n                pass",
   "modulos": [
    "test_copia_desde_biblioteca"
   ]
@@ -1013,8 +1013,8 @@
  {
   "id": "K-10 el recovery borra lo que no escribió",
   "fichero": "app/routers/tab2.py",
-  "viejo": "    if dst and persisted.get(\"step\") in (\"copying\", \"applying\"):",
-  "nuevo": "    if dst:",
+  "viejo": "    if dst and persisted.get(\"step\") in (\"copying\", \"applying\") and persisted.get(\"dst_creado\"):",
+  "nuevo": "    if dst and persisted.get(\"dst_creado\"):",
   "modulos": [
    "test_copia_desde_biblioteca"
   ]
@@ -1685,8 +1685,8 @@
  {
   "id": "T4a-7 la serie buena no guarda su resultado",
   "fichero": "app/routers/tab1.py",
-  "viejo": "    _guardar_resultado_de_serie(_clave, resultado_final)\n",
-  "nuevo": "    pass\n",
+  "viejo": "    _guardar_resultado_de_serie(_clave, resultado_final)\n    _series_create_progress[\"running\"] = False\n    workload.liberar(_clave)\n    historial.anotar(\n        id     = _clave,",
+  "nuevo": "    _series_create_progress[\"running\"] = False\n    workload.liberar(_clave)\n    historial.anotar(\n        id     = _clave,",
   "modulos": [
    "test_contratos_de_cancelar_y_resultados"
   ]
@@ -2139,6 +2139,708 @@
   "nuevo": "    new_name         = _build_mkv_name(title, year, session.has_fel, session.audio_dcp)\n    session.mkv_name = new_name\n    pass",
   "modulos": [
    "test_episodios_no_se_pisan"
+  ]
+ },
+ {
+  "id": "T3-S4 guardar y cerrar deja currentSession en el cerrado",
+  "fichero": "app/static/core.js",
+  "viejo": "      if (await saveSession(project)) _doCloseProject(pid);",
+  "nuevo": "      const activeBackup = activeSubTabId;\n      activeSubTabId = pid;\n      currentSession = project.session;\n      await saveSession();\n      activeSubTabId = activeBackup;\n      _doCloseProject(pid);",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F03 la comprobación del origen cambia el activo",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  enProyecto(project, () => _pintarDisponibilidadDelOrigen(data));",
+  "nuevo": "  activeSubTabId = project.id;\n  _pintarDisponibilidadDelOrigen(data);",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F05 ejecutar aunque el guardado falle",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  if (!(await saveSession(project))) return;",
+  "nuevo": "  await saveSession(project);",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F04 revertir el nombre pinta en el activo",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  if (!openProjects.includes(project)) return;\n  enProyecto(project, () => {\n    const inp = E('mkv-name-input');",
+  "nuevo": "  if (!openProjects.includes(project)) return;\n  ((f) => f())(() => {\n    const inp = E('mkv-name-input');",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F11 el refresco sustituye la sesión entera",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  project.session = sesionConEdiciones(project, data);",
+  "nuevo": "  project.session = data;",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-renderProjectPanel deja currentSession en el pintado",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  const activo = getActiveProject();\n  currentSession = activo ? activo.session : null;\n\n  // Comprobar disponibilidad del ISO",
+  "nuevo": "\n  // Comprobar disponibilidad del ISO",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F02 jsArg vuelve a la comilla simple",
+  "fichero": "app/static/core.js",
+  "viejo": "function jsArg(valor) {\n  return escHtml(JSON.stringify(valor === undefined ? null : valor));",
+  "nuevo": "function jsArg(valor) {\n  return \"'\" + escHtml(valor) + \"'\";",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F06 otra serie conserva el mapping",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  estado.selectedSeason = null;\n  estado.seasonEpisodes = [];\n  estado.mplsMatches = [];\n  estado.mapping = {};",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F06 la respuesta vieja de otra serie pinta",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  if (_seriesState !== estado || estado.peticionSerie !== peticion) return;",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F10 el terminal se atribuye al que corre",
+  "fichero": "app/static/tab1.js",
+  "viejo": "    const failedId = sessionId || queueState.running;",
+  "nuevo": "    const failedId = queueState.running;",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F13 la serie no mira resultados_por_job",
+  "fichero": "app/static/tab1.js",
+  "viejo": "        if (guardado !== undefined) { data = guardado; break; }",
+  "nuevo": "        if (false) { data = guardado; break; }",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F13 la serie sin rastro no se abandona nunca",
+  "fichero": "app/static/tab1.js",
+  "viejo": "        if (_seriesSigueVivo(miJob)) { sinRastro = 0; continue; }",
+  "nuevo": "        continue;",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F28 el descartado pierde el tipo de subtítulo",
+  "fichero": "app/static/tab1.js",
+  "viejo": "    ...(track.subtitle_type ? { inferred_subtitle_type: track.subtitle_type } : {}),\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F23 ver progreso sin referencia",
+  "fichero": "app/static/tab1.js",
+  "viejo": "onclick=\"abrirDetalleDeTrabajo(${jsArg(session.id)})\"",
+  "nuevo": "onclick=\"abrirDetalleDeTrabajo()\"",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F17 el detalle del rip lee el log de la sesión",
+  "fichero": "app/static/tab1.js",
+  "viejo": "    cuerpo: _trabajoLogHTML(ejec ? ejec.output_log : s?.output_log),",
+  "nuevo": "    cuerpo: _trabajoLogHTML(s?.output_log),",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F18 la serie sin respuesta sustituye la vista",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  if (!p) return { sinDatos: true };\n  // El progreso es UN singleton",
+  "nuevo": "  // El progreso es UN singleton",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F01 el detalle del error sin escapar",
+  "fichero": "app/static/tab1.js",
+  "viejo": "      if (!silent) showToast(tr('comun.error_p1', {p1: escHtml(detalle)}), 'error');",
+  "nuevo": "      if (!silent) showToast(tr('comun.error_p1', {p1: detalle}), 'error');",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-F01 el 422 sale como [object Object]",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  if (Array.isArray(detail)) {",
+  "nuevo": "  if (false) {",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-Escape solo quita la clase",
+  "fichero": "app/static/cmv40_modals.js",
+  "viejo": "    if (cierre) cierre(); else m.classList.remove('open');",
+  "nuevo": "    m.classList.remove('open');",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
+ },
+ {
+  "id": "T3-H2 se asigna como sesión cualquier cosa",
+  "fichero": "app/static/tab3.js",
+  "viejo": "      || typeof data.id !== 'string' || typeof data.phase !== 'string') return;",
+  "nuevo": "      ) return;",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H2 aplicar corrección no vigila la fase",
+  "fichero": "app/static/tab3.js",
+  "viejo": "      _cmv40PollPhase(pid, project.session.phase);\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H6 el toggle cambia sin respuesta",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (!r) return;\n  project.autoContinue = quiere;",
+  "nuevo": "  project.autoContinue = quiere;",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H6 cancelar sin respuesta apaga el auto",
+  "fichero": "app/static/tab3.js",
+  "viejo": "      if (!r) return;\n      const proj = openCMv40Projects.find(p => p.id === pid);",
+  "nuevo": "      const proj = openCMv40Projects.find(p => p.id === pid);",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H6 el lanzador fallido anuncia y vigila",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (!(await _cmv40PostFase(`/api/cmv40/${pid}/extract`))) return;",
+  "nuevo": "  await _cmv40PostFase(`/api/cmv40/${pid}/extract`);",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H7 un GET viejo pisa",
+  "fichero": "app/static/tab3.js",
+  "viejo": "    if (seq < (p._seqAplicada || 0)) return null;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H13 el socket viejo reconecta",
+  "fichero": "app/static/tab3.js",
+  "viejo": "    if (project.ws !== ws) return;   // un socket ya sustituido no reconecta\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H17 el poller solo sale al llegar",
+  "fichero": "app/static/tab3.js",
+  "viejo": "    if (llego || acabo) {",
+  "nuevo": "    if (llego) {",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H5 el candidato del repo sobrevive al cambio de origen",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  // de carpeta o de otro MKV no depende del origen y se conserva.\n  if (_cmv40NewTargetSelected?.kind === 'repo') {",
+  "nuevo": "  // de carpeta o de otro MKV no depende del origen y se conserva.\n  if (false) {",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H10 lo escrito sin sitio se pierde",
+  "fichero": "app/static/core.js",
+  "viejo": "    if (!el) { sinSitio.set(id, c); continue; }",
+  "nuevo": "    if (!el) continue;",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H8 la lista recreada se queda en blanco",
+  "fichero": "app/static/tab3.js",
+  "viejo": "    if (list.dataset.repoDe !== filename && project._repoListaHTML) {",
+  "nuevo": "    if (false) {",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H11 el aviso se lleva el canvas",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  const canvas = document.getElementById(`cmv40-chart-${pid}`);\n  if (canvas) canvas.style.display = 'none';\n  let aviso",
+  "nuevo": "  wrap.innerHTML = '';\n  let aviso",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H12 el zoom no pide el último rango",
+  "fichero": "app/static/tab3.js",
+  "viejo": "      if (project.chartRange.start !== desde || project.chartRange.end !== hasta) continue;",
+  "nuevo": "      if (project.chartRange.start !== desde || project.chartRange.end !== hasta) return;",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H9 el pre-flight polea con un booleano global",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (_cmv40PfPolling === pid) return;",
+  "nuevo": "  if (_cmv40PfPolling) return;",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H23 se inventa que sigue en segundo plano",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (p && !p.autoContinue) return tr('tab3.pf_lanza_la_fase_a');\n  return '';",
+  "nuevo": "  return tr('tab3.el_trabajo_continua_en_segundo_plano');",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H16 sin previsualización dice que no hay nada",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  } else if (preview) {",
+  "nuevo": "  } else if (true) {",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H24 la card G/H afirma que valida",
+  "fichero": "app/static/tab3.js",
+  "viejo": "curIdx === remuxedIdx ? (s.running_phase === 'validate' ? 'running' : 'pending')",
+  "nuevo": "curIdx === remuxedIdx ? 'running'",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H25 el incremental sin icono de error",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  error:   '<span class=\"cmv40-tl-status-icon error\"><span data-icono=\"cruz\"></span></span>',\n};\n\nfunction _cmv40RenderTimelineStepsHTML",
+  "nuevo": "};\n\nfunction _cmv40RenderTimelineStepsHTML",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-S1 la fase E con el nombre que no existe",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  'correct_sync':     'E',",
+  "nuevo": "  'sync_correct':     'E',",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H19 la D con ACK sale como revisada",
+  "fichero": "app/static/tab3.js",
+  "viejo": "    forcedStatus: saltaD ? 'skipped' : null,",
+  "nuevo": "    forcedStatus: trust ? 'skipped' : null,",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H4 la revisión forzada sin gráfico",
+  "fichero": "app/static/tab3.js",
+  "viejo": "                          && !_cmv40SkipSyncReview(s);",
+  "nuevo": "                          && !s.target_trust_ok;",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H21 copiar copia el DOM recortado",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  const text = delModelo.length ? delModelo.join('\\n')",
+  "nuevo": "  const text = false ? delModelo.join('\\n')",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H21 el recorte no se dice",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  let aviso = containerEl.querySelector(':scope > .cmv40-log-recortado');\n  if (!aviso) {",
+  "nuevo": "  let aviso = true;\n  if (!aviso) {",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H22 limpiar se deshace",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  const vaciadoAMano = project._logVaciadoAMano\n    && !containerEl.querySelector('.log-line');",
+  "nuevo": "  const vaciadoAMano = false;",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-F09 cancelar no lee la respuesta",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (!r || r.ok === false) {\n    showToast(tr('tab2.no_se_pudo_cancelar_la_copia'), 'warning', 6000);\n    return false;\n  }",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F09 una copia terminada se anuncia cancelada",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (_mkvApplyUserCancelled && !result?.ok) {",
+  "nuevo": "  if (_mkvApplyUserCancelled) {",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F09 retirada de la cola como parcial borrado",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  _mkvApplyCancelacion = r.descartada ? 'descartada' : 'copiando';",
+  "nuevo": "  _mkvApplyCancelacion = 'copiando';",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F12 el apply tira lo editado durante él",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    if ((project.ediciones || 0) !== ediciones) {",
+  "nuevo": "    if (false) {",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F13 Tab 2 no mira resultados_por_audit",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  const r = (st.resultados_por_audit || {})[auditId];\n  return r || false;",
+  "nuevo": "  return false;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F13 Tab 2 no reintenta la lectura fallida",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      setTimeout(() => _mkvAplicarAnalisisTerminado(auditId, ruta), _MKV_ESPERA_RECOGIDA_MS);",
+  "nuevo": "      void 0;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F14 solo se repinta el activo",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  _renderMkvEditPanel(proyecto);\n  // El titular lo compone",
+  "nuevo": "  if (proyecto === mkvProject) _renderMkvEditPanel(proyecto);\n  // El titular lo compone",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F14 el original no se lleva el extendido",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    Object.assign(proyecto.originalAnalysis.dovi, structuredClone(data));",
+  "nuevo": "    void 0;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F15 manda la ruta del análisis",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  return proyecto.filePath || proyecto.analysis?.file_path",
+  "nuevo": "  return proyecto.analysis?.file_path || proyecto.filePath",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F16 todos los botones con el estado del activo",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      ? trabajoSobre(_mkvRutaAnalisis(p)) : null;",
+  "nuevo": "      ? trabajoSobre(_mkvRutaAnalisis(mkvProject)) : null;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F29 lo de menos de 10 nits no cuenta",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    while (i > 0 && v < bins[i]) i--;\n    counts[i]++;",
+  "nuevo": "    while (i > 0 && v < bins[i]) i--;\n    if (v >= bins[i]) counts[i]++;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F35 porcentaje inventado por fases",
+  "fichero": "app/static/workbar.js",
+  "viejo": "  const medido = term || !!a.pct_medido;",
+  "nuevo": "  const medido = true;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F08 la lectura de A pinta sobre B",
+  "fichero": "app/static/workbar.js",
+  "viejo": "  if (apertura !== _trabajoModalApertura) return;\n  if (!fallo && vista === null) {",
+  "nuevo": "  if (!fallo && vista === null) {",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F19 esperar turno cuenta como sin sujeto",
+  "fichero": "app/static/workbar.js",
+  "viejo": "  else if (enCola) _trabajoModalSinActivo = 0;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F20 se cierra el modal de otro",
+  "fichero": "app/static/workbar.js",
+  "viejo": "  if (suyo) cerrarModalDeTrabajo();\n  return suyo;",
+  "nuevo": "  cerrarModalDeTrabajo();\n  return suyo;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F22 una lectura vieja de la columna pisa",
+  "fichero": "app/static/workbar.js",
+  "viejo": "  if (pedido !== refrescarWorkbar.pedido) return;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-Sortable la instancia vieja no se destruye",
+  "fichero": "app/static/workbar.js",
+  "viejo": "    try { f.instancia.destroy(); } catch (_) { /* nodo ya fuera */ }",
+  "nuevo": "    try { void 0; } catch (_) { /* nodo ya fuera */ }",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F07 una navegación vieja cambia la base",
+  "fichero": "app/static/browser.js",
+  "viejo": "    if (pedido !== _fileBrowser.pedido) return;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F24 el sheet propio sobrevive a borrar claves",
+  "fichero": "app/static/settings.js",
+  "viejo": "  if (inp && (!inp.value || inp.value.trim() === (inp.dataset.inicial || '').trim())) {",
+  "nuevo": "  if (inp && !inp.value) {",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F25 vaciar el sheet propio no lo quita",
+  "fichero": "app/static/settings.js",
+  "viejo": "    payload.cmv40_sheet_url = '';\n  }",
+  "nuevo": "    void 0;\n  }",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-borrar claves sin preguntar",
+  "fichero": "app/static/settings.js",
+  "viejo": "function clearAllKeys() {\n  showConfirm(",
+  "nuevo": "function clearAllKeys() {\n  return _borrarTodasLasClaves();\n  showConfirm(",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F30 el fallo del manual se cachea",
+  "fichero": "app/static/cmv40_modals.js",
+  "viejo": "    console.error('[manual] no se pudo cargar', e);\n    return {};",
+  "nuevo": "    console.error('[manual] no se pudo cargar', e);\n    return (_manualCache = {});",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F32 sin respuesta faltan dos cosas",
+  "fichero": "app/static/settings.js",
+  "viejo": "  if (!repo) {\n    return `<div class=\"cmv40-lookup-warn\">",
+  "nuevo": "  if (false) {\n    return `<div class=\"cmv40-lookup-warn\">",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F33 el preview fallido deja el spinner",
+  "fichero": "app/static/cmv40_modals.js",
+  "viejo": "  if (!data) {\n    // La petición terminó: el spinner",
+  "nuevo": "  if (!data) {\n    return;\n    // La petición terminó: el spinner",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F31 una consulta vieja pinta encima",
+  "fichero": "app/static/cmv40_modals.js",
+  "viejo": "  if (consulta !== _cmv40LookupConsulta) return;\n  _cmv40LookupRenderResults(",
+  "nuevo": "  _cmv40LookupRenderResults(",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-H14 un fallo de red es no hay trabajo",
+  "fichero": "app/static/core.js",
+  "viejo": "  if (!st) return null;",
+  "nuevo": "  if (!st) return estado;",
+  "modulos": [
+   "test_aviso_fin_trabajo"
+  ]
+ },
+ {
+  "id": "T3-H15 la foto vieja instala el intervalo",
+  "fichero": "app/static/core.js",
+  "viejo": "      if (turno !== f.turno || !document.hidden || _avisoTimer) return;",
+  "nuevo": "      if (_avisoTimer) return;",
+  "modulos": [
+   "test_aviso_fin_trabajo"
+  ]
+ },
+ {
+  "id": "T3-F26 cambiarIdioma filtra por IDIOMAS",
+  "fichero": "app/static/i18n.js",
+  "viejo": "  if (!idiomaDisponible(codigo)) return;\n  // **Si el servidor",
+  "nuevo": "  if (!IDIOMAS.some(i => i.codigo === codigo)) return;\n  // **Si el servidor",
+  "modulos": [
+   "test_i18n_motor"
+  ]
+ },
+ {
+  "id": "T3-F27 se recarga aunque no se guarde",
+  "fichero": "app/static/i18n.js",
+  "viejo": "    if (!resp.ok) throw new Error(String(resp.status));\n",
+  "nuevo": "",
+  "modulos": [
+   "test_i18n_motor"
+  ]
+ },
+ {
+  "id": "T3-H18 el rótulo del auto va al primer modal",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  const span = document.querySelector('#cmv40-new-modal .modal-auto-toggle span');",
+  "nuevo": "  const span = document.querySelector('.modal-auto-toggle span');",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-H20 a medias y parado sale en cola",
+  "fichero": "app/static/tab3.js",
+  "viejo": "      : enLaCola ? 'en_cola' : 'listo';",
+  "nuevo": "      : s.phase === 'created' ? 'listo' : 'en_cola';",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "T3-F12 el browser reabre sin preguntar",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (!abierto || !abierto.dirty) return _mkvAbrirRuta(absPath, name);",
+  "nuevo": "  return _mkvAbrirRuta(absPath, name);",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F34 se supone 23,976",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  const fpsNum = mainVideo?.fps || a.fps || null;",
+  "nuevo": "  const fpsNum = mainVideo?.fps || a.fps || 23.976;",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F19 terminado sin mirar el historial",
+  "fichero": "app/static/workbar.js",
+  "viejo": "  return r ? (_CMV40_FIN[r.estado] || tr('workbar.terminado'))\n           : tr('workbar.ya_no_esta_en_curso');",
+  "nuevo": "  return tr('workbar.terminado');",
+  "modulos": [
+   "test_tanda3_tab2_workbar"
+  ]
+ },
+ {
+  "id": "T3-F21 se repinta en el pointerup",
+  "fichero": "app/static/workbar.js",
+  "viejo": "  setTimeout(() => {\n    f.gesto = false;\n    const p = f.pendiente;\n    f.pendiente = null;\n    if (p) p.forEach((html, caja) => f(caja, html));\n  }, 0);",
+  "nuevo": "  f.gesto = false;\n  const p = f.pendiente;\n  f.pendiente = null;\n  if (p) p.forEach((html, caja) => f(caja, html));",
+  "modulos": [
+   "test_columna_como_pestana"
   ]
  }
 ]

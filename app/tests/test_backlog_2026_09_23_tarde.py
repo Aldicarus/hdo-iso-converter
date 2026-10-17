@@ -504,22 +504,22 @@ process.stdout.write(JSON.stringify(casos.map(c => {
         """
         [r] = self._invalidado({
             "antes": {"running_phase": "correct_sync", "phase": "extracted"},
-            "despues": {"running_phase": None, "phase": "extracted"}})
+            "despues": {"id": "p1", "running_phase": None, "phase": "extracted"}})
         self.assertTrue(r, "el gráfico y el gate se quedaban con el dato viejo")
 
     def test_pero_no_al_terminar_cualquier_otra(self):
         """Tirarlo siempre pediría 24 MB de volcado tras cada fase."""
         rs = self._invalidado(
             {"antes": {"running_phase": "inject", "phase": "sync_verified"},
-             "despues": {"running_phase": None, "phase": "injected"}},
+             "despues": {"id": "p1", "running_phase": None, "phase": "injected"}},
             {"antes": {"running_phase": None, "phase": "extracted"},
-             "despues": {"running_phase": "correct_sync", "phase": "extracted"}})
+             "despues": {"id": "p1", "running_phase": "correct_sync", "phase": "extracted"}})
         self.assertEqual(rs, [False, False])
 
     def test_ni_mientras_la_fase_sigue_corriendo(self):
         [r] = self._invalidado({
             "antes": {"running_phase": "correct_sync", "phase": "extracted"},
-            "despues": {"running_phase": "correct_sync", "phase": "extracted"}})
+            "despues": {"id": "p1", "running_phase": "correct_sync", "phase": "extracted"}})
         self.assertFalse(r)
 
 

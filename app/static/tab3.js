@@ -52,7 +52,12 @@ const CMV40_RUNNING_LABELS = {
   'target_rpu_drive':tr('tab3.fase_b_descargando_rpu_del_repositorio'),
   'target_rpu_path': tr('tab3.fase_b_cargando_rpu_de_carpeta'),
   'extract':         tr('tab3.fase_c_extrayendo_bl_el_y'),
-  'sync_correct':    tr('tab3.fase_e_aplicando_correccion_de_sincronizacion'),
+  // `correct_sync` es el nombre con el que el backend corre la Fase E
+  // (`_CMV40_RUNNERS`). Aquí ponía `sync_correct`, que no existe: la timeline
+  // no marcaba la E en curso, la barra lateral, el diálogo de cancelar y el
+  // chip de la cola enseñaban el id crudo, y su tiempo no se sumaba
+  // (auditoría con Codex del 2026-10-17).
+  'correct_sync':    tr('tab3.fase_e_aplicando_correccion_de_sincronizacion'),
   'inject':          tr('tab3.fase_f_inyectando_rpu_en_el'),
   'remux':           tr('tab3.fase_g_remuxando_mkv_final'),
   'validate':        tr('tab3.fase_h_validando_mkv_final'),
@@ -189,7 +194,7 @@ const CMV40_RUNNING_TO_STEP = {
   'target_rpu_mkv':   'B',
   'target_rpu_drive': 'B',
   'extract':          'C',
-  'sync_correct':     'E',
+  'correct_sync':     'E',
   'inject':           'F',
   'remux':            'G',
   'validate':         'H',
@@ -332,9 +337,13 @@ function _cmv40PlanAutoSteps(s, project) {
   // va por merge, y el plan tiene que reflejarlo.
   const gatesHechos = CMV40_PHASES_ORDER.indexOf(s.phase)
                     >= CMV40_PHASES_ORDER.indexOf('target_provided');
-  const dropIn = gatesHechos
-    ? (trust && s.target_type === 'trusted_p7_fel_final' && wf === 'p7_fel')
-    : dropInProbable;
+  // Después de los gates, el drop-in lo dice el PLAN (`_cmv40DropIn`), no
+  // una tercera derivación aquí: era otra réplica de la regla del backend.
+  const dropIn = gatesHechos ? _cmv40DropIn(s) : dropInProbable;
+  // Y si la Fase D se salta, lo dice el plan también — que NO es lo mismo
+  // que el trust: con el ACK de una degradación se salta sin trust, y la
+  // timeline la pintaba como revisión hecha.
+  const saltaD = _cmv40SkipSyncReview(s);
   // Ni siquiera hay predicción posible mientras el pre-flight no haya
   // clasificado el bin (los primeros ~10s de un job).
   const rutaDesconocida = !gatesHechos && !_cmv40BinClasificado(s);
@@ -516,9 +525,11 @@ function _cmv40PlanAutoSteps(s, project) {
     key: 'D', icon: 'grafico', title: tr('tab3.fase_d_verificar_sincronizacion'),
     what: trust
       ? tr('tab3.omitida_gates_validaron_frame_count_l5_l6')
+      : saltaD
+      ? tr('tab3.omitida_usuario_reconocio_degradacion')
       : tr('tab3.chart_interactivo_de_sincronizacion_alinear_las'),
-    etaSecs: trust ? 0 : null,   // null = desconocido (interactivo)
-    forcedStatus: trust ? 'skipped' : null,
+    etaSecs: saltaD ? 0 : null,   // null = desconocido (interactivo)
+    forcedStatus: saltaD ? 'skipped' : null,
   });
   // Fase E — corrección de sync (dovi_tool editor remove/duplicate).
   // Estado depende de la combinación (trust, hasSyncCfg, fase actual):
@@ -526,15 +537,15 @@ function _cmv40PlanAutoSteps(s, project) {
   //   · no-trusted + fase < sync_verified  → PENDING (aún no sabemos si hará falta)
   //   · no-trusted + fase ≥ sync_verified + sin sync_config → omitida (Δ=0)
   //   · con sync_config                    → aplicada (se ejecutó Fase E)
-  //   · running_phase == 'sync_correct'    → running (cubierto por el mapping)
+  //   · running_phase == 'correct_sync'    → running (cubierto por el mapping)
   const hasSyncCfg = !!(s.sync_config && Object.keys(s.sync_config).length);
   const curIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
   const syncVerIdx = CMV40_PHASES_ORDER.indexOf('sync_verified');
   const pastSyncVerified = curIdx >= syncVerIdx;
   let eStatus = null, eLabel = null;
-  if (trust) {
+  if (saltaD) {
     eStatus = 'skipped';
-    eLabel = tr('tab3.omitida_gates_0');
+    eLabel = trust ? tr('tab3.omitida_gates_0') : tr('tab3.omitida_usuario_reconocio_degradacion');
   } else if (hasSyncCfg) {
     // Corrección aplicada; _cmv40StepStatus decide done/running/pending según
     // la fase actual. El customLabel se usa cuando esté done.
@@ -549,7 +560,7 @@ function _cmv40PlanAutoSteps(s, project) {
   //  eStatus/eLabel null → _cmv40StepStatus decide 'pending'.)
   const eWhat = hasSyncCfg
     ? tr('tab3.dovi_tool_editor_remove_duplicate_frames')
-    : (trust || pastSyncVerified
+    : (saltaD || pastSyncVerified
         ? tr('tab3.no_requerida_el_rpu_target_alinea')
         : tr('tab3.solo_si_fase_d_detecta_desfase'));
   steps.push({
@@ -864,9 +875,9 @@ function _cmv40RenderTimeline(s, project) {
       const lastWithEnd = [...hist].reverse().find(h => h.finished_at);
       const endMs = lastWithEnd ? Date.parse(lastWithEnd.finished_at) : Date.now();
       elapsedSecs = (endMs - startedMs) / 1000;
-      remainingText = s.phase === 'done' ? 'finalizado'
+      remainingText = s.phase === 'done' ? tr('tab3.tl_finalizado')
                     : s.error_message ? tr('tab3.con_error')
-                    : cancelado ? 'cancelado' : '';
+                    : cancelado ? tr('tab3.tl_cancelado') : '';
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
       // Tiempo restante de fases AUTO pendientes. Excluye fases manuales
@@ -887,13 +898,7 @@ function _cmv40RenderTimeline(s, project) {
 
   const itemsHtml = steps.map((st, i) => {
     const status = stepStatuses[i];
-    const iconMap = {
-      done:    '<span class="cmv40-tl-status-icon done"><span data-icono="check"></span></span>',
-      running: '<span class="cmv40-tl-status-icon running"></span>',
-      skipped: '<span class="cmv40-tl-status-icon skipped"><span data-icono="omitida"></span></span>',
-      pending: '<span class="cmv40-tl-status-icon pending"></span>',
-      error:   '<span class="cmv40-tl-status-icon error"><span data-icono="cruz"></span></span>',
-    };
+    const iconMap = _CMV40_TL_ICONOS;
     // Tiempo real de ejecución (solo disponible si la fase se ejecutó en backend)
     const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
     // Label por defecto según status, o customLabel si el step lo especifica.
@@ -1113,6 +1118,15 @@ async function loadCMv40SourceList() {
 }
 
 function onCMv40SourceChange(absPathOrLegacyVal, name) {
+  // **El candidato del repo es del origen ANTERIOR.** Cambiar de MKV lanzaba
+  // otra búsqueda pero dejaba la selección: con «Buscando…» en pantalla el
+  // botón de crear seguía habilitado y el POST llevaba el MKV nuevo con el
+  // RPU elegido para el viejo (auditoría con Codex del 2026-10-17). Un RPU
+  // de carpeta o de otro MKV no depende del origen y se conserva.
+  if (_cmv40NewTargetSelected?.kind === 'repo') {
+    _cmv40NewTargetSelected = null;
+    _cmv40NewUpdatePipelinePreview();
+  }
   // Compat: si el caller pasa solo un string sin name, asume que era el
   // viejo flujo (filename desde un select). Lo tratamos como filename.
   if (name === undefined) {
@@ -1383,8 +1397,12 @@ async function _cmv40NewLoadRpus() {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">' + tr('tab3.no_hay_rpus_en_mnt_cmv40_rpus') + '</option>';
+    // Sin respuesta no se sabe si hay RPUs: decir «no hay» era afirmar algo
+    // que no se había podido consultar.
+    select.innerHTML = '<option value="">' + tr(data ? 'tab3.no_hay_rpus_en_mnt_cmv40_rpus'
+                                                       : 'tab3.no_se_pudo_listar') + '</option>';
   }
+  _cmv40NewConservarSeleccion(select, 'path');
 }
 
 async function _cmv40NewLoadTargetMkvs() {
@@ -1400,7 +1418,26 @@ async function _cmv40NewLoadTargetMkvs() {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">' + tr('tab3.no_hay_mkvs_en_el_directorio_de_isos') + '</option>';
+    select.innerHTML = '<option value="">' + tr(data ? 'tab3.no_hay_mkvs_en_el_directorio_de_isos'
+                                                       : 'tab3.no_se_pudo_listar') + '</option>';
+  }
+  _cmv40NewConservarSeleccion(select, 'mkv');
+}
+
+/** Tras recargar un `<select>` del asistente, la selección lógica y la que
+ *  se ve tienen que ser la misma. Recargar devolvía el select a la opción
+ *  vacía y `_cmv40NewTargetSelected` seguía con la de antes: «Crear» mandaba
+ *  un RPU que no se veía elegido. Si sigue en la lista se vuelve a marcar; si
+ *  no, se suelta. */
+function _cmv40NewConservarSeleccion(select, kind) {
+  const t = _cmv40NewTargetSelected;
+  if (!t || t.kind !== kind) return;
+  if ([...select.options].some(o => o.value && o.value === t.value)) {
+    select.value = t.value;
+  } else {
+    _cmv40NewTargetSelected = null;
+    _cmv40NewUpdateCreateBtn();
+    _cmv40NewUpdatePipelinePreview();
   }
 }
 
@@ -1700,8 +1737,11 @@ function _cmv40NewUpdatePipelinePreview() {
 // - Trusted: corre todo A→H automáticamente.
 // - Unknown/generic: se detiene en D si los gates no pasan.
 function _cmv40NewUpdateAutoLabel(info) {
-  const span = document.querySelector('.modal-auto-toggle span');
-  const wrap = document.querySelector('.modal-auto-toggle');
+  // Del modal de ESTE asistente. Sin el prefijo, el primer
+  // `.modal-auto-toggle` del documento es el del modal de series, y se le
+  // cambiaba el texto a ése (auditoría con Codex del 2026-10-17).
+  const span = document.querySelector('#cmv40-new-modal .modal-auto-toggle span');
+  const wrap = document.querySelector('#cmv40-new-modal .modal-auto-toggle');
   if (!span) return;
   if (!info) {
     span.innerHTML = icono('rayo') + ' Auto-pipeline';
@@ -1783,7 +1823,8 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     return;
   }
   if (data.error) {
-    _cmv40NewResetRepoList(data.error, true);
+    // El placeholder se pinta como HTML: el mensaje del servidor, escapado.
+    _cmv40NewResetRepoList(escHtml(data.error), true);
     if (info) info.textContent = data.error;
     return;
   }
@@ -1821,8 +1862,8 @@ async function _cmv40NewLoadRepoCandidates(forceRefresh = false) {
     return `
       <div class="cmv40-repo-card" data-file-id="${escHtml(c.file.id)}"
            role="button" tabindex="0"
-           onclick="_cmv40NewSelectRepoCandidate('${escHtml(c.file.id)}')"
-           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();_cmv40NewSelectRepoCandidate('${escHtml(c.file.id)}')}">
+           onclick="_cmv40NewSelectRepoCandidate(${jsArg(c.file.id)})"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();_cmv40NewSelectRepoCandidate(${jsArg(c.file.id)})}">
         <div class="cmv40-repo-card-head">
           <span class="cmv40-repo-card-tag ${tagMeta.cls}">${icono(tagMeta.icon)} ${tagMeta.label}</span>
           ${provTag}
@@ -1997,8 +2038,57 @@ async function _cmv40FirePreflight(pid, target) {
 // persistido (session.last_progress) en vez de esperar al siguiente mensaje.
 const CMV40_WS_SILENCE_FOR_REST_PROGRESS_MS = 8000;
 
+/** ¿Esto es una sesión CMv4.0, o el acuse de un endpoint?
+ *
+ *  Varios endpoints contestan `{ok, started}` —la Fase E de «Aplicar
+ *  corrección»— o `{ya_en_curso: true}`, y se pasaban a `_cmv40AssignSession`
+ *  como si fueran la sesión: se quedaba sin `phase`, sin `id` y sin nombres,
+ *  las siete cards pasaban a pendientes y la cabecera decía «MKV origen
+ *  undefined» (auditoría con Codex del 2026-10-17, reproducido).
+ */
+function _cmv40EsSesion(data) {
+  return !!data && typeof data === 'object' && typeof data.id === 'string'
+    && typeof data.phase === 'string';
+}
+
+// Qué lectura de la sesión es la más reciente que se ha APLICADO. Un GET que
+// sale antes y vuelve después —con el NAS cargado tarda 30-60 s— no puede
+// pisar lo que ya trajo uno posterior, o devuelve la interfaz a una fase
+// anterior con su historial y sus cards (auditoría con Codex del
+// 2026-10-17). Los GET llevan su número (`_seq`, no enumerable para que no
+// viaje con la sesión); lo que llega de una acción del usuario —un POST que
+// devuelve la sesión— invalida todos los que estaban en vuelo.
+
+/** GET de la sesión que devuelve `null` si al volver ya es vieja. */
+async function _cmv40LeerSesion(pid, qs = '') {
+  const p0 = openCMv40Projects.find(p => p.id === pid);
+  const seq = p0 ? (p0._seqPedida = (p0._seqPedida || 0) + 1) : 0;
+  const data = await apiFetch(`/api/cmv40/${pid}${qs}`, { silent: true });
+  if (!data) return null;
+  const p = openCMv40Projects.find(x => x.id === pid);
+  if (p && seq) {
+    if (seq < (p._seqAplicada || 0)) return null;
+    if (typeof data === 'object') {
+      Object.defineProperty(data, '_seq', { value: seq, enumerable: false });
+    }
+  }
+  return data;
+}
+
 function _cmv40AssignSession(project, data) {
-  if (!project || !data) return;
+  // Solo una SESIÓN (ver `_cmv40EsSesion`; la comprobación va escrita aquí
+  // para que la función se baste sola en los arneses).
+  if (!project || !data || typeof data !== 'object'
+      || typeof data.id !== 'string' || typeof data.phase !== 'string') return;
+  // Lo que se aplica marca hasta dónde llega: un GET suyo trae su número, y
+  // cualquier otra cosa (la respuesta de una acción) cuenta como la lectura
+  // más reciente pedida hasta ahora.
+  const seq = data._seq || project._seqPedida || 0;
+  project._seqAplicada = Math.max(project._seqAplicada || 0, seq);
+  // El modo auto lo dice el servidor, que es quien encadena las fases. El
+  // cancel y el toggle lo cambian allí; sin esto la interfaz seguía con su
+  // copia aunque el servidor dijera otra cosa.
+  if (typeof data.auto_pipeline === 'boolean') project.autoContinue = data.auto_pipeline;
   // Respuesta sin log (GET ?include_log=false del safety poller): el backend
   // no reenvía output_log porque el WS ya lo está entregando en vivo.
   // Restauramos la copia local para que el resto del flujo (watermark,
@@ -2280,11 +2370,12 @@ async function _cmv40VerifyArtifacts(project) {
     project.session = data.session;
     _updateCMv40Panel(project);
     refreshCMv40Sidebar();
+    // `showToast` pinta HTML: el mensaje lleva nombres de fichero.
     if (data.all_missing) {
-      showToast(`${data.message}`, 'error');
+      showToast(escHtml(data.message || ''), 'error');
       // Con todo borrado, auto-avance queda neutralizado (comprueba error_message)
     } else {
-      showToast(`${data.message}`, 'warning');
+      showToast(escHtml(data.message || ''), 'warning');
     }
   }
 }
@@ -2374,11 +2465,18 @@ function _connectCMv40WebSocket(project) {
   // en un paso silencioso de ffmpeg/dovi_tool). Garantiza que tras un wake
   // del Mac, el log catchea hasta el momento actual en cuanto el WS se abre.
   // También marca _lastWsMessageAt para que el watchdog cuente desde aquí.
+  // **Todos los manejadores miran si ESTE socket sigue siendo el del
+  // proyecto.** Al reconectar, el `onclose` del socket viejo llegaba después
+  // de instalado el nuevo, programaba otra reconexión y cerraba el bueno: un
+  // bucle cada 2 s al despertar el Mac — 10 sockets y 27 GET en 20 s,
+  // reproducido (auditoría con Codex del 2026-10-17).
   ws.onopen = () => {
+    if (project.ws !== ws) return;
     project._lastWsMessageAt = Date.now();
     _refreshCMv40Session(project.id);
   };
   ws.onmessage = (ev) => {
+    if (project.ws !== ws) return;
     _appendCMv40Log(project, ev.data);
     // Marca timestamp del último mensaje recibido — el watchdog usa esto
     // para detectar conexiones zombie (WS reporta OPEN pero no llega data).
@@ -2421,6 +2519,7 @@ function _connectCMv40WebSocket(project) {
   // actualiza aunque el job haya terminado en backend.
   ws.onclose = () => {
     if (project._closed) return;
+    if (project.ws !== ws) return;   // un socket ya sustituido no reconecta
     if (project._wsReconnectTimer) clearTimeout(project._wsReconnectTimer);
     project._wsReconnectTimer = setTimeout(() => {
       project._wsReconnectTimer = null;
@@ -2471,10 +2570,17 @@ async function _copyTextToClipboardWithFallback(text) {
 async function copyLogToClipboard(containerId, btn) {
   const el = document.getElementById(containerId);
   if (!el) return;
-  const text = Array.from(el.querySelectorAll('.log-line, div'))
-    .map(d => d.textContent || '')
-    .filter(Boolean)
-    .join('\n') || (el.textContent || '');
+  // El log de un proyecto CMv4.0 se copia del MODELO, no del DOM: el DOM se
+  // recorta a las últimas líneas y «Copiar todo el log» copiaba solo eso
+  // (auditoría con Codex del 2026-10-17).
+  const m = /^cmv40-log-(.+)$/.exec(containerId);
+  const p = m ? openCMv40Projects.find(x => x.id === m[1]) : null;
+  const delModelo = (p?.session?.output_log || []).filter(l => !_cmv40ParseProgress(l));
+  const text = delModelo.length ? delModelo.join('\n')
+    : (Array.from(el.querySelectorAll('.log-line'))
+        .map(d => d.textContent || '')
+        .filter(Boolean)
+        .join('\n') || (el.textContent || ''));
   if (!text.trim()) {
     showToast(tr('tab3.no_hay_log_que_copiar'), 'info');
     return;
@@ -2689,7 +2795,12 @@ function _cmv40SyncPermanentLog(project) {
   // asumimos que el watermark está corrupto y reseteamos: borramos el
   // DOM y re-pintamos desde cero. Coste: O(N) líneas, ms en miles.
   // Beneficio: garantía de orden y completitud absolutas.
-  if (!_cmv40LogIsConsistent(containerEl, logArr, watermark)) {
+  // Vaciado con «Limpiar»: el DOM está vacío A PROPÓSITO, y el chequeo de
+  // consistencia lo tomaba por desincronización y lo volvía a pintar entero
+  // en el siguiente refresco — el clic se deshacía solo.
+  const vaciadoAMano = project._logVaciadoAMano
+    && !containerEl.querySelector('.log-line');
+  if (!vaciadoAMano && !_cmv40LogIsConsistent(containerEl, logArr, watermark)) {
     containerEl.innerHTML = '';
     project._renderedLogCount = 0;
   }
@@ -2703,12 +2814,32 @@ function _cmv40SyncPermanentLog(project) {
     _appendLogLine(containerEl, line);
   }
   project._renderedLogCount = logArr.length;
-  // Cap del DOM: un job CMv4.0 largo (ffmpeg/dovi_tool) genera miles de líneas.
-  // La fuente de verdad es session.output_log (re-hidratado por watermark), así
-  // que podar los nodos más antiguos no pierde nada y evita inflar el DOM
-  // (Tab 1 ya acota con el ring buffer _colaLogLines). audit #11.
-  while (containerEl.childNodes.length > 1200) {
-    containerEl.removeChild(containerEl.firstChild);
+  if (newLines.length) project._logVaciadoAMano = false;
+  _cmv40RecortarLog(containerEl);
+}
+
+const _CMV40_LOG_TOPE = 1200;
+
+/** Cap del DOM: un job CMv4.0 largo (ffmpeg/dovi_tool) genera miles de líneas.
+ *  La fuente de verdad es session.output_log (re-hidratado por watermark), así
+ *  que podar los nodos más antiguos no pierde nada y evita inflar el DOM
+ *  (Tab 1 ya acota con el ring buffer _colaLogLines). audit #11.
+ *
+ *  **Y lo DICE.** El recorte era callado, y un log que empieza a mitad de la
+ *  tercera fase se lee como un log perdido —la regla que ya cumple el modal
+ *  de trabajo—. El aviso va el primero y no cuenta como línea; «Copiar»
+ *  copia el log entero del modelo (auditoría con Codex del 2026-10-17). */
+function _cmv40RecortarLog(containerEl) {
+  const lineas = containerEl.querySelectorAll(':scope > .log-line');
+  let sobran = lineas.length - _CMV40_LOG_TOPE;
+  if (sobran <= 0) return;
+  for (let i = 0; i < sobran; i++) lineas[i].remove();
+  let aviso = containerEl.querySelector(':scope > .cmv40-log-recortado');
+  if (!aviso) {
+    aviso = document.createElement('div');
+    aviso.className = 'cmv40-log-recortado';
+    aviso.textContent = tr('tab3.log_recortado_aviso', {n: _CMV40_LOG_TOPE.toLocaleString(localeActual())});
+    containerEl.insertBefore(aviso, containerEl.firstChild);
   }
 }
 
@@ -2727,7 +2858,10 @@ function _appendCMv40Log(project, line) {
     _cmv40UpdateProgressUI(pid, prog);
     return;
   }
-  _appendLogLine(document.getElementById(`cmv40-log-${pid}`), line);
+  const cont = document.getElementById(`cmv40-log-${pid}`);
+  _appendLogLine(cont, line);
+  if (cont) _cmv40RecortarLog(cont);
+  project._logVaciadoAMano = false;
   // Watermark++: el WS acaba de entregar una línea que también está
   // (o estará en milisegundos) en session.output_log. Sin este incremento,
   // un refresh posterior intentaría pintarla de nuevo.
@@ -2743,7 +2877,8 @@ async function _refreshCMv40Session(pid, { includeLog = true } = {}) {
   // includeLog=false: el llamador sabe que el WS está entregando el log y
   // solo quiere el estado. Ahorra ~1,5 MB de payload por tick.
   const qs = includeLog ? '' : '?include_log=false';
-  const data = await apiFetch(`/api/cmv40/${pid}${qs}`, { silent: true });
+  // Una lectura más vieja que otra ya aplicada vuelve `null` (ver arriba).
+  const data = await _cmv40LeerSesion(pid, qs);
   if (!data) return;
   const project = openCMv40Projects.find(p => p.id === pid);
   if (project) {
@@ -2811,6 +2946,13 @@ function _createCMv40Panel(project) {
 function _clearCMv40Log(pid) {
   const el = document.getElementById(`cmv40-log-${pid}`);
   if (el) el.innerHTML = '';
+  // El watermark se queda donde está el log: lo vaciado no se vuelve a
+  // pintar, y lo que llegue después sí.
+  const p = openCMv40Projects.find(x => x.id === pid);
+  if (p) {
+    p._renderedLogCount = (p.session?.output_log || []).length;
+    p._logVaciadoAMano = true;
+  }
 }
 
 function _updateCMv40Panel(project) {
@@ -2887,9 +3029,9 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
       const lastWithEnd = [...hist].reverse().find(h => h.finished_at);
       const endMs = lastWithEnd ? Date.parse(lastWithEnd.finished_at) : Date.now();
       elapsedSecs = (endMs - startedMs) / 1000;
-      remainingText = s.phase === 'done' ? 'finalizado'
+      remainingText = s.phase === 'done' ? tr('tab3.tl_finalizado')
                     : s.error_message ? tr('tab3.con_error')
-                    : cancelado ? 'cancelado' : '';
+                    : cancelado ? tr('tab3.tl_cancelado') : '';
     } else {
       elapsedSecs = (Date.now() - startedMs) / 1000;
       newBaseRemaining = _cmv40RestanteDelJob(s, steps, stepStatuses, hist, project);
@@ -3009,15 +3151,22 @@ function _cmv40UpdateTimelineIncremental(tlWrap, s, project) {
 
 /** Genera solo el contenido interno (<li>...</li>) de la lista de steps.
  *  Extraído de _cmv40RenderTimeline para reuso desde el update incremental. */
+// Los iconos de estado de un paso de la timeline. UNA tabla para el render
+// completo y el incremental: este último no tenía `error`, así que un gate
+// B/C incompatible interpolaba `undefined` en el siguiente refresco
+// (auditoría con Codex del 2026-10-17).
+const _CMV40_TL_ICONOS = {
+  done:    '<span class="cmv40-tl-status-icon done"><span data-icono="check"></span></span>',
+  running: '<span class="cmv40-tl-status-icon running"></span>',
+  skipped: '<span class="cmv40-tl-status-icon skipped"><span data-icono="omitida"></span></span>',
+  pending: '<span class="cmv40-tl-status-icon pending"></span>',
+  error:   '<span class="cmv40-tl-status-icon error"><span data-icono="cruz"></span></span>',
+};
+
 function _cmv40RenderTimelineStepsHTML(steps, stepStatuses, s) {
   return steps.map((st, i) => {
     const status = stepStatuses[i];
-    const iconMap = {
-      done:    '<span class="cmv40-tl-status-icon done"><span data-icono="check"></span></span>',
-      running: '<span class="cmv40-tl-status-icon running"></span>',
-      skipped: '<span class="cmv40-tl-status-icon skipped"><span data-icono="omitida"></span></span>',
-      pending: '<span class="cmv40-tl-status-icon pending"></span>',
-    };
+    const iconMap = _CMV40_TL_ICONOS;
     const elapsed = status === 'done' ? _cmv40StepElapsedSecs(st.key, s) : null;
     const doneLabel = elapsed != null
       ? tr('comun.completado_p1', {p1: _cmv40FmtClock(elapsed)})
@@ -3136,7 +3285,11 @@ async function cmv40CancelRunning(pid) {
     tr('tab3.cancelar_la_ejecucion_en_curso'),
     message,
     async () => {
-      await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
+      const r = await apiFetch(`/api/cmv40/${pid}/cancel`, { method: 'POST' });
+      // Sin respuesta no consta que se cancelara nada: ni se apaga el auto
+      // ni se anuncia (el error ya lo dijo `apiFetch`). Con ella, el servidor
+      // ya puso `auto_pipeline=false` y el aviso dice la verdad.
+      if (!r) return;
       const proj = openCMv40Projects.find(p => p.id === pid);
       if (proj) {
         proj._lastAutoFiredFor = null;
@@ -4114,9 +4267,13 @@ function _renderCMv40ActivePhase(project) {
   // caro no es leer el volcado (eso es un fichero que ya está y una
   // reducción a cubos): es REGENERARLO, y de eso se encarga el guard del
   // backend, que ahora rechaza la regeneración con cualquier fase corriendo.
+  // Si la Fase D se SALTA lo dice el plan, no `target_trust_ok` a pelo: con
+  // los gates aprobados pero la revisión manual forzada, la Fase D aparecía
+  // sin gráfico ni controles y no había forma de confirmarla (auditoría con
+  // Codex del 2026-10-17).
   const shouldLoadChart = (faseDState === 'active' || faseDState === 'done')
                           && dExpanded
-                          && !s.target_trust_ok;
+                          && !_cmv40SkipSyncReview(s);
   if (shouldLoadChart) {
     _loadCMv40SyncChart(project);
   }
@@ -4939,8 +5096,12 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
   const curIdx = CMV40_PHASES_ORDER.indexOf(s.phase);
   const remuxedIdx = CMV40_PHASES_ORDER.indexOf('remuxed');
   const validatedIdx = CMV40_PHASES_ORDER.indexOf('validated');
+  // «En curso» SOLO si la Fase H está corriendo. Con `phase === 'remuxed'`
+  // a secas —la G terminada con el auto apagado, o la H cancelada o
+  // fallida— la card afirmaba «validación en curso» sin que nada corriera
+  // (auditoría con Codex del 2026-10-17).
   const state = curIdx < remuxedIdx ? 'pending'
-             : curIdx === remuxedIdx ? 'running'
+             : curIdx === remuxedIdx ? (s.running_phase === 'validate' ? 'running' : 'pending')
              : curIdx >= validatedIdx ? 'done'
              : 'pending';
 
@@ -4956,7 +5117,9 @@ function _cmv40RenderGateCardGH(pid, s, isExpanded) {
   } else {
     overallIcon = icono('candado', 'ico-lg');
     overallLabel = tr('tab3.pendiente');
-    summary = tr('tab3.se_ejecuta_tras_completar_fase_g');
+    // Con la G ya hecha, «se ejecuta tras la G» ya no describe nada.
+    summary = curIdx === remuxedIdx ? tr('tab3.gh_lista_para_comprobar')
+                                    : tr('tab3.se_ejecuta_tras_completar_fase_g');
   }
 
   let body = '';
@@ -5078,10 +5241,11 @@ function _cmv40FaseSummary(key, s) {
   if (key === 'G') {
     // El MKV se escribe en /mnt/output (fuera del workdir) por lo que no sale
     // del scan de artifacts. Mostramos el nombre directo del session.
+    // El subtítulo de la card se pinta como HTML: el nombre, escapado.
     const name = s.output_mkv_name || '';
-    return name ? tr('tab3.mkv_remuxado_pre_validacion_2', {name: name}) : tr('tab3.mkv_remuxado_pre_validacion');
+    return name ? tr('tab3.mkv_remuxado_pre_validacion_2', {name: escHtml(name)}) : tr('tab3.mkv_remuxado_pre_validacion');
   }
-  if (key === 'H') return s.output_mkv_path ? tr('tab3.movido_a_p1', {p1: s.output_mkv_path}) : tr('tab3.validado');
+  if (key === 'H') return s.output_mkv_path ? tr('tab3.movido_a_p1', {p1: escHtml(s.output_mkv_path)}) : tr('tab3.validado');
   return '';
 }
 
@@ -5345,8 +5509,16 @@ async function _cmv40Redo(pid, targetPhase, faseKey) {
         </div>
         <ul style="margin:0; padding-left:18px">${rows}</ul>
       </div>`;
-  } else {
+  } else if (preview) {
     artifactsList = '<div style="font-size:11px; color:var(--text-3); margin-top:8px">' + tr('tab3.no_hay_artefactos_posteriores_que_borrar') + '</div>';
+  } else {
+    // Sin previsualización NO se sabe qué se borra. Decir «no hay nada que
+    // borrar» invitaba a confirmar un reset que sí borraba (auditoría con
+    // Codex del 2026-10-17). Se puede seguir —es decisión del usuario—,
+    // pero sabiéndolo.
+    artifactsList = '<div class="banner warning" style="margin-top:8px"><span class="banner-icon">'
+      + icono('aviso') + '</span><span>' + escHtml(tr('tab3.no_se_pudo_previsualizar_artefactos'))
+      + '</span></div>';
   }
 
   // Uso el modal cmv40-confirm-modal que acepta HTML en el body
@@ -5536,7 +5708,10 @@ function _cmv40FaseFBody(pid, s) {
   const dropIn = _cmv40DropIn(s);
   const targetNeedsMerge = _cmv40TargetNeedsMerge(s);
   const userAcked = !!s.user_acknowledged_degradation;
-  const faseDExecutedVisually = !trust && !userAcked;
+  // Si la Fase D se miró lo dice el plan (`skip_sync_review`), que además
+  // sabe de un desfase pendiente: reconstruirlo aquí con trust y ACK era
+  // otra réplica de la regla, y discrepaba con un sync por revisar.
+  const faseDExecutedVisually = !_cmv40SkipSyncReview(s);
   let desc;
   if (dropIn) {
     desc = tr('tab3.inyecta_el_rpu_del_bin_directamente');
@@ -5701,9 +5876,13 @@ async function _cmv40PostFase(url, opts = {}) {
       && est.headers && est.headers.get('X-Fase-Ya-En-Curso') === '1') {
     return { ya_en_curso: true };        // benigno: alguien llegó antes
   }
-  if (est.detalle) showToast(tr('comun.error_p1', {p1: est.detalle}), 'error');
+  if (est.detalle) showToast(tr('comun.error_p1', {p1: escHtml(est.detalle)}), 'error');
   return null;
 }
+
+// Vueltas sin ver la fase ocupada antes de darla por no arrancada: el
+// endpoint marca la fase al despachar, así que unas pocas bastan.
+const _CMV40_POLL_SIN_ARRANCAR = 5;
 
 async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries = 600) {
   // Singleton por pid: se dispara desde varios sitios (analyze, target-provided,
@@ -5712,22 +5891,35 @@ async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries 
   if (!window._cmv40PollActive) window._cmv40PollActive = {};
   if (window._cmv40PollActive[pid]) return;
   window._cmv40PollActive[pid] = true;
+  // **Se termina también cuando la fase ya no está ocupada**, llegue o no a
+  // la fase objetivo. Cancelar conserva la fase anterior y no escribe
+  // error, así que la condición de antes —objetivo, `done` o error— no se
+  // cumplía nunca y el bucle seguía hasta 600 vueltas (15 min de GET cada
+  // 1,5 s). Ni se seguía al cerrar el proyecto (auditoría con Codex del
+  // 2026-10-17). Ocupada = corriendo o esperando turno en la cola.
+  let vistaOcupada = false;
   for (let i = 0; i < maxTries; i++) {
     await new Promise(r => setTimeout(r, CMV40_POLL_PHASE_MS));
+    if (!openCMv40Projects.some(p => p.id === pid)) break;   // se cerró
     // silent: ver _refreshCMv40Session — polling rutinario suprime toasts
     // de timeout transitorio bajo carga I/O.
     // include_log=false: este poller solo mira phase/running_phase/error. El
     // log llega por WS. Pidiéndolo entero eran 1,57 MB y 437 ms de servidor
     // por tick, ~1.000 ticks en una fase de inject de 15 min.
-    const data = await apiFetch(`/api/cmv40/${pid}?include_log=false`, { silent: true });
+    const data = await _cmv40LeerSesion(pid, '?include_log=false');
     if (!data) continue;
     const project = openCMv40Projects.find(p => p.id === pid);
     if (project) {
       _cmv40AssignSession(project, data);
       _updateCMv40Panel(project);
     }
-    // Termina cuando: no hay fase corriendo, alcanzó objetivo, hay error, o done
-    if (!data.running_phase && (data.phase === targetPhase || data.phase === 'done' || data.error_message)) {
+    const ocupada = _cmv40Ocupado(project ? project.session : data);
+    if (ocupada) { vistaOcupada = true; continue; }
+    const llego = data.phase === targetPhase || data.phase === 'done' || !!data.error_message;
+    const acabo = vistaOcupada || i + 1 >= _CMV40_POLL_SIN_ARRANCAR;
+    // Termina cuando: no hay fase ocupada y alcanzó objetivo, hay error,
+    // está `done`, o la fase que se vio corriendo ya terminó (cancelada).
+    if (llego || acabo) {
       refreshCMv40Sidebar();
       // Liberar el singleton ANTES de encadenar. Si se libera después, la
       // llamada a _cmv40MaybeAutoAdvance de aquí abajo dispara la fase
@@ -5737,8 +5929,10 @@ async function _cmv40PollPhase(pid, targetPhase, errorPhase = 'error', maxTries 
       // disparo a los 5s: es el origen del "⏭ Fase validate omitida" que
       // aparecía justo 5s después de completarla (John Wick 4, FNAF 2).
       window._cmv40PollActive[pid] = false;
-      // Auto-avanzar si el flag está activo y no hay error
-      if (project && project.autoContinue && !data.error_message && data.phase !== 'done') {
+      // Auto-avanzar si el flag está activo y no hay error. Solo si se
+      // LLEGÓ: una fase cancelada se queda donde estaba, y avanzar desde
+      // ahí sería relanzarla.
+      if (llego && project && project.autoContinue && !data.error_message && data.phase !== 'done') {
         _cmv40MaybeAutoAdvance(project);
       }
       return;
@@ -5946,33 +6140,34 @@ function _cmv40MaybeAutoAdvance(project) {
   }
 }
 
+// Los lanzadores del auto-avance, con la misma regla que los de los botones:
+// sin respuesta no hay fase que vigilar.
 async function _cmv40AutoTargetPath(pid, rpuPath) {
-  await apiFetch(`/api/cmv40/${pid}/target-rpu-path`, {
+  const r = await apiFetch(`/api/cmv40/${pid}/target-rpu-path`, {
     method: 'POST',
     body: JSON.stringify({ rpu_path: rpuPath }),
   });
-  _cmv40PollPhase(pid, 'target_provided');
+  if (r) _cmv40PollPhase(pid, 'target_provided');
 }
 
 async function _cmv40AutoTargetDrive(pid, driveSel) {
-  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-drive`, {
+  const r = await apiFetch(`/api/cmv40/${pid}/target-rpu-from-drive`, {
     method: 'POST',
     body: JSON.stringify({ file_id: driveSel.file_id, file_name: driveSel.file_name }),
   });
-  _cmv40PollPhase(pid, 'target_provided');
+  if (r) _cmv40PollPhase(pid, 'target_provided');
 }
 
 async function _cmv40AutoTargetMkv(pid, mkvPath) {
-  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-mkv`, {
+  const r = await apiFetch(`/api/cmv40/${pid}/target-rpu-from-mkv`, {
     method: 'POST',
     body: JSON.stringify({ source_mkv_path: mkvPath }),
   });
-  _cmv40PollPhase(pid, 'target_provided');
+  if (r) _cmv40PollPhase(pid, 'target_provided');
 }
 
 async function _cmv40AutoInject(pid) {
-  await _cmv40PostFase(`/api/cmv40/${pid}/inject`);
-  _cmv40PollPhase(pid, 'injected');
+  if (await _cmv40PostFase(`/api/cmv40/${pid}/inject`)) _cmv40PollPhase(pid, 'injected');
 }
 
 // Para target trusted: confirma sync OK sin intervención manual y avanza
@@ -5991,39 +6186,48 @@ function _cmv40SyncGateLocal(delta, confOk, confPct) {
 }
 
 async function _cmv40AutoMarkSynced(pid) {
-  await _cmv40PostFase(`/api/cmv40/${pid}/mark-synced`);
-  _cmv40PollPhase(pid, 'sync_verified');
+  if (await _cmv40PostFase(`/api/cmv40/${pid}/mark-synced`)) _cmv40PollPhase(pid, 'sync_verified');
 }
 
 /** Toggle del auto-pipeline para un proyecto. */
 async function cmv40ToggleAuto(pid) {
   const project = openCMv40Projects.find(p => p.id === pid);
   if (!project) return;
+  const quiere = !project.autoContinue;
   // Si activamos, validar colisión de nombre en /mnt/output
-  if (!project.autoContinue) {
+  if (quiere) {
     const existing = await apiFetch('/api/mkv/files');
     const name = project.session.output_mkv_name;
     if (existing?.files?.includes(name)) {
-      showToast(tr('tab3.ya_existe_un_mkv_con_el', {name: name}), 'warning');
+      showToast(tr('tab3.ya_existe_un_mkv_con_el', {name: escHtml(name)}), 'warning');
       return;
     }
   }
-  project.autoContinue = !project.autoContinue;
+  // Sincroniza con el backend (auto_pipeline persistente). Si lo activamos
+  // y la sesión está en una fase intermedia, el backend retoma la cadena
+  // inmediatamente — el job avanza solo aunque cierres el navegador.
+  //
+  // **Se espera la respuesta y solo con ella cambia la interfaz.** El POST
+  // iba suelto y sin mirar el resultado: con él fallido, la cabecera decía
+  // «auto desactivado» mientras el servidor seguía encadenando fases
+  // (auditoría con Codex del 2026-10-17). El error lo cuenta `apiFetch`.
+  const r = await apiFetch(`/api/cmv40/${pid}/auto-pipeline`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled: quiere }),
+  }).catch(() => null);
+  if (!r) return;
+  project.autoContinue = quiere;
   // El switch solo marca el modo de trabajo — NO dispara fases por si mismo.
   // Al acabar la fase que el usuario lance manualmente, si auto=ON la siguiente
   // se encadena automaticamente. Lanzar con el toggle seria sorprendente para
   // el usuario (ej. si tocan el toggle sin recordar que estado tiene el proyecto).
   // Toggling tambien apaga _autoChaining — limpia el estado de bridging.
   project._autoChaining = false;
+  // La respuesta es la sesión: con ella, ningún GET de antes del cambio
+  // puede devolver el modo viejo.
+  _cmv40AssignSession(project, r);
+  project.autoContinue = quiere;
   _updateCMv40Panel(project);
-  // Sincroniza con el backend (auto_pipeline persistente). Si lo activamos
-  // y la sesión está en una fase intermedia, el backend retoma la cadena
-  // inmediatamente — el job avanza solo aunque cierres el navegador.
-  apiFetch(`/api/cmv40/${pid}/auto-pipeline`, {
-    method: 'POST',
-    body: JSON.stringify({ enabled: project.autoContinue }),
-    silent: true,
-  }).catch(() => {});
   if (project.autoContinue) {
     showToast(tr('tab3.auto_pipeline_activado_el_backend_encadenara'), 'success');
   } else {
@@ -6073,11 +6277,31 @@ async function _cmv40LoadRepoForPanel(pid, forzar = false) {
   //
   // Se pide una vez por fichero. El botón «Refrescar» fuerza; volver a la
   // pestaña no, que sería el mismo parpadeo con otro disparador.
-  if (!forzar && project._repoCargadoPara === filename) return;
+  if (!forzar && project._repoCargadoPara === filename) {
+    // **Ya se pidió, pero eso no dice que se VEA.** La lista vive en un
+    // elemento que el repintado del panel recrea —colapsar la card B y
+    // volver a expandirla—, y el nuevo nacía vacío mientras la marca seguía
+    // diciendo «cargado»: la lista se quedaba en blanco hasta pulsar
+    // «Refrescar», con la selección anterior viva y «Descargar» bajando un
+    // bin que no se veía (auditoría con Codex del 2026-10-17). Se repinta lo
+    // que ya se tenía, sin volver a pedirlo.
+    if (list.dataset.repoDe !== filename && project._repoListaHTML) {
+      list.innerHTML = project._repoListaHTML;
+      if (info) info.innerHTML = project._repoInfoHTML || '';
+      list.dataset.repoDe = filename;
+      const sel = project._panelSelectedRepo?.file_id;
+      if (sel) _cmv40SelectRepoForPanel(pid, sel);
+    }
+    return;
+  }
   project._repoCargadoPara = filename;
+  // Lo elegido en la lista anterior no vale para la nueva.
+  project._panelSelectedRepo = null;
+  project._repoListaHTML = null;
   if (!filename) {
     list.innerHTML = '<div class="cmv40-repo-empty">' + tr('tab3.sin_mkv_origen_imposible_matchear') + '</div>';
     if (info) info.textContent = '';
+    _cmv40GuardarListaRepo(project, pid, filename);
     return;
   }
   list.innerHTML = '<div class="cmv40-repo-empty"><span data-icono="reloj"></span> ' + tr('tab3.buscando_en_drive') + '</div>';
@@ -6087,6 +6311,31 @@ async function _cmv40LoadRepoForPanel(pid, forzar = false) {
   const qs = '?filename=' + encodeURIComponent(filename);
   const data = await apiFetch('/api/cmv40/repo-rpus' + qs);
   if (_cmv40PanelRepoReqIds[pid] !== reqId) return;
+  // Los elementos de AHORA: el repintado pudo recrearlos durante la
+  // petición, y escribir en los de antes era escribir en nodos sueltos.
+  return _cmv40PintarListaRepo(project, pid, filename, data);
+}
+
+/** Se guarda lo pintado para repintarlo si el elemento se recrea. */
+function _cmv40GuardarListaRepo(project, pid, filename) {
+  const list = document.getElementById(`cmv40-repo-list-${pid}`);
+  const info = document.getElementById(`cmv40-repo-info-${pid}`);
+  if (!list) return;
+  list.dataset.repoDe = filename;
+  project._repoListaHTML = list.innerHTML;
+  project._repoInfoHTML = info ? info.innerHTML : '';
+}
+
+function _cmv40PintarListaRepo(project, pid, filename, data) {
+  const list = document.getElementById(`cmv40-repo-list-${pid}`);
+  const info = document.getElementById(`cmv40-repo-info-${pid}`);
+  if (!list) { project._repoCargadoPara = null; return; }
+  const pintado = _cmv40PintarListaRepoEn(project, pid, filename, data, list, info);
+  _cmv40GuardarListaRepo(project, pid, filename);
+  return pintado;
+}
+
+function _cmv40PintarListaRepoEn(project, pid, filename, data, list, info) {
   if (!data) {
     list.innerHTML = '<div class="cmv40-repo-empty">' + tr('tab3.error_consultando_el_repositorio') + '</div>';
     if (info) info.textContent = '';
@@ -6124,8 +6373,8 @@ async function _cmv40LoadRepoForPanel(pid, forzar = false) {
     return `
       <div class="cmv40-repo-card" data-file-id="${escHtml(c.file.id)}"
            role="button" tabindex="0"
-           onclick="_cmv40SelectRepoForPanel('${escHtml(pid)}','${escHtml(c.file.id)}')"
-           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();_cmv40SelectRepoForPanel('${escHtml(pid)}','${escHtml(c.file.id)}')}">
+           onclick="_cmv40SelectRepoForPanel(${jsArg(pid)},${jsArg(c.file.id)})"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();_cmv40SelectRepoForPanel(${jsArg(pid)},${jsArg(c.file.id)})}">
         <div class="cmv40-repo-card-head">
           <span class="cmv40-repo-card-tag ${tagMeta.cls}">${icono(tagMeta.icon)} ${tagMeta.label}</span>
           ${provTag}
@@ -6165,10 +6414,12 @@ async function cmv40DoTargetFromDrive(pid) {
     showToast(tr('tab3.selecciona_un_candidato_del_repositorio'), 'warning');
     return;
   }
-  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-drive`, {
+  // Sin respuesta no se lanzó nada: ni se anuncia ni se vigila.
+  const r = await apiFetch(`/api/cmv40/${pid}/target-rpu-from-drive`, {
     method: 'POST',
     body: JSON.stringify({ file_id: sel.file_id, file_name: sel.file_name || '' }),
   });
+  if (!r) return;
   _cmv40PhaseToast(pid, tr('tab3.descargando_rpu_del_repositorio'));
   _cmv40PollPhase(pid, 'target_provided');
 }
@@ -6185,7 +6436,7 @@ async function _cmv40LoadRpus(pid) {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">' + tr('tab3.no_hay_rpus_en_mnt_cmv40_rpus') + '</option>';
+    select.innerHTML = '<option value="">' + tr(data ? 'tab3.no_hay_rpus_en_mnt_cmv40_rpus' : 'tab3.no_se_pudo_listar') + '</option>';
   }
 }
 
@@ -6201,7 +6452,7 @@ async function _cmv40LoadTargetMkvs(pid) {
       select.appendChild(opt);
     });
   } else {
-    select.innerHTML = '<option value="">' + tr('tab3.no_hay_mkvs_en_el_directorio_de_isos') + '</option>';
+    select.innerHTML = '<option value="">' + tr(data ? 'tab3.no_hay_mkvs_en_el_directorio_de_isos' : 'tab3.no_se_pudo_listar') + '</option>';
   }
 }
 
@@ -6237,16 +6488,22 @@ async function cmv40DoTargetFromMkv(pid) {
     showToast(tr('tab3.selecciona_un_mkv'), 'warning');
     return;
   }
-  await apiFetch(`/api/cmv40/${pid}/target-rpu-from-mkv`, {
+  const r = await apiFetch(`/api/cmv40/${pid}/target-rpu-from-mkv`, {
     method: 'POST',
     body: JSON.stringify({ source_mkv_path: mkvPath }),
   });
+  if (!r) return;
   _cmv40PhaseToast(pid, tr('tab3.extrayendo_rpu_del_mkv'));
   _cmv40PollPhase(pid, 'target_provided');
 }
 
+// **Un lanzador que falla no anuncia ni vigila.** Los cinco anunciaban
+// «Extrayendo…» y arrancaban el poller aunque `_cmv40PostFase` devolviera
+// `null` —la fase no había arrancado—, y el poller llegaba a 600 vueltas
+// esperando algo que no iba a pasar (auditoría con Codex del 2026-10-17).
+// `{ya_en_curso: true}` sí cuenta: alguien la arrancó antes y se vigila igual.
 async function cmv40DoExtract(pid) {
-  await _cmv40PostFase(`/api/cmv40/${pid}/extract`);
+  if (!(await _cmv40PostFase(`/api/cmv40/${pid}/extract`))) return;
   _cmv40PhaseToast(pid, tr('tab3.extrayendo_bl_el_y_datos_per'));
   _cmv40PollPhase(pid, 'extracted');
 }
@@ -6256,7 +6513,7 @@ async function cmv40DoInject(pid) {
     tr('tab3.inyectar_rpu_2'),
     tr('tab3.esto_creara_el_injected_hevc_has'),
     async () => {
-      await _cmv40PostFase(`/api/cmv40/${pid}/inject`);
+      if (!(await _cmv40PostFase(`/api/cmv40/${pid}/inject`))) return;
       _cmv40PhaseToast(pid, tr('tab3.inyectando_rpu'));
       _cmv40PollPhase(pid, 'injected');
     },
@@ -6265,13 +6522,13 @@ async function cmv40DoInject(pid) {
 }
 
 async function cmv40DoRemux(pid) {
-  await _cmv40PostFase(`/api/cmv40/${pid}/remux`);
+  if (!(await _cmv40PostFase(`/api/cmv40/${pid}/remux`))) return;
   _cmv40PhaseToast(pid, tr('tab3.toast_remuxando_a_mkv_final'));
   _cmv40PollPhase(pid, 'remuxed');
 }
 
 async function cmv40DoValidate(pid) {
-  await _cmv40PostFase(`/api/cmv40/${pid}/validate`);
+  if (!(await _cmv40PostFase(`/api/cmv40/${pid}/validate`))) return;
   _cmv40PhaseToast(pid, tr('tab3.toast_validando_mkv_final'));
   // Polling — Fase H dura varios minutos (move 42 GB), no se puede hacer síncrono
   _cmv40PollPhase(pid, 'done');
@@ -6371,7 +6628,8 @@ async function refreshCMv40Sidebar() {
       const phaseLabel = (typeof CMV40_RUNNING_LABELS === 'object' && CMV40_RUNNING_LABELS)
         ? (CMV40_RUNNING_LABELS[running.running_phase] || running.running_phase)
         : running.running_phase;
-      showToast(`Reanudando seguimiento: ${niceName} · ${phaseLabel}`, 'info');
+      showToast(tr('tab3.reanudando_seguimiento', {
+        nombre: escHtml(niceName), fase: escHtml(phaseLabel)}), 'info');
     } else {
       // No hay nada que reanudar — marcamos el intento hecho para no
       // reevaluar en cada refresh del sidebar (es 1-shot por entrada al tab).
@@ -6496,11 +6754,18 @@ function _renderCMv40Sidebar() {
 
     // El estado, en el orden en que manda: lo que corre ahora, un error sin
     // resolver, el proyecto cerrado, el terminado y el que está a medias.
+    //
+    // «En cola» solo si ESPERA TURNO, que lo sabe la cola. A medias y
+    // parado —una fase cancelada, el auto apagado entre fases— es «listo»:
+    // falta arrancar lo siguiente. Antes todo lo de en medio salía «en
+    // cola» aunque nada esperara (auditoría con Codex del 2026-10-17).
+    const enLaCola = typeof trabajoSobre === 'function'
+      && trabajoSobre(s.id)?.estado === 'en_cola';
     const estado = isRunning ? 'corriendo'
       : s.error_message ? 'error'
       : s.archived ? 'archivado'
       : (s.phase === 'done' || s.phase === 'validated') ? 'hecho'
-      : s.phase === 'created' ? 'listo' : 'en_cola';
+      : enLaCola ? 'en_cola' : 'listo';
     const acento = isRunning ? 'estado-curso'
       : s.error_message ? 'estado-error'
       : s.archived ? ''
@@ -6551,7 +6816,8 @@ function _renderCMv40Sidebar() {
       // Diez puntos, uno por fase del pipeline. «Fase: BL/EL extraídos» no
       // dice si eso es el principio o el final; esto sí, y sin una línea.
       pips: idx >= 0 ? { hechas: idx + 1, total: CMV40_PHASES_ORDER.length,
-                         tooltip: `${idx + 1} de ${CMV40_PHASES_ORDER.length} · ${phaseLabel}` }
+                         tooltip: tr('workbar.n_de_total', {n: idx + 1, total: CMV40_PHASES_ORDER.length})
+                                  + ` · ${phaseLabel}` }
                      : null,
       insignia: typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : '',
       abierto: !!isOpen,
@@ -6651,8 +6917,30 @@ function _cmv40ChartSinDatos(pid, est) {
     // se niega a regenerarlo. No es un fallo, es un «ahora no».
     : (est && est.status === 409) ? tr('tab3.sync_fase_en_marcha')
     : tr('tab3.sync_no_se_pudo_leer');
-  wrap.innerHTML = `<div class="banner info"><span class="banner-icon">`
-    + icono('info') + `</span><span>${escHtml(motivo)}</span></div>`;
+  // **El aviso va AL LADO del canvas, no en su lugar.** Sustituir el
+  // contenido del contenedor se llevaba el canvas, y una petición posterior
+  // que sí funcionaba no tenía dónde pintar: el aviso viejo se quedaba hasta
+  // recrear la card (auditoría con Codex del 2026-10-17).
+  const canvas = document.getElementById(`cmv40-chart-${pid}`);
+  if (canvas) canvas.style.display = 'none';
+  let aviso = wrap.querySelector('[data-sin-datos]');
+  if (!aviso) {
+    aviso = document.createElement('div');
+    aviso.dataset.sinDatos = '1';
+    wrap.appendChild(aviso);
+  }
+  aviso.className = 'banner info';
+  aviso.innerHTML = `<span class="banner-icon">${icono('info')}</span>`
+    + `<span>${escHtml(motivo)}</span>`;
+}
+
+/** Quita el aviso de «sin datos» y vuelve a enseñar el canvas. */
+function _cmv40ChartConDatos(pid) {
+  const wrap = document.getElementById(`cmv40-chart-wrap-${pid}`);
+  if (!wrap) return;
+  wrap.querySelector('[data-sin-datos]')?.remove();
+  const canvas = document.getElementById(`cmv40-chart-${pid}`);
+  if (canvas) canvas.style.display = '';
 }
 
 async function _loadCMv40SyncChart(project) {
@@ -6679,6 +6967,7 @@ async function _loadCMv40SyncChart(project) {
       project._syncDataLoading = false;
     }
   }
+  _cmv40ChartConDatos(pid);
   _renderCMv40Chart(project);
   _renderCMv40SyncStats(project);
   _renderCMv40SyncControls(project);
@@ -7236,15 +7525,23 @@ async function _cmv40SetRange(pid, start, end) {
   if (project._syncRangeLoading) return;
   project._syncRangeLoading = true;
   try {
-    const data = await apiFetch(
-      `/api/cmv40/${pid}/sync-data?desde=${start}&hasta=${end}`, { silent: true });
-    if (!data) return;
-    // El rango pudo cambiar mientras la petición volvía (clics rápidos entre
-    // presets): si ya no es el que se pidió, se descarta.
-    if (project.chartRange.start !== start || project.chartRange.end !== end) return;
-    project.syncData = data;
-    _renderCMv40Chart(project);
-    _renderCMv40SyncControls(project);
+    // **Se pide siempre el ÚLTIMO rango.** El rango pudo cambiar mientras la
+    // petición volvía (clics rápidos entre presets): la respuesta vieja se
+    // descarta —eso ya se hacía—, pero NADIE pedía el nuevo, porque su clic
+    // había llegado con la petición en vuelo y había salido por el guard de
+    // arriba. El gráfico se quedaba con la curva del encuadre anterior
+    // (auditoría con Codex del 2026-10-17).
+    for (;;) {
+      const { start: desde, end: hasta } = project.chartRange;
+      const data = await apiFetch(
+        `/api/cmv40/${pid}/sync-data?desde=${desde}&hasta=${hasta}`, { silent: true });
+      if (project.chartRange.start !== desde || project.chartRange.end !== hasta) continue;
+      if (!data) return;
+      project.syncData = data;
+      _renderCMv40Chart(project);
+      _renderCMv40SyncControls(project);
+      return;
+    }
   } finally {
     project._syncRangeLoading = false;
   }
@@ -7374,14 +7671,33 @@ async function cmv40DoApplySync(pid) {
     showToast(tr('tab3.aplicando_la_correccion'), 'info');
     if (project) {
       project.syncData = null;  // forzar recarga
-      _cmv40AssignSession(project, data);
+      // Solo si es una sesión: en producción es el acuse `{ok, started}`, y
+      // asignarlo como sesión dejaba el panel sin fase ni nombres
+      // (`_cmv40AssignSession` ya lo descarta; esto lo deja dicho aquí).
+      if (_cmv40EsSesion(data)) _cmv40AssignSession(project, data);
       if (!project.expandedPhases) project.expandedPhases = {};
       project.expandedPhases['D'] = true;  // mantener la fase D visible
+      // Las cuatro casillas vuelven a cero, que es lo que hay que hacer tras
+      // aplicar: el desfase que queda es OTRO y se anuncia arriba con el
+      // número nuevo. Se olvida también lo que hubiera quedado anclado de un
+      // repintado: devolverlo sería volver a aplicar lo ya aplicado.
+      _cmv40OlvidarCorreccionEscrita(pid);
       _updateCMv40Panel(project);
-      // Las cuatro casillas vuelven a cero al repintarse, que es lo que hay
-      // que hacer tras aplicar: el desfase que queda es OTRO y se anuncia
-      // arriba con el número nuevo.
+      // Y se vigila la Fase E hasta que termine: con el auto apagado y el WS
+      // caído, nadie más traía la sesión al acabar.
+      _cmv40PollPhase(pid, project.session.phase);
     }
+  }
+}
+
+/** Devuelve a cero las cuatro casillas de la corrección y olvida lo escrito. */
+function _cmv40OlvidarCorreccionEscrita(pid) {
+  const ids = ['remove', 'remove-fin', 'duplicate', 'duplicate-fin']
+    .map(k => `cmv40-${k}-${pid}`);
+  olvidarAnclaje(ids);
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) { el.value = '0'; delete el.dataset.tocado; }
   }
 }
 
@@ -7788,10 +8104,15 @@ registrarDetalleDeTrabajo('cmv40', async (a) => {
  *  toma en su modal, no en el panel.
  */
 async function abrirProyectoCMv40Para(sid) {
-  const s = await apiFetch(`/api/cmv40/${sid}`, { silent: true })
+  const est = {};
+  const s = await apiFetch(`/api/cmv40/${sid}`, { silent: true, estado: est })
     .catch(() => null);
   if (!s) {
-    showToast(tr('tab3.ese_proyecto_ya_no_esta'), 'info');
+    // Solo un 404 es «ya no está». Un timeout con el NAS cargado lo decía
+    // igual, de un proyecto que seguía ahí (auditoría con Codex del
+    // 2026-10-17).
+    showToast(est.status === 404 ? tr('tab3.ese_proyecto_ya_no_esta')
+                                 : tr('tab3.no_se_pudo_abrir_el_proyecto'), 'info');
     return;
   }
   switchTab(3);
@@ -7826,6 +8147,8 @@ function cmv40TrasCancelar(sessionId) {
   if (!p) return;
   p._autoChaining = false;
   p._lastAutoFiredFor = null;
+  // Refleja lo que el servidor ya hizo al aceptar el cancel (pone
+  // `auto_pipeline=false`). Quien llama solo llega aquí con la respuesta.
   p.autoContinue = false;
 }
 
@@ -7910,10 +8233,10 @@ function _cmv40PfVeredicto(s, trabajo) {
             cuerpo: d.porque || r.porque || '', motivos: _cmv40PfMotivosDelLog(s)};
   }
   if (s.target_preflight_ok) {
-    // Solo lo que las filas NO dicen ya: dónde ha quedado el trabajo.
+    // Solo lo que las filas NO dicen ya: dónde ha quedado el trabajo. Sin
+    // dato, nada: el respaldo afirmaba que seguía en segundo plano.
     return {clase: 'ok', titulo: tr('tab3.validacion_superada'),
-            cuerpo: trabajo || tr('tab3.el_trabajo_continua_en_segundo_plano'),
-            motivos: []};
+            cuerpo: trabajo || '', motivos: []};
   }
   return null;
 }
@@ -7925,14 +8248,28 @@ function _cmv40PfMotivosDelLog(s) {
     .slice(-12);
 }
 
-/** Dónde ha quedado el trabajo tras un pre-flight que pasa. */
+/** Dónde ha quedado el trabajo tras un pre-flight que pasa.
+ *
+ *  Solo lo que CONSTA. Sin la Fase A corriendo ni en la cola, decía «el
+ *  trabajo continúa en segundo plano» — falso con el auto apagado, donde no
+ *  se encola nada. Y reabierto durante otra fase del mismo proyecto afirmaba
+ *  que corría la A, porque solo comparaba el proyecto (auditoría con Codex
+ *  del 2026-10-17).
+ */
 async function _cmv40PfDondeQuedo(pid) {
   const t = await apiFetch('/api/trabajos', { silent: true }).catch(() => null);
   if (!t) return '';
-  if ((t.activo?.sobre || t.activo?.id) === pid) return tr('tab3.la_fase_a_ya_esta_en');
+  const fase = j => j.fase_label || j.fase || '';
+  if ((t.activo?.sobre || t.activo?.id) === pid) {
+    const f = t.activo.fase || '';
+    return (!f || f === 'analyze_source') ? tr('tab3.la_fase_a_ya_esta_en')
+      : tr('tab3.pf_corre_otra_fase', {fase: fase(t.activo)});
+  }
   const enCola = (t.cola || []).find(j => (j.sobre || j.id) === pid);
   if (enCola) return tr('tab3.la_fase_a_esta_en_la', {posicion: enCola.posicion});
-  return tr('tab3.el_trabajo_continua_en_segundo_plano');
+  const p = openCMv40Projects.find(x => x.id === pid);
+  if (p && !p.autoContinue) return tr('tab3.pf_lanza_la_fase_a');
+  return '';
 }
 
 /** Las conclusiones del pre-flight, una fila por comprobación.
@@ -8107,8 +8444,13 @@ async function abrirPreflightCMv40(pid) {
   // async, así que no lo caza ni el listener de errores de la página.
   openModal('cmv40-preflight-modal');
   try { _cmv40PfPintar(null, null); } catch (e) { console.error('[pf]', e); }
-  if (_cmv40PfPolling) return;
-  _cmv40PfPolling = true;
+  // **El seguimiento es por proyecto.** Era un booleano global: abrir B con
+  // la lectura de A aún en vuelo retornaba aquí porque A seguía «polleando»,
+  // y cuando A volvía y veía que ya no era su modal, salía — sin arrancar el
+  // de B. El modal de B se quedaba en «Iniciando» (auditoría con Codex del
+  // 2026-10-17).
+  if (_cmv40PfPolling === pid) return;
+  _cmv40PfPolling = pid;
   try {
     // Chained-await, no setInterval: garantiza una sola petición en vuelo y
     // con ella el orden de las respuestas. Es el patrón del perfil de
@@ -8130,7 +8472,7 @@ async function abrirPreflightCMv40(pid) {
       await new Promise(r => setTimeout(r, _CMV40_PF_INTERVALO_MS));
     }
   } finally {
-    _cmv40PfPolling = false;
+    if (_cmv40PfPolling === pid) _cmv40PfPolling = false;
   }
 }
 

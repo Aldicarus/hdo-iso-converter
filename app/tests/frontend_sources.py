@@ -560,3 +560,74 @@ def motor_i18n() -> str:
             + ";\nconst _ausentes = new Set();\n" + locale + "\n"
             + js[i:fin] + "\n" + edad + "\n")
 
+
+
+# ── Chrome: la página real con un guion dentro ────────────────────────────
+#
+# Los arneses de Chrome copiaban cada uno su runner —la sonda de errores, el
+# stub del catálogo, el temporal en `app/static/` y el `--dump-dom`—. Este es
+# el mismo, para los que ejecutan FLUJOS (un `await` en medio, el proyecto
+# activo que cambia, una respuesta que vuelve tarde): ahí hace falta la
+# página entera, porque lo que se prueba es cómo se cruzan sus piezas.
+
+def chrome() -> str | None:
+    """La ruta de Chrome/Chromium, o `None` si no hay ninguno."""
+    candidatos = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        shutil.which("google-chrome") or "", shutil.which("chromium") or "",
+    ]
+    return next((c for c in candidatos if c and Path(c).exists()), None)
+
+
+# Errores de la página, la red cortada y un WebSocket mudo. Un arnés que
+# quiera red sustituye `apiFetch`; el `fetch` que nunca vuelve es para que lo
+# que se escape no salga a ninguna parte.
+SONDA_DE_ERRORES = (
+    "<script>window.__errores=[];"
+    "window.addEventListener('error',e=>window.__errores.push("
+    "(e.message||'')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno));"
+    "window.addEventListener('unhandledrejection',e=>window.__errores.push("
+    "'promesa: '+((e.reason&&e.reason.message)||e.reason)));"
+    "window.fetch=()=>new Promise(()=>{});"
+    "window.WebSocket=function(){this.close=()=>{};};</script>")
+
+
+def pagina_en_chrome(cuerpo: str, presupuesto_ms: int = 40000,
+                     sonda: str = SONDA_DE_ERRORES) -> dict:
+    """Carga `index.html` con `cuerpo` al final y devuelve lo que deje en
+    `<pre id="__out">` (JSON). El guion escribe ahí cuando termina; los
+    errores de la página van en `window.__errores`.
+
+    Lanza `unittest.SkipTest` si Chrome no devuelve el volcado.
+    """
+    import json
+    import os
+    import subprocess
+    import tempfile
+    import unittest
+    nav = chrome()
+    if not nav:
+        raise unittest.SkipTest("Chrome/Chromium no disponible")
+    pagina = html().replace("</head>", sonda + stub_catalogo_es() + "</head>")
+    pagina = pagina.replace("</body>", '<pre id="__out"></pre>\n' + cuerpo + "</body>")
+    pagina = (pagina.replace('src="/static/', 'src="')
+                    .replace('href="/static/', 'href="'))
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".html", delete=False,
+                                      encoding="utf-8", dir=str(STATIC))
+    tmp.write(pagina)
+    tmp.close()
+    try:
+        dom = subprocess.run(
+            [nav, "--headless", "--disable-gpu",
+             "--allow-file-access-from-files", "--dump-dom",
+             "--window-size=1280,1000",
+             f"--virtual-time-budget={presupuesto_ms}", tmp.name],
+            capture_output=True, text=True, timeout=180).stdout
+    finally:
+        os.unlink(tmp.name)
+    m = re.search(r'<pre id="__out">(.*?)</pre>', dom, re.S)
+    if not m or not m.group(1).strip():
+        raise unittest.SkipTest("Chrome no devolvió el volcado")
+    import html as _html
+    return json.loads(_html.unescape(m.group(1)))
