@@ -76,6 +76,9 @@ _GUION = r"""
       input(`cmv40-duplicate-fin-${p.id}`, '0');
       responder = (url) => url.endsWith('/apply-sync') ? {ok: true, started: true} : null;
       await cmv40DoApplySync(p.id);
+      // Y la guarda de `_cmv40AssignSession` por sí sola: el 409 benigno de
+      // `_cmv40PostFase` es `{ya_en_curso: true}`, que tampoco es una sesión.
+      _cmv40AssignSession(p, {ya_en_curso: true});
       return {id: p.session.id, fase: p.session.phase,
               origen: p.session.source_mkv_name,
               vigilada: !!window._cmv40PollActive[p.id],
