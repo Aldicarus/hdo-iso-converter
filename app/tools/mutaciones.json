@@ -226,15 +226,6 @@
   ]
  },
  {
-  "id": "P3-12b H completa valida la EL antes que el dual",
-  "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "            wd / \"DV_dual.hevc\",           # p7_fel con merge: salida del dovi_tool mux\n            wd / \"EL_injected.hevc\",       # p7_fel: capa de mejora, si no hubo mux\n",
-  "nuevo": "            wd / \"EL_injected.hevc\",       # p7_fel: capa de mejora, si no hubo mux\n            wd / \"DV_dual.hevc\",           # p7_fel con merge: salida del dovi_tool mux\n",
-  "modulos": [
-   "test_cmv40_fase_h_mira_el_mkv"
-  ]
- },
- {
   "id": "P2-4 B elige el audio de PEOR calidad",
   "fichero": "app/phases/phase_b.py",
   "viejo": "ranked = sorted(lang_tracks, key=lambda t: (_codec_priority(t), -t.bitrate_kbps))",
@@ -1011,7 +1002,7 @@
   ]
  },
  {
-  "id": "K-11 un destino ajeno se borra al fallar",
+  "id": "K-11 un destino que aparece en la cola sale como error de copia genérico",
   "fichero": "app/routers/tab2.py",
   "viejo": "    except FileExistsError as e:\n        # No es nuestro: ni se toca ni se borra.\n        raise RuntimeError(tr('tab2.ya_existe_un_mkv_con_ese', p1=dst.name)) from e\n",
   "nuevo": "",

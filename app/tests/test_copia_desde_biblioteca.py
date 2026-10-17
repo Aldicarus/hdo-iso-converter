@@ -152,13 +152,18 @@ class TestLaCopiaCompleta(CopiaCase):
 
     def test_un_destino_que_aparece_mientras_espera_turno_no_se_toca(self):
         """El endpoint comprueba el destino al encolar, y la cola puede
-        despachar cuarenta minutos después."""
+        despachar cuarenta minutos después. Y se dice qué pasa: un «Error
+        copiando MKV: [Errno 17]» no le dice al usuario que tiene que
+        renombrar o mover el que ya está."""
         self._pedir()
         self.dst.write_bytes(b"otro fichero")
         asyncio.run(self._correr(self._turno()))
         self.assertEqual(self.tab2._mkv_apply_state["step"], "error")
         self.assertEqual(self.dst.read_bytes(), b"otro fichero", "se ha pisado o borrado un fichero ajeno")
         self.assertFalse(self.tb.ran("mkvpropedit"))
+        from i18n import t
+        self.assertEqual(self.tab2._mkv_apply_state["error"],
+                         t('tab2.ya_existe_un_mkv_con_ese', p1=self.dst.name))
 
     def test_al_terminar_se_libera_para_el_siguiente(self):
         self.tab2._SEGUNDOS_ANTES_DE_LIBERAR, orig = 0, self.tab2._SEGUNDOS_ANTES_DE_LIBERAR
