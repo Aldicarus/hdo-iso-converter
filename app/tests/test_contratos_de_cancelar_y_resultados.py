@@ -167,6 +167,19 @@ class TestElResultadoDeUnaSeriePorTrabajo(ApiTestCase, unittest.IsolatedAsyncioT
         self.tab1._series_create_progress["running"] = False
         self.assertIn(job, self._progreso()["resultados_por_job"])
 
+    async def test_saltar_todos_los_existentes_tambien_publica_el_resultado(self):
+        """El runner ignora lo que devuelve la función: sin resultado en el
+        progreso, el modal lo leía como un fallo."""
+        cuerpo = self._cuerpo(3)
+        saltados = [{"season_number": 3, "episode_number": 1, "existing_id": "x"}]
+        await self.tab1._ejecutar_creacion_de_serie(
+            cuerpo, "bdmv_folder", "Serie (2024)", str(self.isos_dir / "Serie (2024)"),
+            [], saltados, [], "huella")
+        p = self._progreso()
+        self.assertFalse(p["running"])
+        self.assertEqual(p["resultado"]["skipped_existing"], saltados)
+        self.assertIn(self.tab1._clave_de_serie("Serie (2024)", 3), p["resultados_por_job"])
+
     def test_se_guardan_los_ultimos_y_el_repetido_cuenta_como_reciente(self):
         g = self.tab1._guardar_resultado_de_serie
         for j in ("a", "b", "c"):

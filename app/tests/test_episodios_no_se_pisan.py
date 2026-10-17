@@ -136,6 +136,29 @@ class TestReemplazarNoPierdeProyectos(EpisodiosCase):
         self.assertTrue(r.json().get("duplicado"), r.json())
         self.assertIsNotNone(load_session(self.viejo.id), "el episodio se ha perdido")
 
+    def test_una_sesion_antigua_con_media_type_movie_cuenta_como_existente(self):
+        """El modal la reconoce por temporada y episodio; el servidor exigía
+        `media_type == "series"`, que en las muy antiguas vale «movie» por
+        defecto, y «Saltar» creaba otro proyecto encima."""
+        from storage import save_session
+        self.viejo.media_type = "movie"
+        save_session(self.viejo)
+        r = self._post(1, "add_only")
+        self.assertEqual(r.status_code, 409, r.text)
+
+    def test_el_mismo_mpls_con_otra_numeracion_es_el_mismo_episodio(self):
+        """El modal identifica por el fichero del disco; el servidor buscaba
+        solo la pareja nueva (temporada 1, episodio 3), no encontraba nada y
+        «Reemplazar» no borraba el proyecto viejo."""
+        r = self.client.post("/api/create-series-sessions", json={
+            "source_type": "bdmv_folder", "source_path": "Serie (2024)",
+            "series_name": "Serie", "season_number": 1, "mode": "replace",
+            "episodes": [{"mpls_path": "00801.mpls", "episode_number": 3,
+                          "episode_title": "Ep 3"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        [(_, _, datos, _)] = self.trabajos_encolados
+        self.assertEqual(datos["reemplazos"], {"3": self.viejo.id})
+
     def _runner(self, analisis):
         from routers import tab1
         cuerpo = tab1.CreateSeriesSessionsRequest(

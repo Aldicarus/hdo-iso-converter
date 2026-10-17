@@ -2046,14 +2046,26 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     # Si tras filtrar conflictos no queda nada que procesar (skip_existing
     # con todos los episodios pedidos ya existentes), devolvemos respuesta
     # vacía sin entrar al bucle de análisis.
+    #
+    # El resultado va al PROGRESO, no solo al `return`: el runner de la cola
+    # ignora lo que devuelve, y el modal trata «ya no corre y no hay
+    # resultado» como un fallo — «Saltar existentes» con todo ya creado se
+    # anunciaba como un error (auditoría con Codex del 2026-10-17). Y antes de
+    # bajar `running`, por lo mismo que al final de la función.
     if not episodes_to_process:
-        _series_create_progress["running"] = False
-        return {
+        resultado_final = {
             "created": [],
             "failed": [],
             "skipped_existing": skipped_existing,
+            "replaced_ids": [],
+            "encolados": 0,
             "iso_path": body.iso_path,
         }
+        _series_create_progress["resultado"] = resultado_final
+        _guardar_resultado_de_serie(_clave, resultado_final)
+        _series_create_progress["running"] = False
+        workload.liberar(_clave)
+        return resultado_final
 
     # Recalculamos `total` del progreso para reflejar solo lo que vamos a
     # procesar de verdad (los saltados ya no cuentan).
@@ -2414,16 +2426,34 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     # sobrescribir silenciosamente las existentes. find_sessions_by_
     # fingerprint nos da el conjunto; cruzamos con (season, episode_number)
     # para identificar conflictos exactos.
+    #
+    # Con la MISMA identidad que el modal (`_findExistingForCandidate`): el
+    # fichero del disco primero —el basename del MPLS, que no cambia si se
+    # corrige la numeración— y la pareja temporada/episodio de respaldo. Y una
+    # sesión es de serie si tiene temporada y episodio, no por `media_type`,
+    # que en las muy antiguas vale «movie» por defecto. El servidor solo
+    # miraba (temporada, episodio) con `media_type == "series"`: «Reemplazar»
+    # no encontraba qué borrar y «Saltar» creaba un duplicado de lo que el
+    # modal enseñaba como existente (auditoría con Codex del 2026-10-17).
     existing_by_episode: dict[tuple[int, int], "Session"] = {}
+    existing_by_mpls: dict[str, "Session"] = {}
     if fingerprint:
         for s in find_sessions_by_fingerprint(fingerprint):
-            if s.media_type == "series" and s.season_number and s.episode_number:
+            if s.season_number and s.episode_number:
                 existing_by_episode[(s.season_number, s.episode_number)] = s
+                if s.mpls_path:
+                    existing_by_mpls[Path(s.mpls_path).name] = s
 
-    requested_keys = [(body.season_number, ep.episode_number) for ep in body.episodes]
-    conflicts = [
-        existing_by_episode[k] for k in requested_keys if k in existing_by_episode
-    ]
+    def _existente(ep):
+        return (existing_by_mpls.get(Path(ep.mpls_path or "").name)
+                if ep.mpls_path else None) \
+            or existing_by_episode.get((body.season_number, ep.episode_number))
+
+    conflicts = []
+    for ep in body.episodes:
+        s = _existente(ep)
+        if s is not None and s not in conflicts:
+            conflicts.append(s)
     mode = (body.mode or "add_only").lower()
     if mode not in ("add_only", "replace", "skip_existing"):
         raise HTTPException(status_code=400, detail=tr('tab1.mode_invalido', mode=body.mode))
@@ -2460,8 +2490,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     reemplazos: dict[str, str] = {}
     episodes_to_process = []
     for ep in body.episodes:
-        key = (body.season_number, ep.episode_number)
-        existing = existing_by_episode.get(key)
+        existing = _existente(ep)
         if existing and mode == "skip_existing":
             skipped_existing.append({
                 "season_number": body.season_number,
