@@ -112,6 +112,8 @@ const _toasts = [], _aplicados = [], _pintados = [];
 globalThis.showToast = (t) => _toasts.push(t);
 globalThis.refrescarMkvRecientes = () => {{}};
 globalThis.cerrarModalDeTrabajo = () => {{}};
+globalThis.cerrarModalDeTrabajoDe = () => false;
+globalThis._mkvRefrescarLectura = () => {{}};
 globalThis._renderMkvEditPanel = (p) => _pintados.push(p.filePath);
 globalThis.openMkvProjects = {json.dumps(list(proyectos))}
   .map(r => ({{ filePath: r, analysis: {{ file_path: r }} }}));
@@ -122,6 +124,9 @@ const _mkvAnalisisVistos = new Set({json.dumps(list(vistos))});
 {_extraer('_mkvRutaAnalisis')}
 {_extraer('_mkvAplicarPerfilLuminancia')}
 {_extraer('_mkvRecogerAnalisis')}
+const _mkvIntentosDeRecogida = new Map();
+const _MKV_INTENTOS_DE_RECOGIDA = 5, _MKV_ESPERA_RECOGIDA_MS = 0;
+{_extraer('_mkvEstadoFinalDe')}
 {_extraer('_mkvAplicarAnalisisTerminado')}
 (async () => {{
   _mkvRecogerAnalisis({{ activo: {json.dumps(activo)}, cola: {json.dumps(cola)} }});

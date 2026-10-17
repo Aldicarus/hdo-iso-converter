@@ -121,6 +121,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_iconos()}
 {_fn('_workbarTiempo')}
@@ -288,6 +289,7 @@ class TestElCuerpoSegunElTipo(unittest.TestCase):
     def _correr(self, fn_nombre, arg) -> str:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_iconos()}
 {_fn(fn_nombre)}
@@ -388,6 +390,7 @@ for (const id of _ids) {{
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 globalThis.openModal = () => {{}};
 // El bucle lo dirige el TEST: se neutraliza el planificador, no el
@@ -488,6 +491,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_iconos()}
 {_fn('_workbarTiempo')}
@@ -604,6 +608,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 globalThis.openModal = () => {{}};
 // El bucle lo dirige el TEST: se neutraliza el planificador, no el
@@ -670,6 +675,7 @@ for (const id of ['trabajo-modal-icono','trabajo-modal-titulo','trabajo-modal-su
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 globalThis.openModal = () => {{}};
 let _apagado = false;
@@ -747,6 +753,7 @@ const _workbarDetalles = {{ rip: async () => {{
     def _motivo(self, sinDetalle) -> str:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -793,6 +800,7 @@ console.log(JSON.stringify(_trabajoModalConResumen(
         vacío. Antes que un modal en blanco, lo que el historial sabe."""
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -825,6 +833,7 @@ console.log(JSON.stringify(v));
     def test_pero_si_la_vista_trae_log_no_se_pisa(self):
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -856,7 +865,9 @@ let workbarEstado = {{ activo: {json.dumps(activo)}, cola: [] }};
 {_estado_del_modal()}
 _trabajoModalUltimo = {json.dumps(ultimo)};
 const _llamadas = [], _toasts = [];
-globalThis.apiFetch = async (url, o) => {{ _llamadas.push([url, o?.method]); }};
+// El servidor ACEPTA el cancel: sin respuesta, no consta que se cancelara
+// nada y el auto no se apaga (auditoría con Codex del 2026-10-17).
+globalThis.apiFetch = async (url, o) => {{ _llamadas.push([url, o?.method]); return {{ok: true}}; }};
 globalThis.showToast = (t, k) => _toasts.push([t, k]);
 globalThis._mkvQualityCancel = () => _llamadas.push(['_mkvQualityCancel']);
 globalThis.cmv40TrasCancelar = (id) => _llamadas.push(['cmv40TrasCancelar', id]);
@@ -945,6 +956,7 @@ for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-hi
 globalThis.document = {{ getElementById: id => _els[id] || null,
                          querySelector: () => null }};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_iconos()}
 {_fn('_workbarTiempo')}
@@ -982,7 +994,9 @@ console.log(JSON.stringify({{ html: (_els['workbar-body'].innerHTML || '') + (_e
 
     def test_sin_seleccionar_no_hay_botones(self):
         h = self._pintar()["html"]
-        self.assertIn("seleccionarTrabajo('rec:", h)
+        # El argumento va como literal JSON (`jsArg`): un apóstrofo en el
+        # nombre de un trabajo ya no rompe el handler.
+        self.assertIn('seleccionarTrabajo("rec:', h)
         self.assertNotIn("abrirDetalleDeReciente(", h)
 
     def test_el_que_espera_decision_se_distingue_y_invita(self):
@@ -1014,8 +1028,8 @@ console.log(JSON.stringify({{ html: (_els['workbar-body'].innerHTML || '') + (_e
 
     def test_al_seleccionar_salen_los_DOS(self):
         h = self._pintar("rec:dune_1|2026-09-09T10:00:00+00:00")["html"]
-        self.assertIn("abrirDetalleDeReciente('rec:dune_1|2026-09-09T10:00:00+00:00')", h)
-        self.assertIn("borrarReciente('rec:dune_1|2026-09-09T10:00:00+00:00')", h)
+        self.assertIn('abrirDetalleDeReciente("rec:dune_1|2026-09-09T10:00:00+00:00")', h)
+        self.assertIn('borrarReciente("rec:dune_1|2026-09-09T10:00:00+00:00")', h)
 
     def test_solo_se_selecciona_UNA_con_el_mismo_id(self):
         """Una sesión re-ejecutada deja varias líneas con el mismo id: la
@@ -1028,6 +1042,7 @@ console.log(JSON.stringify({{ html: (_els['workbar-body'].innerHTML || '') + (_e
     def _timeline(self, a, pasos):
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_estado_del_modal()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}

@@ -439,6 +439,10 @@ class TestNadieVuelveADerivarElEstadoAMano(unittest.TestCase):
         "_getExecRecord":
             "devuelve el registro que el visor de log pide por índice, sin "
             "mirar su estado",
+        "_ejecucionDelHistorial":
+            "busca la ejecución a la que apunta una línea del historial "
+            "(`ref_log` = `sesion:{id}#{run}`) para enseñar SU log y sus "
+            "tiempos; no mira su estado",
     }
 
     def _funciones(self, src: str):

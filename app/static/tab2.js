@@ -86,6 +86,9 @@ function _mkvPintarEstadoDeEdicion(project) {
 function _mkvMarkDirty(project = mkvProject) {
   if (!project) return;
   project.dirty = true;
+  // Cuántas ediciones van: lo mira `_doApplyMkvEdits` para no tirar las que
+  // se hagan mientras el `apply` está en vuelo.
+  project.ediciones = (project.ediciones || 0) + 1;
   _mkvPintarEstadoDeEdicion(project);
 }
 
@@ -122,8 +125,26 @@ function _openMkvBrowserNow() {
     title: tr('tab2.abrir_mkv_para_inspeccionar_editar'),
     subtitle: tr('tab2.selecciona_el_mkv_en_la_biblioteca'),
     roots: ROOTS_MKV,
-    onSelect: async (absPath, name) => _mkvAbrirRuta(absPath, name),
+    onSelect: async (absPath, name) => _mkvAbrirDesdeElBrowser(absPath, name),
   });
+}
+
+/**
+ * Elegir en el browser un MKV que ya está abierto y con cambios sin aplicar
+ * lo REANALIZA, y el re-análisis tira esos cambios. «Reanalizar» lo pregunta;
+ * esta puerta no preguntaba (auditoría con Codex del 2026-10-17). Ahora
+ * pregunta lo mismo, y sin cambios pendientes se comporta como siempre.
+ */
+function _mkvAbrirDesdeElBrowser(absPath, name) {
+  const abierto = openMkvProjects.find(p => _mkvRutaDe(p) === absPath);
+  if (!abierto || !abierto.dirty) return _mkvAbrirRuta(absPath, name);
+  switchMkvSubTab(abierto.id);
+  showConfirm(
+    tr('tab2.reabrir_con_cambios_titulo'),
+    tr('tab2.reabrir_con_cambios_texto', {nombre: abierto.fileName || name}),
+    () => _mkvAbrirRuta(absPath, name),
+    tr('tab2.reabrir_y_descartar'),
+  );
 }
 
 /**
@@ -1209,10 +1230,15 @@ function _rgrfDistributionSvg(series) {
   const bins = [10, 30, 100, 300, 1000, 3000, 10000];
   const binLabels = ['10', '30', '100', '300', '1K', '3K', '10K'];
   const counts = new Array(bins.length).fill(0);
+  // Lo de menos de 10 nits va al primer intervalo. No entraba en ninguno y
+  // desaparecía también del denominador: con la mitad de la película
+  // oscura, las barras repartían el 100 % entre la otra mitad (auditoría
+  // con Codex del 2026-10-17).
   series.forEach(v => {
-    for (let i = bins.length - 1; i >= 0; i--) {
-      if (v >= bins[i]) { counts[i]++; break; }
-    }
+    if (!Number.isFinite(v)) return;
+    let i = bins.length - 1;
+    while (i > 0 && v < bins[i]) i--;
+    counts[i]++;
   });
   const total = Math.max(counts.reduce((a, b) => a + b, 0), 1);
   const maxPct = Math.max(...counts.map(c => c / total * 100), 1);
@@ -1288,8 +1314,11 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // FPS real desde el track de vídeo (mkvmerge default_duration → fps).
   // NO computamos fps = dv.frame_count / duration porque dv.frame_count
   // viene del extract-rpu --limit 720 (sample de ~30s, NO el total).
-  const fpsNum = mainVideo?.fps || a.fps || 23.976;
-  const fps = fpsNum.toFixed(3);
+  // **Sin dato, un guion.** Se suponía 23,976 y con eso se calculaba el
+  // total de frames, que se enseñaba como si fuera del MKV (auditoría con
+  // Codex del 2026-10-17). El exportador ya dejaba estos huecos como guiones.
+  const fpsNum = mainVideo?.fps || a.fps || null;
+  const fps = fpsNum ? fpsNum.toFixed(3) : '—';
 
   // Helper inline: celda label+valor compacta
   const cell = (label, value, opts = {}) => {
@@ -1312,9 +1341,11 @@ function _renderMkvDvRadiography(a, dv, mainVideo, elVideo) {
   // framesTotal: prioridad al track de vídeo (real, derivado de duration×fps).
   // dv.frame_count es sample-scoped (--limit 720) — solo lo usamos como
   // último recurso si no tenemos ni duración ni fps.
+  //
+  // `dv.frame_count` NO entra: son los 720 frames de la muestra, y como
+  // «total del MKV» era un número falso con pinta de dato.
   const framesTotal = mainVideo?.frame_count
     || (a.duration_seconds && fpsNum ? Math.round(a.duration_seconds * fpsNum) : 0)
-    || dv.frame_count
     || 0;
   const durationStr = a.duration_seconds ? _fmtDuration(a.duration_seconds) : '—';
   // RPU: el bytes/frame del sample es estable y aplica al film completo.
@@ -2000,7 +2031,11 @@ function _mkvAplicarPerfilLuminancia(dv) {
  */
 function _mkvRutaAnalisis(proyecto) {
   if (!proyecto) return '';
-  return proyecto.analysis?.file_path || proyecto.filePath
+  // La de la PESTAÑA primero. Tras una copia desde la biblioteca cuyo
+  // mkvpropedit falló, la pestaña pasa a la copia y el análisis aún dice la
+  // biblioteca: el análisis extendido se pedía sobre el fichero que ya no es
+  // el que se edita (auditoría con Codex del 2026-10-17).
+  return proyecto.filePath || proyecto.analysis?.file_path
       || proyecto.analysis?.file_name || '';
 }
 
@@ -2011,9 +2046,21 @@ function _mkvRutaAnalisis(proyecto) {
  *  `alCambiarTrabajos`, o sea solo cuando el trabajo cambia de verdad.
  */
 function _mkvPintarEstadoDeAnalisis() {
-  const t = typeof trabajoSobre === 'function'
-    ? trabajoSobre(_mkvRutaAnalisis(mkvProject)) : null;
-  document.querySelectorAll('[data-analisis-extendido]').forEach(btn => {
+  // **Cada botón con el estado de SU MKV.** Se calculaba una vez para el
+  // activo y se aplicaba a todos los botones del documento: analizando A, el
+  // de B también decía «Analizando…», y al cambiar a B seguía diciéndolo
+  // (auditoría con Codex del 2026-10-17).
+  for (const p of openMkvProjects) {
+    const panel = document.getElementById(`mkv-panel-${p.id}`);
+    if (!panel) continue;
+    const t = typeof trabajoSobre === 'function'
+      ? trabajoSobre(_mkvRutaAnalisis(p)) : null;
+    _mkvPintarBotonesDeAnalisis(panel.querySelectorAll('[data-analisis-extendido]'), t);
+  }
+}
+
+function _mkvPintarBotonesDeAnalisis(botones, t) {
+  botones.forEach(btn => {
     if (!btn.dataset.rotuloOriginal) btn.dataset.rotuloOriginal = btn.innerHTML;
     if (!t) {
       btn.innerHTML = btn.dataset.rotuloOriginal;
@@ -2039,6 +2086,11 @@ function _mkvPintarEstadoDeAnalisis() {
  *  equivocado. Aquí caben todos los que haya en la cola.
  */
 const _mkvAnalisisPedidos = new Map();
+// Cuántas veces se ha intentado leer el resultado de un análisis terminado
+// cuya lectura falló, y cada cuánto se reintenta.
+const _mkvIntentosDeRecogida = new Map();
+const _MKV_INTENTOS_DE_RECOGIDA = 5;
+const _MKV_ESPERA_RECOGIDA_MS = 4000;
 // Los que la columna ha llegado a enseñar. Sin esta marca, un trabajo recién
 // encolado —que aún no aparece en el poll— se daría por desaparecido.
 const _mkvAnalisisVistos = new Set();
@@ -2100,17 +2152,45 @@ function _mkvRecogerAnalisis(st) {
   }
 }
 
+/** El estado final de un análisis extendido, sea o no el del singleton.
+ *
+ *  `null` si la lectura falló —hay que volver a intentarlo—; `false` si el
+ *  servidor no sabe nada de él —se retiró de la cola antes de empezar—; si
+ *  no, `{step, result, error}`. El singleton describe al ÚLTIMO análisis:
+ *  si ya es de otro, el nuestro está en `resultados_por_audit`.
+ */
+function _mkvEstadoFinalDe(st, auditId) {
+  if (!st) return null;
+  if (st.audit_id === auditId) return st;
+  const r = (st.resultados_por_audit || {})[auditId];
+  return r || false;
+}
+
 async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
-  const st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
+  const leido = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
     .catch(() => null);
-  // El estado es un singleton: describe al análisis que tiene la máquina. Si
-  // no es el nuestro, este se retiró de la cola antes de empezar y no hay
-  // nada que recoger — ni resultado ni error que contar.
-  if (!st || st.audit_id !== auditId) return;
-  if (typeof _trabajoModalUltimo !== 'undefined'
-      && _trabajoModalUltimo && _trabajoModalUltimo.id === auditId) {
-    cerrarModalDeTrabajo();
+  const st = _mkvEstadoFinalDe(leido, auditId);
+  // **Una lectura fallida no es «no hay nada que recoger».** Se borraba el
+  // seguimiento antes de leer y, si la lectura fallaba, el resultado de diez
+  // minutos de análisis no llegaba nunca al panel (auditoría con Codex del
+  // 2026-10-17). Se reintenta al rato —el resultado sigue en el servidor—,
+  // y con un tope para no insistir para siempre.
+  if (st === null) {
+    const n = (_mkvIntentosDeRecogida.get(auditId) || 0) + 1;
+    _mkvIntentosDeRecogida.set(auditId, n);
+    if (n < _MKV_INTENTOS_DE_RECOGIDA) {
+      setTimeout(() => _mkvAplicarAnalisisTerminado(auditId, ruta), _MKV_ESPERA_RECOGIDA_MS);
+    } else {
+      _mkvIntentosDeRecogida.delete(auditId);
+      showToast(tr('tab2.analisis_no_se_pudo_recoger'), 'warning', 9000);
+    }
+    return;
   }
+  _mkvIntentosDeRecogida.delete(auditId);
+  // Sin rastro en el servidor: se retiró de la cola antes de empezar y no
+  // hay nada que recoger — ni resultado ni error que contar.
+  if (st === false) return;
+  cerrarModalDeTrabajoDe(auditId);
   if (st.error) {
     const cancelado = st.step === 'cancelled' || /cancelad/i.test(st.error);
     showToast(cancelado ? tr('tab2.auditoria_cancelada') : tr('tab2.error_auditoria', {error: st.error}),
@@ -2135,13 +2215,43 @@ async function _mkvAplicarAnalisisTerminado(auditId, ruta) {
   // El mismo análisis trae el perfil de luminancia (comparte la extracción
   // del RPU, que es el ~97 % del coste). A los campos planos del render.
   const conPerfil = _mkvAplicarPerfilLuminancia(proyecto.analysis.dovi);
-  // Solo se repinta el que se está viendo; el de otra sub-pestaña ya lleva el
-  // dato en `analysis` y se pinta al cambiar a ella.
-  if (proyecto === mkvProject) _renderMkvEditPanel(proyecto);
+  // **Y al original también**: «Deshacer cambios» vuelve a `originalAnalysis`,
+  // y sin esto se llevaba por delante el análisis extendido recién hecho.
+  if (proyecto.originalAnalysis) {
+    if (!proyecto.originalAnalysis.dovi) proyecto.originalAnalysis.dovi = {};
+    Object.assign(proyecto.originalAnalysis.dovi, structuredClone(data));
+    _mkvAplicarPerfilLuminancia(proyecto.originalAnalysis.dovi);
+  }
+  // Se repinta SU panel, se esté viendo o no: cambiar de sub-pestaña no
+  // repinta, así que el de otra se quedaba con el render de antes del
+  // análisis (auditoría con Codex del 2026-10-17).
+  _renderMkvEditPanel(proyecto);
+  // El titular lo compone el servidor con lo que sabe del MKV, y ahora sabe
+  // más. Se pide de nuevo —es un acierto de caché— solo para eso.
+  _mkvRefrescarLectura(proyecto);
   showToast(
     tr('tab2.analisis_rpu_luz_completado', {quality_verdict_text: data.quality_verdict_text})
     + (conPerfil ? tr('tab2.perfil_de_luminancia_frames', {p1: (data.light_profile?.total_frames || 0).toLocaleString(localeActual())}) : ''),
     'success');
+}
+
+/** Las frases del titular, recompuestas tras el análisis extendido.
+ *
+ *  Las escribe el servidor al servir el análisis (`_con_lectura`) y no
+ *  viajan con el resultado del extendido, así que se quedaban describiendo
+ *  el básico. Abrir un MKV ya analizado es un acierto de caché. Solo se
+ *  toma `lectura`: el resto del análisis podría pisar ediciones.
+ */
+async function _mkvRefrescarLectura(proyecto) {
+  const r = await apiFetch('/api/mkv/analyze', {
+    method: 'POST', silent: true,
+    body: JSON.stringify({ file_path: _mkvRutaAnalisis(proyecto) }),
+  }, API_FETCH_TIMEOUT_LARGO).catch(() => null);
+  if (!r || !Array.isArray(r.lectura) || !proyecto.analysis) return;
+  if (!openMkvProjects.includes(proyecto)) return;
+  proyecto.analysis.lectura = r.lectura;
+  if (proyecto.originalAnalysis) proyecto.originalAnalysis.lectura = r.lectura;
+  _renderMkvEditPanel(proyecto);
 }
 
 async function _mkvQualityCancel(auditId) {
@@ -3017,7 +3127,15 @@ const MKV_APPLY_LONG_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 // llame al endpoint del backend y que el flujo principal sepa que el
 // usuario inició la cancelación (para mostrar mensaje correcto en lugar
 // de tr('tab2.error_generico') cuando el POST devuelve 499).
+//
+// **Lo pone la RESPUESTA del servidor, no el clic.** Se ponía a `true` al
+// pulsar, antes de saber nada: un POST fallido, o uno que llegaba con la
+// copia ya terminada, acababa anunciando «cancelada, parcial borrado»
+// sobre una copia que había salido bien (auditoría con Codex del
+// 2026-10-17). `'descartada'` = estaba esperando turno y salió de la cola
+// sin escribir nada; `'copiando'` = se paró a mitad y el parcial se borra.
 let _mkvApplyUserCancelled = false;
+let _mkvApplyCancelacion = null;
 
 /** Espera a que la copia encolada termine y devuelve su resultado.
  *
@@ -3033,7 +3151,11 @@ async function _esperarCopiaEncolada() {
     await new Promise(r => setTimeout(r, 1000));
     const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
     if (!st) continue;
-    if (st.step === 'cancelled') { _mkvApplyUserCancelled = true; return null; }
+    if (st.step === 'cancelled') {
+      _mkvApplyUserCancelled = true;
+      if (!_mkvApplyCancelacion) _mkvApplyCancelacion = 'copiando';
+      return null;
+    }
     // `result` con el error puede traer dónde quedó la copia, si lo que falló
     // fue mkvpropedit y no la copia.
     if (st.step === 'error') return { ...(st.result || {}), ok: false, error: st.error };
@@ -3055,6 +3177,11 @@ async function _doApplyMkvEdits(copyToOutput) {
   const project = mkvProject;
   if (!project) return;
   const a = project.analysis;
+  // Lo que se edite mientras el `apply` vuela no va en él.
+  const ediciones = project.ediciones || 0;
+  // La copia de ESTE trabajo, para cerrar su modal y no el de otro.
+  const origen = project.filePath || '';
+  const claveCopia = 'apply:' + origen.split('/').pop();
 
   const audioEdits = a.tracks.filter(t => t.type === 'audio').map(t => ({
     id: t.id, name: t.name || '', flag_default: t.flag_default, flag_forced: t.flag_forced,
@@ -3082,6 +3209,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   // enseña la columna de trabajo y el detalle es el modal común; sin copia,
   // `mkvpropedit` es O(1) y lo único que hace falta es contar el resultado.
   _mkvApplyUserCancelled = false;
+  _mkvApplyCancelacion = null;
   if (copyToOutput) {
     // Tampoco aquí: a la cola y de fondo. El acuse es la columna.
     await refrescarWorkbar();
@@ -3107,11 +3235,16 @@ async function _doApplyMkvEdits(copyToOutput) {
   // verdad llega por el estado del job.
   if (result?.queued) result = await _esperarCopiaEncolada();
 
-  // Cancelación por el usuario: prima sobre cualquier otro estado.
-  if (_mkvApplyUserCancelled) {
-    cerrarModalDeTrabajo();
-    showToast(tr('tab2.copia_cancelada_la_biblioteca_queda_intacta') + ' '
-              + tr('tab2.parcial_se_borro'), 'warning', 8000);
+  // Cancelación aceptada por el servidor: prima sobre los otros desenlaces
+  // salvo uno — una copia que TERMINÓ bien antes de que la cancelación
+  // llegara. Ahí no se canceló nada y descartar su resultado era anunciar un
+  // borrado que no había pasado.
+  if (_mkvApplyUserCancelled && !result?.ok) {
+    cerrarModalDeTrabajoDe(claveCopia, origen);
+    showToast(_mkvApplyCancelacion === 'descartada'
+      ? tr('tab2.copia_retirada_de_la_cola')
+      : tr('tab2.copia_cancelada_la_biblioteca_queda_intacta') + ' '
+        + tr('tab2.parcial_se_borro'), 'warning', 8000);
     return;
   }
 
@@ -3123,17 +3256,21 @@ async function _doApplyMkvEdits(copyToOutput) {
     if (result?.copied_from_library && result.new_file_path) {
       project.filePath = result.new_file_path;
       project.fileName = result.new_file_path.split('/').pop();
+      // El análisis también apunta ya a la copia: es el fichero que se edita.
+      if (project.analysis) project.analysis.file_path = result.new_file_path;
+      if (project.originalAnalysis) project.originalAnalysis.file_path = result.new_file_path;
       _mkvRefreshSubTab(project);
       refrescarMkvRecientes();
+      // `showToast` pinta HTML: el nombre y el error van escapados.
       showToast(tr('tab2.copia_hecha_cambios_sin_aplicar', {
-        filename: project.fileName, p1: result.error ? ': ' + result.error : '',
+        filename: escHtml(project.fileName), p1: result.error ? ': ' + escHtml(result.error) : '',
       }), 'error', 12000);
       return;
     }
     // El detalle del fallo vive en el estado del job (lo enseña el modal
     // común) y en el historial; aquí basta con decirlo y no cerrar el modal,
     // para que se pueda leer.
-    showToast(tr('tab2.error_al_aplicar_cambios', {p1: result?.error ? ': ' + result.error : ''}),
+    showToast(tr('tab2.error_al_aplicar_cambios', {p1: result?.error ? ': ' + escHtml(result.error) : ''}),
               'error', 8000);
     console.warn('[apply] salida de mkvpropedit:', result?.output);
     return;
@@ -3147,7 +3284,7 @@ async function _doApplyMkvEdits(copyToOutput) {
     project.filePath = newFilePath;
     project.fileName = newFilePath.split('/').pop();
     _mkvRefreshSubTab(project);
-    showToast(tr('tab2.mkv_copiado_a_output_con_tus', {filename: project.fileName}), 'success');
+    showToast(tr('tab2.mkv_copiado_a_output_con_tus', {filename: escHtml(project.fileName)}), 'success');
   }
 
   // Re-analizar para refrescar estado — usamos el path ABSOLUTO del MKV
@@ -3160,10 +3297,20 @@ async function _doApplyMkvEdits(copyToOutput) {
 
   if (fresh) {
     _mkvAplicarPerfilLuminancia(fresh && fresh.dovi);
-    project.analysis = fresh;
-    project.originalAnalysis = structuredClone(fresh);
-    _mkvClearDirty(project);
-    _renderMkvEditPanel(project);
+    if ((project.ediciones || 0) !== ediciones) {
+      // **Se editó mientras se aplicaba.** El MKV ya tiene lo que se mandó y
+      // es la nueva referencia, pero lo editado después no va en él: se
+      // conserva, con sus cambios pendientes. Sustituir el análisis entero
+      // y limpiar «sucio» los tiraba sin avisar (auditoría con Codex del
+      // 2026-10-17).
+      project.originalAnalysis = structuredClone(fresh);
+      _mkvPintarEstadoDeEdicion(project);
+    } else {
+      project.analysis = fresh;
+      project.originalAnalysis = structuredClone(fresh);
+      _mkvClearDirty(project);
+      _renderMkvEditPanel(project);
+    }
   }
 
   // `apply` invalida la caché del MKV editado (mkvpropedit toca el primer MB,
@@ -3172,7 +3319,7 @@ async function _doApplyMkvEdits(copyToOutput) {
   // caché, así que sin repintarla se queda con la entrada de antes.
   refrescarMkvRecientes();
 
-  cerrarModalDeTrabajo();
+  if (copyToOutput) cerrarModalDeTrabajoDe(claveCopia, origen);
   showToast(tr('tab2.cambios_aplicados_correctamente'), 'success');
 }
 
@@ -3186,9 +3333,18 @@ async function _doApplyMkvEdits(copyToOutput) {
 
 async function cancelMkvApply() {
   // `_mkvApplyUserCancelled` es lo que hace que el flujo principal cuente
-  // «cancelada» en vez de «error» al volver del poller.
+  // «cancelada» en vez de «error» al volver del poller. Se pone con la
+  // RESPUESTA: `{ok: true}` es que se está parando la copia, `{ok: true,
+  // descartada: true}` que esperaba turno y salió de la cola, y `{ok:
+  // false, reason}` —con HTTP 200— que no había nada que cancelar.
+  const r = await apiFetch('/api/mkv/apply/cancel', { method: 'POST', silent: true });
+  if (!r || r.ok === false) {
+    showToast(tr('tab2.no_se_pudo_cancelar_la_copia'), 'warning', 6000);
+    return false;
+  }
+  _mkvApplyCancelacion = r.descartada ? 'descartada' : 'copiando';
   _mkvApplyUserCancelled = true;
-  await apiFetch('/api/mkv/apply/cancel', { method: 'POST', silent: true });
+  return true;
 }
 
 
@@ -3550,9 +3706,25 @@ function abrirMkvReciente(ruta) {
 
 // ── Vistas de detalle para el modal de trabajo ───────────────────────────────
 
+/** ¿El estado de la copia (`/api/mkv/apply/progress`) es el de ESE trabajo?
+ *
+ *  Se reconoce por el fichero: `sobre` es la ruta del origen y la clave es
+ *  `apply:{nombre}`. Sin con qué comparar, se acepta, que es lo de antes.
+ */
+function _mkvCopiaEsDe(st, a) {
+  if (!st || !a) return true;
+  const nombre = String(a.id || '').startsWith('apply:') ? String(a.id).slice(6) : '';
+  if (a.sobre && st.src_path) return a.sobre === st.src_path || nombre === st.file_name;
+  if (nombre && st.file_name) return nombre === st.file_name;
+  return true;
+}
+
 registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
   let st = await apiFetch('/api/mkv/quality-audit/progress', { silent: true })
     .catch(() => null);
+  // Una lectura fallida no sustituye a la vista buena (`sinDatos`): con el
+  // log vacío, el modal decía que no había líneas de un análisis a medias.
+  if (!st) return { sinDatos: true };
   // El estado es un singleton: describe al análisis que tiene la máquina. Con
   // varios esperando turno, el de la cola que se abra aquí enseñaría el log y
   // el fichero del que está corriendo — otra película.
@@ -3586,8 +3758,13 @@ registrarDetalleDeTrabajo('analisis_extendido', async (a) => {
 });
 
 registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
-  const st = await apiFetch('/api/mkv/apply/progress', { silent: true })
+  let st = await apiFetch('/api/mkv/apply/progress', { silent: true })
     .catch(() => null);
+  if (!st) return { sinDatos: true };    // ver el del análisis extendido
+  // El estado es un singleton: el de la ÚLTIMA copia. Si es de otro fichero,
+  // no describe este trabajo — una entrada vieja del historial enseñaba los
+  // bytes de la copia que corre ahora.
+  if (!_mkvCopiaEsDe(st, a)) st = null;
   // La copia no produce log: su detalle son los bytes.
   const gb = b => (b ? `${(b / 1e9).toFixed(1)} GB` : '—');
   const nombre = st?.file_name || '';
@@ -3606,7 +3783,7 @@ registrarDetalleDeTrabajo('copia_biblioteca', async (a) => {
     ],
     conLog: false,
     cuerpo: _trabajoKvHTML([
-      [tr('tab2.copiado'), `${gb(st?.bytes_copied)} de ${gb(st?.total_bytes)}`],
+      [tr('tab2.copiado'), tr('workbar.n_de_total', {n: gb(st?.bytes_copied), total: gb(st?.total_bytes)})],
       [tr('tab2.fichero_de_origen'), st?.src_path || '—'],
       [tr('tab2.fichero_de_destino'), st?.dst_path || '—'],
       ['Error', st?.error || '—'],

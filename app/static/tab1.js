@@ -254,6 +254,8 @@ function _sortSrcFbEntries(entries, sort) {
 /** Navega a una ruta relativa dentro del browser de un filtro concreto.
  *  filter: 'iso' | 'bdmv' | 'm2ts' (los IDs del DOM usan estos prefijos).
  *  relPath: ruta relativa a /mnt/isos (vacío = raíz). */
+const _srcFbPedido = {};
+
 async function srcFbNavigate(filter, relPath) {
   const listEl = document.getElementById(`src-fb-${filter}-list`);
   const bcEl = document.getElementById(`src-fb-${filter}-breadcrumb`);
@@ -264,7 +266,12 @@ async function srcFbNavigate(filter, relPath) {
                            + (relPath ? ` / ${escHtml(relPath)}` : '');
 
   const url = `/api/library/browse?root=downloaded&path=${encodeURIComponent(relPath || '')}&filter=${filter}`;
+  // Igual que el browser modal: la respuesta de una navegación anterior no
+  // pinta encima de la última, o el breadcrumb diría una carpeta y las filas
+  // serían de otra (auditoría con Codex del 2026-10-17).
+  const pedido = (_srcFbPedido[filter] = (_srcFbPedido[filter] || 0) + 1);
   const data = await apiFetch(url);
+  if (pedido !== _srcFbPedido[filter]) return;
   if (!data) {
     if (listEl) listEl.innerHTML = '<div class="src-fb-empty"><span data-icono="aviso"></span> ' + tr('tab1.no_se_pudo_leer_la_carpeta') + '</div>';
     return;
@@ -920,9 +927,11 @@ async function _doAnalyzeSource(sourceType, sourcePath, sourceName, _payloadProb
   // siempre decía "creado", incluso re-analizando.
   const yaEstabaAbierto = openProjects.some(p => p.sessionId === session.id);
   openProject(session);
+  // `showToast` pinta HTML: el nombre va escapado, o un `<` o un `&` en el
+  // nombre del fichero se interpreta como marcado.
   showToast(
     `${tr(yaEstabaAbierto ? 'tab1.proyecto_reanalizado' : 'tab1.proyecto_creado')}: `
-    + `${session.mkv_name || sourceName}`, 'success');
+    + escHtml(session.mkv_name || sourceName), 'success');
 
   await loadSessions();
 
@@ -1105,7 +1114,13 @@ function openSeriesModal(probe) {
     // Conteo de existentes para la nota informativa. Usamos el mapa
     // primario (por mpls); fallback al secundario por si solo hay
     // datos season/episode (sesión muy antigua sin mpls_path).
-    const existingCount = existingByMpls.size > 0 ? existingByMpls.size : existingByEp.size;
+    // Sesiones DISTINTAS, no entradas del índice: una sesión con
+    // `mpls_path` absoluto se indexa por su basename y por la ruta entera, y
+    // el aviso contaba dos episodios donde había uno (auditoría con Codex
+    // del 2026-10-17).
+    const existingCount = existingByMpls.size > 0
+      ? new Set(existingByMpls.values()).size
+      : new Set(existingByEp.values()).size;
     const sourceLabel = stype === 'iso' ? tr('tab1.el_disco')
       : stype === 'bdmv_folder' ? tr('tab1.la_carpeta_bdmv')
       : tr('tab1.los_ficheros_m2ts');
@@ -1291,7 +1306,20 @@ async function seriesSelectCandidate(tmdbId) {
   // entero por onclick — más limpio y sin issues de escape de quotes).
   const candidate = _seriesState.candidates && _seriesState.candidates[tmdbId];
   if (!candidate) return;
-  _seriesState.selectedSeries = candidate;
+  const estado = _seriesState;
+  estado.selectedSeries = candidate;
+  // **Otra serie invalida todo lo que dependía de la anterior.** Se cambiaba
+  // la serie y se conservaban la temporada, sus episodios y el mapping: con
+  // la tabla oculta, «Crear» seguía habilitado y el payload mezclaba la
+  // serie B con los títulos y la asignación de A (auditoría con Codex del
+  // 2026-10-17).
+  estado.selectedSeason = null;
+  estado.seasonEpisodes = [];
+  estado.mplsMatches = [];
+  estado.mapping = {};
+  const peticion = estado.peticionSerie = (estado.peticionSerie || 0) + 1;
+  document.getElementById('series-episodes-section').style.display = 'none';
+  _seriesUpdateCreateButton();
 
   // Update stepper visual: 1=done, 2=active
   _seriesUpdateStepper(2);
@@ -1305,6 +1333,9 @@ async function seriesSelectCandidate(tmdbId) {
 
   // Cargar detalles de la serie para poblar combo de temporadas
   const data = await apiFetch(`/api/tv-details/${tmdbId}`);
+  // Si mientras volvía se eligió otra serie (o se cerró el modal), esta
+  // respuesta ya no describe nada de lo que hay en pantalla.
+  if (_seriesState !== estado || estado.peticionSerie !== peticion) return;
   if (!data || !data.details) {
     showToast(tr('tab1.no_se_pudieron_cargar_los_detalles'), 'error');
     return;
@@ -1340,14 +1371,24 @@ async function seriesLoadSeason() {
     _seriesUpdateCreateButton();
     return;
   }
-  _seriesState.selectedSeason = { season_number: seasonNumber };
+  const estado = _seriesState;
+  estado.selectedSeason = { season_number: seasonNumber };
+  // El mapping de la temporada anterior no vale para esta: hasta que llegue
+  // el nuevo, «Crear» no puede mandar nada.
+  estado.mapping = {};
+  _seriesUpdateCreateButton();
+  const peticion = estado.peticionTemporada = (estado.peticionTemporada || 0) + 1;
 
-  const tmdbId = _seriesState.selectedSeries.tmdb_id;
-  const durations = _seriesState.probe.episode_candidates
+  const tmdbId = estado.selectedSeries.tmdb_id;
+  const durations = estado.probe.episode_candidates
     .map(c => c.duration_minutes)
     .join(',');
   const qs = new URLSearchParams({ mpls_durations: durations });
   const data = await apiFetch(`/api/tv-season/${tmdbId}/${seasonNumber}?${qs.toString()}`);
+  // Temporadas pedidas seguidas pueden volver en otro orden: solo pinta la
+  // última, y solo si la serie sigue siendo la misma.
+  if (_seriesState !== estado || estado.peticionTemporada !== peticion
+      || estado.selectedSeries?.tmdb_id !== tmdbId) return;
   if (!data) return;
   _seriesState.seasonEpisodes = data.episodes || [];
   _seriesState.mplsMatches = data.mpls_matches || [];
@@ -1448,16 +1489,16 @@ function _renderSeriesEpisodesTable() {
       const label = `E${String(e.episode_number).padStart(2, '0')} · ${escHtml(e.name)}${e.runtime_minutes ? ` (${e.runtime_minutes}m)` : ''}`;
       return `<option value="${e.episode_number}"${isSel}>${label}</option>`;
     }));
-    return `<select onchange="seriesChangeEpisode('${escHtml(mplsPath)}', this.value)">${opts.join('')}</select>`;
+    return `<select onchange="seriesChangeEpisode(${jsArg(mplsPath)}, this.value)">${opts.join('')}</select>`;
   };
 
   const buildManualInputs = (epNum, epTitle, mplsPath) => `
     <div class="series-manual-ep-inputs">
       <input type="number" class="series-manual-ep-num" min="1" value="${epNum || ''}"
              placeholder="Nº"
-             onchange="seriesChangeEpisode('${escHtml(mplsPath)}', this.value)">
+             onchange="seriesChangeEpisode(${jsArg(mplsPath)}, this.value)">
       <input type="text" class="series-manual-ep-title" value="${escHtml(epTitle || '')}"
-             onchange="seriesChangeEpisodeTitle('${escHtml(mplsPath)}', this.value)" data-i18n-ph="tab1.titulo_del_episodio_opcional">
+             onchange="seriesChangeEpisodeTitle(${jsArg(mplsPath)}, this.value)" data-i18n-ph="tab1.titulo_del_episodio_opcional">
     </div>
   `;
 
@@ -1488,7 +1529,7 @@ function _renderSeriesEpisodesTable() {
       <div class="series-ep-row${map.include ? '' : ' unchecked'}${existingSession ? ' has-existing' : ''}">
         <div class="col-cb">
           <input type="checkbox" ${map.include ? 'checked' : ''}
-                 onchange="seriesToggleEpisode('${escHtml(c.mpls_path)}', this.checked)">
+                 onchange="seriesToggleEpisode(${jsArg(c.mpls_path)}, this.checked)">
         </div>
         <div class="col-mpls" title="${escHtml(c.mpls_path)}">${escHtml(c.mpls_name)}</div>
         <div class="col-dur">${dur}</div>
@@ -1651,6 +1692,29 @@ function _seriesProgresoEsDeMiTrabajo(prog, miJob) {
   return !(prog && prog.job && miJob && prog.job !== miJob);
 }
 
+// Vueltas (de 700 ms) sin rastro del trabajo antes de darlo por perdido.
+const _SERIES_VUELTAS_SIN_RASTRO = 15;
+
+/** El resultado de un trabajo de serie que ya no es el del singleton.
+ *
+ *  `undefined` = el servidor no lo tiene (o es anterior al campo); `null` =
+ *  el trabajo falló entero; si no, el resultado con la forma de siempre.
+ */
+function _seriesResultadoGuardado(prog, miJob) {
+  const r = prog && prog.resultados_por_job && miJob ? prog.resultados_por_job[miJob] : undefined;
+  if (!r) return undefined;
+  if (r.error && !(r.created || []).length) return null;
+  return r;
+}
+
+/** ¿El trabajo sigue esperando turno o corriendo, según la columna? */
+function _seriesSigueVivo(miJob) {
+  if (typeof workbarEstado === 'undefined' || !workbarEstado) return true;
+  const a = workbarEstado.activo;
+  if (a && (a.id === miJob || a.sobre === miJob)) return true;
+  return (workbarEstado.cola || []).some(j => j.id === miJob);
+}
+
 async function seriesCreateSessions() {
   if (!_seriesState) return;
   const s = _seriesState;
@@ -1786,7 +1850,9 @@ async function seriesCreateSessions() {
   // tratar como éxito: antes el servidor contestaba «encolado» igualmente y
   // los episodios no se creaban nunca.
   if (data?.duplicado) {
-    cerrarModalDeTrabajo();
+    // Solo si el modal abierto es el de ESTE trabajo: cerrarlo sin mirar se
+    // llevaba el detalle de cualquier otro que el usuario estuviera leyendo.
+    cerrarModalDeTrabajoDe(data.job);
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = _seriesTextoBotonCrear(episodes.length);
@@ -1796,6 +1862,8 @@ async function seriesCreateSessions() {
     return;
   }
 
+  let perdido = false;
+  const miJobPedido = data?.job;
   if (data?.queued) {
     await refrescarWorkbar();
     const miJob = data.job;
@@ -1808,6 +1876,7 @@ async function seriesCreateSessions() {
     // crear» los episodios se crean y NO se encolan, así que la cola no se
     // mueve y ahí no hay nada de lo que colgarse.
     let hechos = 0;
+    let sinRastro = 0;
     for (;;) {
       await new Promise(r => setTimeout(r, 700));
       const prog = await apiFetch('/api/series-create-progress', { silent: true });
@@ -1816,7 +1885,25 @@ async function seriesCreateSessions() {
       // misma serie por delante. Sin comprobar de quién es, este modal
       // adoptaba el resultado del otro trabajo como propio y daba por creados
       // episodios que no existían.
-      if (!_seriesProgresoEsDeMiTrabajo(prog, miJob)) continue;   // aún es su turno
+      if (!_seriesProgresoEsDeMiTrabajo(prog, miJob)) {
+        // **Y si el nuestro ya terminó y el singleton es de otro, su
+        // resultado está en `resultados_por_job`.** Con dos discos de la
+        // misma temporada, el segundo pisaba el progreso del primero entre
+        // dos vueltas y este bucle preguntaba cada 700 ms para siempre
+        // (auditoría con Codex del 2026-10-17).
+        const guardado = _seriesResultadoGuardado(prog, miJob);
+        if (guardado !== undefined) { data = guardado; break; }
+        // Esperar turno es legítimo —puede haber un rip de 40 min delante—,
+        // así que solo se abandona cuando el trabajo ya no está ni en la
+        // cola ni corriendo y el servidor no tiene su resultado: ahí ya no
+        // va a llegar nada.
+        if (_seriesSigueVivo(miJob)) { sinRastro = 0; continue; }
+        if (++sinRastro < _SERIES_VUELTAS_SIN_RASTRO) continue;
+        data = null;
+        perdido = true;
+        break;
+      }
+      sinRastro = 0;
       const n = (prog.completed || []).length;
       if (n > hechos) { hechos = n; await loadSessions(); }
       if (prog.error) { data = null; break; }
@@ -1826,12 +1913,19 @@ async function seriesCreateSessions() {
   }
 
   if (!data) {
-    cerrarModalDeTrabajo();
+    cerrarModalDeTrabajoDe(miJobPedido);
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = _seriesTextoBotonCrear(episodes.length);
     }
-    showToast(tr('tab1.no_se_pudieron_crear_los_proyectos'), 'error');
+    if (perdido) {
+      // No es lo mismo que un fallo: el trabajo terminó y lo que se perdió
+      // es su resultado. Los proyectos creados están en la lista.
+      loadSessions();
+      showToast(tr('tab1.serie_resultado_perdido'), 'warning', 9000);
+    } else {
+      showToast(tr('tab1.no_se_pudieron_crear_los_proyectos'), 'error');
+    }
     return;
   }
 
@@ -1839,7 +1933,7 @@ async function seriesCreateSessions() {
   const failed = data.failed || [];
   _seriesState = null;
 
-  cerrarModalDeTrabajo();
+  cerrarModalDeTrabajoDe(miJobPedido);
 
   const skippedExisting = data.skipped_existing || [];
   const replacedIds = data.replaced_ids || [];
@@ -2378,8 +2472,8 @@ function renderSidebarSessions(sessions, query = '') {
       insignia: typeof insigniaDeTrabajo === 'function' ? insigniaDeTrabajo(s.id) : '',
       abierto: isOpen,
       acciones: `
-        <button class="btn btn-primary btn-sm" onclick="confirmOpenSession('${s.id}','${escHtml(name)}')" data-i18n="tab1.abrir" data-i18n-tip="tab1.abrir_este_proyecto_en_una_sub"></button>
-        <button class="btn btn-danger btn-sm" onclick="confirmDeleteSession('${s.id}','${escHtml(name)}')" data-i18n="tab1.eliminar" data-i18n-tip="tab1.eliminar_permanentemente_este_proyecto"></button>`,
+        <button class="btn btn-primary btn-sm" onclick="confirmOpenSession(${jsArg(s.id)},${jsArg(name)})" data-i18n="tab1.abrir" data-i18n-tip="tab1.abrir_este_proyecto_en_una_sub"></button>
+        <button class="btn btn-danger btn-sm" onclick="confirmDeleteSession(${jsArg(s.id)},${jsArg(name)})" data-i18n="tab1.eliminar" data-i18n-tip="tab1.eliminar_permanentemente_este_proyecto"></button>`,
     });
     const row = card.querySelector('.session-card-row');
     row.onclick = () => toggleSidebarSelection(s.id);
@@ -2554,6 +2648,11 @@ function renderProjectPanel(project) {
   }
 
   activeSubTabId = prevSubTab;
+  // Y `currentSession` vuelve al proyecto ACTIVO. Pintar uno que no se está
+  // viendo lo dejaba apuntando al pintado, y lo siguiente que el usuario
+  // editaba en su pestaña iba a parar a la sesión de otro.
+  const activo = getActiveProject();
+  currentSession = activo ? activo.session : null;
 
   // Comprobar disponibilidad del ISO en background (no bloquea el render)
   _checkIsoAvailability(project);
@@ -2573,13 +2672,20 @@ function renderSession(session) {
  * @param {Object} project
  */
 async function _checkIsoAvailability(project) {
-  const pid = project.id;
-  const prevSubTab = activeSubTabId;
-  activeSubTabId = pid;
-
+  // **El proyecto activo NO se cambia durante la petición.** Se cambiaba
+  // antes del `await` y se restauraba al volver: mientras tanto `E()`, el
+  // nombre del MKV y `currentSession` resolvían contra ESTE proyecto aunque
+  // el usuario estuviera en otro. Al crear una serie hay una comprobación
+  // en vuelo por episodio, y el nombre que se escribía en uno acababa en
+  // otro (auditoría con Codex del 2026-10-17). Ahora el cambio solo dura el
+  // bloque síncrono que pinta el banner.
   const data = await apiFetch(`/api/sessions/${project.sessionId}/check-iso`);
   project.isoAvailable = data ? data.available : null;  // null = error de red
+  if (!openProjects.includes(project)) return;   // se cerró mientras tanto
+  enProyecto(project, () => _pintarDisponibilidadDelOrigen(data));
+}
 
+function _pintarDisponibilidadDelOrigen(data) {
   if (data && !data.available) {
     const name = (data.iso_path || '').replace(/\\/g, '/').split('/').pop();
     // Mensaje dinámico según source_type — antes era siempre "El fichero
@@ -2593,8 +2699,6 @@ async function _checkIsoAvailability(project) {
   } else {
     hide('iso-missing-banner');
   }
-
-  activeSubTabId = prevSubTab;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2635,9 +2739,11 @@ async function setTrackMode(trackKind, mode) {
     body: JSON.stringify(body),
   });
   if (updated) {
+    // `renderProjectPanel` deja `currentSession` en el proyecto activo REAL;
+    // asignarlo aquí a mano lo dejaba en este aunque el usuario hubiera
+    // cambiado de pestaña durante la petición.
     project.session = updated;
-    currentSession = updated;
-    renderProjectPanel(project);
+    if (openProjects.includes(project)) renderProjectPanel(project);
     const label = trackKind === 'audio' ? 'Audio' : tr('core.subtitulos');
     const modeLabel = mode === 'keep_all' ? tr('core.mantener_todas') : 'Filtrado';
     showToast(tr('tab1.label_modo_aplicado', {label: label, modelabel: modeLabel}), 'success');
@@ -3023,6 +3129,10 @@ function discardTrack(idx) {
     track_type: track.track_type,
     raw: track.raw,
     discard_reason: tr('tab1.descartada_manualmente_por_el_usuario'),
+    // Un subtítulo descartado a mano conserva si era forzado o completo:
+    // `recoverTrack` lo lee de aquí, y sin el campo lo recuperaba como
+    // «Completos» y sin el flag forzado (auditoría con Codex del 2026-10-17).
+    ...(track.subtitle_type ? { inferred_subtitle_type: track.subtitle_type } : {}),
   });
   currentSession.included_tracks.forEach((t, i) => { t.position = i; });
   renderIncludedTracks(currentSession.included_tracks);
@@ -3542,7 +3652,15 @@ function recoverTrack(idx) {
   // el contenido, pero flag_forced=false para mantener una sola pista
   // con flag forced=yes en el MKV final. Sin esto el reproductor podía
   // solapar varios forzados al cambiar de audio.
-  const isCastellanoSub = !isAudio && (raw.language || '').toLowerCase() === 'spanish';
+  // El flag va al idioma que MANDA en el perfil de pistas, que depende del
+  // idioma de la app (castellano, inglés, catalán) y lo resuelve el
+  // servidor: se compara su nombre con el de la pista en la misma lengua.
+  // Fijar `spanish` daba el flag al castellano con la app en inglés. Sin
+  // siembra, el castellano de siempre.
+  const pref = idiomaDePistaPreferido();
+  const isCastellanoSub = !isAudio && (pref
+    ? langLit === pref
+    : (raw.language || '').toLowerCase() === 'spanish');
   const setForcedFlag = isForcedSub && isCastellanoSub;
 
   let codecLit, fullLabel;
@@ -3942,13 +4060,21 @@ async function resetChaptersFromDisc() {
       removeToast(toastId);
       if (!data) return;
 
-      // Actualizar sesión en proyecto abierto y en currentSession
+      // Solo los CAPÍTULOS, y en el proyecto al que pertenecen. Antes la
+      // respuesta sustituía la sesión entera —llevándose las pistas editadas
+      // y sin guardar— y se asignaba a `currentSession` y se pintaba con
+      // `E()`, que después de minutos montando el ISO pueden ser los de otro
+      // proyecto (auditoría con Codex del 2026-10-17).
       const project = openProjects.find(p => p.sessionId === sessionId);
-      if (project) project.session = data;
-      currentSession = data;
-
-      _chaptersModified.set(activeSubTabId, false);
-      renderChapters(data.chapters, data.chapters_auto_generated, data.chapters_auto_reason);
+      if (!project?.session) return;
+      Object.assign(project.session, {
+        chapters: data.chapters,
+        chapters_auto_generated: data.chapters_auto_generated,
+        chapters_auto_reason: data.chapters_auto_reason,
+      });
+      _chaptersModified.set(project.id, false);
+      enProyecto(project, () => renderChapters(
+        data.chapters, data.chapters_auto_generated, data.chapters_auto_reason));
       showToast(tr('tab1.capitulos_restaurados_del_disco', {p1: data.chapters.length}), 'success');
     },
   );
@@ -4152,16 +4278,22 @@ function onMkvNameInput() {
  */
 async function revertMkvName() {
   const project = getActiveProject();
-  if (!currentSession || !project) return;
+  if (!project?.session) return;
+  const sesion = project.session;
   project.mkvNameWasManual = false;
-  currentSession.mkv_name_manual = false;
-  const data = await apiFetch(`/api/sessions/${currentSession.id}/recalculate-name`, { method: 'POST' });
-  if (data) {
-    currentSession.mkv_name = data.mkv_name;
+  sesion.mkv_name_manual = false;
+  const data = await apiFetch(`/api/sessions/${sesion.id}/recalculate-name`, { method: 'POST' });
+  // A la sesión y al panel de ESTE proyecto: si el usuario cambió de
+  // pestaña mientras volvía, `currentSession` y `E()` ya son de otro, y el
+  // nombre de A acababa escrito en B (auditoría con Codex del 2026-10-17).
+  if (!data) return;
+  sesion.mkv_name = data.mkv_name;
+  if (!openProjects.includes(project)) return;
+  enProyecto(project, () => {
     const inp = E('mkv-name-input');
     if (inp) inp.value = data.mkv_name;
     hide('mkv-name-manual-notice');
-  }
+  });
 }
 
 // NOTA: la construcción del nombre del MKV vive SOLO en el backend
@@ -4174,33 +4306,46 @@ async function revertMkvName() {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Persiste el estado actual de la sesión via PUT /api/sessions/{id}.
+ * Persiste un proyecto via PUT /api/sessions/{id}. Devuelve `true` si se guardó.
+ *
+ * **El proyecto se fija al llamar, no al volver.** Leía `currentSession` y
+ * `getActiveProject()` DESPUÉS del `await`, así que guardar A y cambiar a B
+ * mientras el PUT volaba limpiaba el indicador de cambios de B y pintaba en
+ * B el tamaño de A. Y no devolvía nada: `executeSession` ejecutaba aunque el
+ * PUT hubiera fallado, sobre la versión anterior de pistas y capítulos,
+ * mientras la interfaz enseñaba las nuevas como guardadas (auditoría con
+ * Codex del 2026-10-17).
  */
-async function saveSession() {
-  if (!currentSession) return;
-  const data = await apiFetch(`/api/sessions/${currentSession.id}`, {
+async function saveSession(project = getActiveProject()) {
+  const sesion = project?.session;
+  if (!sesion) return false;
+  // Lo que se edite mientras el PUT vuela no va en este PUT.
+  const ediciones = project.ediciones || 0;
+  const data = await apiFetch(`/api/sessions/${sesion.id}`, {
     method: 'PUT',
     body: JSON.stringify({
-      mkv_name: currentSession.mkv_name,
-      mkv_name_manual: currentSession.mkv_name_manual || false,
-      included_tracks: currentSession.included_tracks,
-      discarded_tracks: currentSession.discarded_tracks,
-      chapters: currentSession.chapters,
+      mkv_name: sesion.mkv_name,
+      mkv_name_manual: sesion.mkv_name_manual || false,
+      included_tracks: sesion.included_tracks,
+      discarded_tracks: sesion.discarded_tracks,
+      chapters: sesion.chapters,
     }),
   });
-  if (data) {
-    showToast(tr('tab1.sesion_guardada'), 'success');
-    const project = getActiveProject();
-    if (project) clearProjectDirty(project.id);
-    // El chip del tamaño describe la selección GUARDADA, y el PUT devuelve
-    // la sesión ya recalculada — sin esto se quedaba con la cifra de cuando
-    // se abrió el proyecto por muchas pistas que se quitaran.
-    _renderTamanoEstimado(data);
-    // Actualizar cache local y re-renderizar sidebar con sort+filter
-    const cached = _sessionsCache.find(s => s.id === currentSession.id);
-    if (cached) cached.updated_at = data.updated_at;
-    _doFilterSidebarSessions();
+  if (!data) return false;   // el error ya lo ha contado `apiFetch`
+  showToast(tr('tab1.sesion_guardada'), 'success');
+  if ((project.ediciones || 0) === ediciones) clearProjectDirty(project.id);
+  // El chip del tamaño describe la selección GUARDADA, y el PUT devuelve
+  // la sesión ya recalculada — sin esto se quedaba con la cifra de cuando
+  // se abrió el proyecto por muchas pistas que se quitaran. En el panel de
+  // ESTE proyecto, se esté viendo o no.
+  if (openProjects.includes(project)) {
+    enProyecto(project, () => _renderTamanoEstimado(data));
   }
+  // Actualizar cache local y re-renderizar sidebar con sort+filter
+  const cached = _sessionsCache.find(s => s.id === sesion.id);
+  if (cached) cached.updated_at = data.updated_at;
+  _doFilterSidebarSessions();
+  return true;
 }
 
 /**
@@ -4208,44 +4353,46 @@ async function saveSession() {
  */
 async function executeSession() {
   const project = getActiveProject();
-  if (!currentSession || !project) return;
+  if (!project?.session) return;
+  const sesion = project.session;
 
-  // Guardar antes de cualquier comprobación para no perder cambios
-  await saveSession();
-  clearProjectDirty(project.id);
+  // Guardar antes de cualquier comprobación para no perder cambios. **Si el
+  // guardado falla no se ejecuta**: el rip saldría con la versión anterior
+  // de lo que se ve en pantalla.
+  if (!(await saveSession(project))) return;
 
   // Verificar disponibilidad del origen (los 3 tipos soportados)
-  const check = await apiFetch(`/api/sessions/${currentSession.id}/check-iso`);
+  const check = await apiFetch(`/api/sessions/${sesion.id}/check-iso`);
   if (!check) return; // error de red ya manejado por apiFetch
   if (!check.available) {
     const name = (check.iso_path || '').replace(/\\/g, '/').split('/').pop();
     const label = check.source_label || 'ISO';
     const verb = check.source_type === 'bdmv_folder' ? tr('tab1.la_carpeta') : tr('tab1.el_fichero');
-    showToast(tr('tab1.no_disponible_no_esta_en_mnt', {label: label, name: name}), 'error');
+    showToast(tr('tab1.no_disponible_no_esta_en_mnt', {label: escHtml(label), name: escHtml(name)}), 'error');
     // Actualizar banner por si no estaba visible
     project.isoAvailable = false;
-    const prevSubTab = activeSubTabId;
-    activeSubTabId = project.id;
-    setText('iso-missing-title', tr('tab1.no_disponible', {label: label}));
-    setText('iso-missing-text', tr('tab1.ya_no_se_encuentra_en_mnt', {verb: verb, name: name}));
-    show('iso-missing-banner');
-    activeSubTabId = prevSubTab;
+    if (openProjects.includes(project)) {
+      enProyecto(project, () => {
+        setText('iso-missing-title', tr('tab1.no_disponible', {label: label}));
+        setText('iso-missing-text', tr('tab1.ya_no_se_encuentra_en_mnt', {verb: verb, name: name}));
+        show('iso-missing-banner');
+      });
+    }
     return;
   }
 
   showConfirm(
     tr('tab1.ejecutar_proyecto'),
-    tr('tab1.se_anadira_a_la_cola_de', {p1: currentSession.mkv_name || 'MKV'}),
-    _doExecute,
+    tr('tab1.se_anadira_a_la_cola_de', {p1: sesion.mkv_name || 'MKV'}),
+    () => _doExecute(project),
     tr('tab1.ejecutar')
   );
 }
 
-async function _doExecute() {
-  const project = getActiveProject();
-  if (!currentSession || !project) return;
+async function _doExecute(project = getActiveProject()) {
+  if (!project?.session) return;
 
-  const sid = currentSession.id;
+  const sid = project.session.id;
   const data = await apiFetch(`/api/sessions/${sid}/execute`, { method: 'POST' });
   if (!data) return;
 
@@ -4284,10 +4431,10 @@ function renderExecResultBanner(session) {
     title.textContent = session.status === 'running' ? tr('tab1.ejecucion_en_curso') : tr('tab1.en_cola_de_ejecucion');
     detail.innerHTML = tr('tab1.monitoriza_el_progreso_en_el_panel');
     const cancelBtn = session.status === 'running'
-      ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession('${escHtml(session.id)}')" data-i18n-tip="tab1.cancela_el_proceso_en_curso_desmonta"><span data-icono="cruz"></span> <span data-i18n="ui.cancelar"></span></button>`
+      ? ` <button class="btn btn-danger btn-xs" onclick="cancelRunningSession(${jsArg(session.id)})" data-i18n-tip="tab1.cancela_el_proceso_en_curso_desmonta"><span data-icono="cruz"></span> <span data-i18n="ui.cancelar"></span></button>`
       : '';
     actions.innerHTML = `
-      <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo()" data-i18n-tip="tab1.ver_el_progreso_en_tiempo_real"><span data-icono="tv"></span> <span data-i18n="tab1.ver_progreso"></span></button>${cancelBtn}`;
+      <button class="btn btn-primary btn-xs" onclick="abrirDetalleDeTrabajo(${jsArg(session.id)})" data-i18n-tip="tab1.ver_el_progreso_en_tiempo_real"><span data-icono="tv"></span> <span data-i18n="tab1.ver_progreso"></span></button>${cancelBtn}`;
   } else if (_situacionDeSesion(session) === 'cancelado') {
     // Una cancelación NO deja fila en la tabla de ejecuciones —el proyecto
     // vuelve a estar listo para relanzarse—, así que sin esto el hecho más
@@ -4317,28 +4464,26 @@ async function refreshOpenProjectState(sessionId) {
   const data = await apiFetch(`/api/sessions/${sessionId}`);
   if (!data) return;
 
-  // Actualizar sesión en el proyecto abierto
-  project.session = data;
+  // Actualizar sesión en el proyecto abierto. Lo que el usuario tenga
+  // editado y sin guardar se conserva: los controles lo siguen enseñando, y
+  // sustituirlo dejaba el modelo con lo del servidor — el siguiente
+  // «Guardar» mandaba eso y no lo que se veía (auditoría con Codex del
+  // 2026-10-17).
+  project.session = sesionConEdiciones(project, data);
 
   // Actualizar en cache del sidebar también
   const cached = _sessionsCache.find(s => s.id === sessionId);
   if (cached) Object.assign(cached, data);
 
+  if (!openProjects.includes(project)) return;
   // Re-renderizar solo las partes dinámicas (scoped al proyecto)
-  const prevSubTab = activeSubTabId;
-  activeSubTabId = project.id;
-  currentSession = data;
-
-  renderExecResultBanner(data);
-  renderPhaseStrip(data);
-  renderExecuteArea();
-  renderExecutionHistory(data);
-  updateProjectTabIcon(project);
-
-  activeSubTabId = prevSubTab;
-  // Restaurar currentSession al proyecto activo real
-  const active = getActiveProject();
-  currentSession = active ? active.session : null;
+  enProyecto(project, () => {
+    renderExecResultBanner(project.session);
+    renderPhaseStrip(project.session);
+    renderExecuteArea();
+    renderExecutionHistory(project.session);
+    updateProjectTabIcon(project);
+  });
 }
 
 /**
@@ -4461,18 +4606,9 @@ function renderExecuteArea() {
 //  WEBSOCKET + PROGRESO
 // ═══════════════════════════════════════════════════════════════════
 
-/**
- * Conecta el WebSocket de log para un proyecto específico.
- * @param {Object} project
- * @param {string} sessionId
- */
-function connectWebSocketForProject(project, sessionId) {
-  if (project.ws) project.ws.close();
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  project.ws = new WebSocket(`${proto}://${location.host}/ws/${sessionId}`);
-  project.ws.onmessage = (e) => handleExecutionWsMessage(e.data);
-  project.ws.onclose   = () => { project.ws = null; };
-}
+// `connectWebSocketForProject` se retiró: no la llamaba nadie desde que el
+// log del rip se lee en el modal de detalle (auditoría con Codex del
+// 2026-10-17). El WS de ejecución es `connectExecutionWebSocket`.
 
 /** Delay de reconexión con backoff exponencial (3s → 6s → 12s → 30s max). */
 let _queueWsReconnectDelay = 3000;
@@ -4537,13 +4673,15 @@ function connectExecutionWebSocket(sessionId) {
     executionWs._closedByUser = true;  // evita reconnect en el onclose siguiente
     executionWs.close();
   }
+  let ws = null;
   // Aquí se hidrataba el log desde REST antes de conectar el WS, para que el
   // panel de trabajos no arrancara vacío tras un Mac dormido. Ya no hace
   // falta: el modal de detalle lee `session.output_log` en cada refresco, así
   // que el histórico está siempre completo sin combinar dos fuentes ni
   // detectar solapes.
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  executionWs = new WebSocket(`${proto}://${location.host}/ws/${sessionId}`);
+  ws = executionWs = new WebSocket(`${proto}://${location.host}/ws/${sessionId}`);
+  ws._sid = sessionId;
   executionWs.onmessage = (e) => handleExecutionWsMessage(e.data, sessionId);
   // Auto-reconnect tras Mac sleep / pestaña suspendida / red caida — solo si
   // la sesion sigue running segun el queueState. Los mensajes __DONE__/
@@ -4551,7 +4689,10 @@ function connectExecutionWebSocket(sessionId) {
   // manualmente, asi que no se reconectan tras finalizacion legitima.
   executionWs.onclose = (ev) => {
     const wasIntentional = ev.target && ev.target._closedByUser;
-    executionWs = null;
+    // El `onclose` de una conexión vieja llega DESPUÉS de instalada la nueva:
+    // poner `executionWs = null` sin mirar dejaba la vigente sin referencia
+    // —y la siguiente reconexión, duplicada—. Solo suelta la suya.
+    if (executionWs === ws) executionWs = null;
     if (wasIntentional) return;
     setTimeout(() => {
       if (queueState && queueState.running === sessionId && !executionWs) {
@@ -4582,15 +4723,30 @@ function _resetTerminalToastDedup() {
   _lastTerminalToastSessionId = null;
 }
 
-function handleExecutionWsMessage(msg) {
+/** Cierra la conexión de ESE rip, y solo esa. Un terminal de A que llega con
+ *  la de B ya instalada cerraba la de B. */
+function _cerrarWsDeEjecucion(sessionId) {
+  if (!executionWs) return;
+  if (sessionId && executionWs._sid && executionWs._sid !== sessionId) return;
+  executionWs._closedByUser = true;
+  executionWs.close();
+  executionWs = null;
+}
+
+function handleExecutionWsMessage(msg, sessionId) {
+  // **El terminal es del rip que lo emite, no del que corre ahora.** El WS
+  // de la cola puede anunciar B antes de que llegue el `__ERROR__` de A, y
+  // con `queueState.running` el fallo de A se atribuía a B: se cerraba su
+  // conexión y se marcaba B en el deduplicador (auditoría con Codex del
+  // 2026-10-17). Quien llama ya sabe de qué sesión es la conexión.
   if (msg === '__DONE__') {
-    const finishedId = queueState.running;
+    const finishedId = sessionId || queueState.running;
     if (finishedId && finishedId === _lastTerminalToastSessionId) {
       // Ya procesado por una conexión WS gemela — descartar.
       return;
     }
     _lastTerminalToastSessionId = finishedId;
-    if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
+    _cerrarWsDeEjecucion(finishedId);
     updateSubtabQueuePill();
     showToast(tr('tab1.ejecucion_completada'), 'success');
     loadSessions();
@@ -4600,12 +4756,12 @@ function handleExecutionWsMessage(msg) {
   }
 
   if (msg === '__CANCELLED__') {
-    const cancelledId = queueState.running;
+    const cancelledId = sessionId || queueState.running;
     if (cancelledId && cancelledId === _lastTerminalToastSessionId) {
       return;
     }
     _lastTerminalToastSessionId = cancelledId;
-    if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
+    _cerrarWsDeEjecucion(cancelledId);
     updateSubtabQueuePill();
     showToast(tr('tab1.ejecucion_cancelada_temporales_limpiados'), 'info');
     loadSessions();
@@ -4614,12 +4770,12 @@ function handleExecutionWsMessage(msg) {
   }
 
   if (msg.startsWith('__ERROR__')) {
-    const failedId = queueState.running;
+    const failedId = sessionId || queueState.running;
     if (failedId && failedId === _lastTerminalToastSessionId) {
       return;
     }
     _lastTerminalToastSessionId = failedId;
-    if (executionWs) { executionWs._closedByUser = true; executionWs.close(); executionWs = null; }
+    _cerrarWsDeEjecucion(failedId);
     updateSubtabQueuePill();
     showToast(tr('tab1.error_en_la_ejecucion_revisa_el'), 'error');
     loadSessions();
@@ -4992,9 +5148,12 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     if (estado) { estado.status = resp.status; estado.headers = resp.headers; }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-      const detalle = err.detail || resp.statusText;
+      const detalle = textoDeDetalle(err.detail) || resp.statusText;
       if (estado) estado.detalle = detalle;
-      if (!silent) showToast(tr('comun.error_p1', {p1: detalle}), 'error');
+      // `showToast` pinta HTML y el detalle viene del servidor —con nombres
+      // de fichero dentro—, así que va escapado AQUÍ, una vez, y no en cada
+      // llamador (auditoría con Codex del 2026-10-17).
+      if (!silent) showToast(tr('comun.error_p1', {p1: escHtml(detalle)}), 'error');
       console.warn(`[Error API] ${url}: ${detalle}`);
       return null;
     }
@@ -5003,13 +5162,32 @@ async function apiFetch(url, opts = {}, timeoutMs = API_FETCH_TIMEOUT) {
     if (estado) estado.status = 0;     // 0 = no hubo respuesta
     const msg = e.name === 'AbortError'
       ? tr('tab1.timeout_el_servidor_no_respondio_en', {p1: timeoutMs / 1000})
-      : tr('tab1.error_de_red', {message: e.message});
+      : tr('tab1.error_de_red', {message: escHtml(e.message)});
     if (!silent) showToast(msg, 'error');
     console.warn(`[Error red] ${url}: ${msg}`);
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * El `detail` de un error HTTP, como TEXTO.
+ *
+ * FastAPI manda una cadena en los errores propios y una LISTA de objetos en
+ * un 422 de validación (`[{loc, msg, type}]`): interpolado tal cual, el toast
+ * decía «Error: [object Object]» (auditoría con Codex del 2026-10-17).
+ */
+function textoDeDetalle(detail) {
+  if (detail == null) return '';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(d => (d && typeof d === 'object')
+      ? [Array.isArray(d.loc) ? d.loc.join('.') : '', d.msg || ''].filter(Boolean).join(': ')
+      : String(d)).join('; ');
+  }
+  if (typeof detail === 'object') return detail.msg || detail.message || JSON.stringify(detail);
+  return String(detail);
 }
 
 // Añadir spin animation al CSS dinámicamente
@@ -5027,7 +5205,7 @@ document.head.appendChild(spinStyle);
  *  cuando ya terminó; mientras corre, el único dato firme es el total del
  *  contrato. Se enseña lo que hay y no se inventa el resto.
  */
-function _ripTimelineHTML(a, sesion) {
+function _ripTimelineHTML(a, sesion, ejecucion = null) {
   const FASES = [
     ['mount',   'disco', tr('tab1.fase_a_apertura_del_origen'),
      tr('tab1.monta_el_iso_o_valida_la')],
@@ -5038,7 +5216,9 @@ function _ripTimelineHTML(a, sesion) {
     ['unmount', 'omitida', tr('tab1.fase_d_cierre_del_origen'),
      tr('tab1.desmonta_el_iso_y_elimina_los')],
   ];
-  const ejec = (sesion?.execution_history || []).slice(-1)[0] || {};
+  // La ejecución que la línea del historial señala, si la hay; si no, la
+  // última, que es la que describe un trabajo en curso.
+  const ejec = ejecucion || (sesion?.execution_history || []).slice(-1)[0] || {};
   const elapsed = ejec.phase_elapsed || {};
   // `glifo` y no `icono`: ese nombre sombrearía la función del catálogo
   // dentro de este `map`.
@@ -5062,6 +5242,22 @@ function _ripTimelineHTML(a, sesion) {
 }
 
 
+/** La ejecución del historial a la que apunta una línea del historial.
+ *
+ *  `ref_log` es `sesion:{id}#{run}`: una sesión re-ejecutada tiene varias, y
+ *  la línea habla de UNA. Sin esto el detalle de una ejecución vieja
+ *  enseñaba el log de la sesión —que es el de la última— y los tiempos de la
+ *  última (auditoría con Codex del 2026-10-17). `null` si la línea no apunta
+ *  a ninguna (un trabajo en curso, una cancelada).
+ */
+function _ejecucionDelHistorial(a, sesion) {
+  const ref = a?.historial?.ref_log || '';
+  const m = /#(\d+)$/.exec(ref);
+  if (!m || !sesion) return null;
+  const n = Number(m[1]);
+  return (sesion.execution_history || []).find(e => e.run_number === n) || null;
+}
+
 registrarDetalleDeTrabajo('rip', async (a) => {
   // El log del rip ya está en la sesión y llega por WebSocket a la consola.
   // Aquí se pide el estado, que es lo que funciona con el proyecto cerrado.
@@ -5072,23 +5268,34 @@ registrarDetalleDeTrabajo('rip', async (a) => {
   // dice al armazón que conserve la vista que ya tiene en vez de sustituirla
   // por esta, que viene a medias.
   if (!s && est.status !== 404) return { sinDatos: true };
+  const ejec = _ejecucionDelHistorial(a, s);
   return {
     // Sin sesión y con un 404 de verdad, el proyecto se borró y su log con él.
     sinDetalle: s ? '' : 'borrado',
     titulo: s?.mkv_name || a.que,
     sub: s?.iso_path || '',
     cartel: cartelDeTmdb(s?.tmdb_info, s?.mkv_name, icono('disco', 'ico-xl')),
-    lateral: _ripTimelineHTML(a, s),
+    lateral: _ripTimelineHTML(a, s, ejec),
     pasos: [],
     conLog: true,
-    cuerpo: _trabajoLogHTML(s?.output_log),
+    cuerpo: _trabajoLogHTML(ejec ? ejec.output_log : s?.output_log),
   };
 });
 
 registrarDetalleDeTrabajo('serie', async (a) => {
   // La creación de una serie no produce log: su detalle son los episodios.
-  const p = await apiFetch('/api/series-create-progress', { silent: true })
+  let p = await apiFetch('/api/series-create-progress', { silent: true })
     .catch(() => null);
+  // Una lectura fallida no sustituye a la vista buena: con ceros en todo,
+  // el modal decía «0 de 0 episodios» de un trabajo a medias.
+  if (!p) return { sinDatos: true };
+  // El progreso es UN singleton: si es de otro trabajo, no describe este.
+  // Lo que se sabe de un trabajo ya terminado está en `resultados_por_job`.
+  if (p.job && a?.id && p.job !== a.id) {
+    const r = (p.resultados_por_job || {})[a.id];
+    p = r ? { completed: r.created || [], failed: r.failed || [],
+              total: (r.created || []).length + (r.failed || []).length } : null;
+  }
   const hechos = (p?.completed || []).length;
   const fallidos = (p?.failed || []).length;
   return {
@@ -5111,7 +5318,7 @@ registrarDetalleDeTrabajo('serie', async (a) => {
     cuerpo: _trabajoKvHTML([
       [tr('tab1.episodio_en_curso'), p?.current_episode_title || '—'],
       [tr('tab1.paso'), a.paso || '—'],
-      [tr('tab1.episodios_analizados'), `${hechos} de ${p?.total || 0}`],
+      [tr('tab1.episodios_analizados'), tr('workbar.n_de_total', {n: hechos, total: p?.total || 0})],
       [tr('ui.con_error'), fallidos || '—'],
       [tr('tab1.muestreo_pgs'), p?.pgs_pct ? `${p.pgs_pct} %` : '—'],
     ]),

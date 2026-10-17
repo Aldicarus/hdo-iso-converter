@@ -363,7 +363,7 @@ async function checkForUpdates(force) {
     <div class="settings-update-actions">
       <button class="btn btn-primary btn-sm" onclick="copyUpdateCommands()"><span data-icono="portapapeles"></span> <span data-i18n="settings.copiar_comandos"></span></button>
       ${data.release_url ? `<a class="btn btn-secondary btn-sm" href="${escHtml(data.release_url)}" target="_blank" rel="noreferrer"><span data-icono="enlaceExterno"></span> <span data-i18n="settings.release_en_github"></span></a>` : ''}
-      <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate('${escHtml(data.latest)}')" data-i18n="settings.ignorar_esta_version"></button>
+      <button class="btn btn-ghost btn-sm" onclick="ignoreUpdate(${jsArg(data.latest)})" data-i18n="settings.ignorar_esta_version"></button>
     </div>`;
 }
 
@@ -516,8 +516,16 @@ function _renderSettingsSheet(data) {
   badge.className = 'settings-status ' + cls;
   const idTail = st.sheet_id_last6 ? ` · …${st.sheet_id_last6}·gid${st.gid || '0'}` : '';
   badge.textContent = `${srcLabel}${idTail}`;
-  // Pre-popular con la URL activa (es pública, no es secret)
-  if (inp && !inp.value) inp.value = st.url || '';
+  // Pre-popular con la URL activa (es pública, no es secret).
+  //
+  // Se sustituye siempre que el usuario no la haya cambiado desde la última
+  // foto. Con el `!inp.value` de antes, una URL propia ya pintada sobrevivía
+  // a «Borrar claves»: el servidor volvía al default, el campo seguía con la
+  // propia, se marcaba como guardada y el siguiente «Guardar» la reinstalaba
+  // (auditoría con Codex del 2026-10-17).
+  if (inp && (!inp.value || inp.value.trim() === (inp.dataset.inicial || '').trim())) {
+    inp.value = st.url || '';
+  }
   // Botón reset visible solo si NO es el default
   if (resetBtn) resetBtn.style.display = st.is_default ? 'none' : '';
   return st.source === 'settings';
@@ -550,6 +558,8 @@ function _idiomasOfrecidos(data) {
                    && data.idioma.disponibles.length)
     ? data.idioma.disponibles
     : IDIOMAS.map(i => i.codigo);
+  // La misma lista que se pinta es la que `cambiarIdioma` acepta.
+  if (typeof fijarIdiomasDisponibles === 'function') fijarIdiomasDisponibles(codigos);
   return codigos.map(c => ({ codigo: c, nombre: nombres.get(c) || c.toUpperCase() }));
 }
 
@@ -559,7 +569,7 @@ function _renderSettingsIdioma(data) {
   const activo = (data.idioma && data.idioma.activo) || idiomaActivo();
   caja.innerHTML = _idiomasOfrecidos(data).map(i => `
     <button class="btn btn-sm settings-idioma${i.codigo === activo ? ' activo' : ''}"
-            onclick="pedirCambioDeIdioma('${i.codigo}')"
+            onclick="pedirCambioDeIdioma(${jsArg(i.codigo)})"
             ${i.codigo === activo ? 'disabled' : ''}
             ><span class="settings-idioma-bandera">${distintivoDeIdioma(i.codigo)}</span
             ><span>${escHtml(i.nombre)}</span></button>
@@ -578,8 +588,8 @@ const _CAMPOS_DE_AJUSTES = [
  *  cuando el formulario queda sincronizado con el servidor: al pintarlo y
  *  al terminar de guardar.
  */
-function _marcarAjustesComoGuardados() {
-  for (const id of _CAMPOS_DE_AJUSTES) {
+function _marcarAjustesComoGuardados(campos = _CAMPOS_DE_AJUSTES) {
+  for (const id of campos) {
     const inp = document.getElementById(id);
     if (inp) inp.dataset.inicial = inp.value || '';
   }
@@ -706,7 +716,7 @@ async function cambiarTema(codigo) {
   }
 }
 
-function _renderSettings(data) {
+function _renderSettings(data, camposSincronizados = _CAMPOS_DE_AJUSTES) {
   _renderSettingsTema(data);
   _renderSettingsIdioma(data);
   const tmdbUserSet   = _renderSettingsSection('tmdb', data);
@@ -716,7 +726,13 @@ function _renderSettings(data) {
   _hayClavesDelUsuario = tmdbUserSet || googleUserSet || driveUserSet || sheetUserSet;
   _actualizarBotonBorrar();
   // Aquí es donde el sheet se pre-pobla, así que la foto se toma después.
-  _marcarAjustesComoGuardados();
+  //
+  // Solo de los campos que de verdad acaban de sincronizarse. Restaurar el
+  // sheet al default repintaba todo y marcaba como guardadas las claves que
+  // el usuario había escrito y NO se habían mandado: cambiar de idioma
+  // dejaba de avisar de ellas y se perdían (auditoría con Codex del
+  // 2026-10-17).
+  _marcarAjustesComoGuardados(camposSincronizados);
 }
 
 // ¿Hay alguna clave o URL puesta POR EL USUARIO? Lo decide `_renderSettings`
@@ -779,7 +795,7 @@ function resetSheetUrlToDefault() {
   }).then(data => {
     if (!data) return;
     _settingsCache = data;
-    _renderSettings(data);
+    _renderSettings(data, ['settings-sheet-input']);
     const fb = document.getElementById('settings-sheet-feedback');
     if (fb) { fb.textContent = tr('settings.url_restaurada_al_default_publico'); fb.className = 'settings-feedback ok'; }
     showToast(tr('settings.url_del_sheet_restaurada'), 'success');
@@ -813,8 +829,18 @@ async function saveSettings() {
   if (du) payload.cmv40_drive_folder_url = du;
   // Para el sheet, si la URL está vacía o coincide con el default, no la guardamos
   // (dejamos que caiga al default automático). Si es distinta, la guardamos.
-  if (su && su !== (_settingsCache?.sheet?.default_url || '')) {
+  //
+  // **Pero si había una propia guardada, vaciar el campo o poner el default
+  // es pedir QUITARLA**, y eso hay que mandarlo: omitirlo cerraba el modal
+  // diciendo que todo estaba guardado mientras el servidor seguía con la
+  // URL propia (auditoría con Codex del 2026-10-17). `''` es lo que ya
+  // manda «Restaurar default».
+  const sheetDefault = _settingsCache?.sheet?.default_url || '';
+  const hayPropia = _settingsCache?.sheet?.source === 'settings';
+  if (su && su !== sheetDefault) {
     payload.cmv40_sheet_url = su;
+  } else if (hayPropia && su !== (sheetInp?.dataset.inicial || '').trim()) {
+    payload.cmv40_sheet_url = '';
   }
   if (!Object.keys(payload).length) {
     closeModal('settings-modal');
@@ -831,13 +857,25 @@ async function saveSettings() {
   if (tk && tmdbInp)        { tmdbInp.value = '';        if (fbTmdb)   { fbTmdb.textContent = tr('settings.guardada');   fbTmdb.className = 'settings-feedback ok'; } }
   if (gk && googleInp)      { googleInp.value = '';      if (fbGoogle) { fbGoogle.textContent = tr('settings.guardada'); fbGoogle.className = 'settings-feedback ok'; } }
   if (du && driveFolderInp) { driveFolderInp.value = ''; if (fbDrive)  { fbDrive.textContent = tr('settings.guardada');  fbDrive.className = 'settings-feedback ok'; } }
-  if (payload.cmv40_sheet_url && fbSheet) { fbSheet.textContent = tr('settings.guardada'); fbSheet.className = 'settings-feedback ok'; }
+  if ('cmv40_sheet_url' in payload && fbSheet) { fbSheet.textContent = tr('settings.guardada'); fbSheet.className = 'settings-feedback ok'; }
   showToast(tr('settings.configuracion_guardada'), 'success');
   _marcarAjustesComoGuardados();
   return true;
 }
 
-async function clearAllKeys() {
+/** «Borrar claves guardadas», con confirmación: se lleva las cuatro de golpe
+ *  y no hay deshacer. Antes no preguntaba (auditoría con Codex del
+ *  2026-10-17). */
+function clearAllKeys() {
+  showConfirm(
+    tr('settings.borrar_claves_titulo'),
+    tr('settings.borrar_claves_texto'),
+    _borrarTodasLasClaves,
+    tr('settings.borrar_claves_si'),
+  );
+}
+
+async function _borrarTodasLasClaves() {
   const data = await apiFetch('/api/settings', {
     method: 'POST',
     body: JSON.stringify({
@@ -849,6 +887,13 @@ async function clearAllKeys() {
   });
   if (!data) return;
   _settingsCache = data;
+  // Lo escrito en los campos de clave también se va: dejarlo, y marcarlo
+  // como guardado al repintar, sería decir que hay una clave que no hay.
+  for (const id of ['settings-tmdb-input', 'settings-google-input',
+                    'settings-drive-folder-input']) {
+    const inp = document.getElementById(id);
+    if (inp) inp.value = '';
+  }
   _renderSettings(data);
   showToast(tr('settings.claves_y_urls_borradas'), 'info');
 }
@@ -984,6 +1029,14 @@ async function cleanupExecuteSelected() {
 // primero es el más importante — el acceso al repo es privado (donación al
 // autor) y merece explicación clara + link al PayPal.
 function _cmv40RepoUnavailableBanner(repo) {
+  // Sin respuesta no se sabe qué falta. Antes `null` caía en «faltan dos
+  // cosas», que con la red caída o el NAS lento es afirmar una
+  // configuración que nadie ha consultado (auditoría con Codex del
+  // 2026-10-17).
+  if (!repo) {
+    return `<div class="cmv40-lookup-warn"><span data-icono="aviso"></span> `
+         + `${escHtml(tr('settings.repo_no_se_pudo_consultar'))}</div>`;
+  }
   const folderOk = !!(repo && repo.drive_folder_configured);
   const keyOk    = !!(repo && repo.google_key_configured);
   const openCfg = `<a href="#" onclick="openSettingsModal();return false"><span data-icono="ajustes"></span> <span data-i18n="ui.configuracion"></span></a>`;

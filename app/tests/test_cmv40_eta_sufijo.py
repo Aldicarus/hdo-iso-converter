@@ -224,7 +224,8 @@ const bundle = [
   grabConst('const CMV40_ETA ='),
   'let CMV40_ETA_MODEL = { share_dropin: 0.5,' +
   ' dropin: { inject: 0.2, remux: 0.3 }, merge: { inject: 1.5, remux: 1.8 } };',
-  ...['_cmv40Plan', '_cmv40Trust', '_cmv40TargetNeedsMerge', '_cmv40BinClasificado',
+  ...['_cmv40Plan', '_cmv40Trust', '_cmv40SkipSyncReview', '_cmv40DropIn',
+      '_cmv40TargetNeedsMerge', '_cmv40BinClasificado',
       '_cmv40FallbackAnchor', '_cmv40EstimateSecs', '_cmv40PhaseStartedSecs',
       '_cmv40RatioFase', '_cmv40PlanAutoSteps', '_cmv40SufijoEta'].map(grab),
   'return { _cmv40PlanAutoSteps, _cmv40SufijoEta };',

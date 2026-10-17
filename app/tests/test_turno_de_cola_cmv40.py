@@ -569,11 +569,11 @@ console.log(JSON.stringify({{cola: p.session.cola === undefined ? 'AUSENTE'
 
     def test_una_respuesta_sin_la_clave_conserva_la_cola(self):
         self.assertEqual(
-            self._asignar({"cola": {"posicion": 2}}, {"phase": "created"}),
+            self._asignar({"cola": {"posicion": 2}}, {"id": "x", "phase": "created"}),
             {"posicion": 2})
 
     def test_pero_un_null_explicito_la_borra(self):
         """Es la señal de que el proyecto salió de la cola."""
         self.assertIsNone(
             self._asignar({"cola": {"posicion": 2}},
-                          {"phase": "created", "cola": None}))
+                          {"id": "x", "phase": "created", "cola": None}))

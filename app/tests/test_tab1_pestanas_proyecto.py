@@ -262,6 +262,7 @@ for (const id of ['exec-result-banner', 'exec-result-icon',
 }}
 globalThis.E = (id) => nodos[id];
 globalThis.escHtml = (s) => String(s);
+globalThis.jsArg = (v) => JSON.stringify(v === undefined ? null : v);
 renderExecResultBanner({json.dumps(sesion)});
 console.log(JSON.stringify({{
   visible: nodos['exec-result-banner'].style.display !== 'none',

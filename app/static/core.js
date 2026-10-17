@@ -28,7 +28,7 @@
  *   showConfirm     — Diálogo de confirmación reutilizable.
  *   apiFetch        — Wrapper de fetch con manejo de errores y Content-Type JSON.
  *   renderSession   — Renderiza la pantalla de revisión completa a partir de una sesión.
- *   connectWebSocketForProject — Conecta al WS del backend para streaming de output.
+ *   connectExecutionWebSocket — Conecta al WS del backend para el log del rip.
  *   switchTab       — Gestiona los tres tabs del header.
  */
 
@@ -231,6 +231,32 @@ function pintarSiCambia(el, html) {
   return true;
 }
 
+/**
+ * Lo escrito que un repintado no pudo devolver a su sitio, por `id`.
+ *
+ * Hay campos que NO están en el HTML del padre: se crean después, cuando
+ * otra función rellena un contenedor vacío —las cuatro casillas de la
+ * corrección del sync las pinta `_renderCMv40SyncControls` al llegar el
+ * gráfico—. El padre las anclaba, se repintaba, no las encontraba y lo
+ * escrito se perdía: expandir otra card devolvía la corrección a cero
+ * (auditoría con Codex del 2026-10-17, reproducido). Se guardan y las
+ * recoge el siguiente `restaurarAnclajeDeFormulario` que encuentre el campo.
+ *
+ * El mapa cuelga de esa función y no de una variable del módulo, por lo
+ * mismo que `_workbarConservandoElScroll.gesto`: los arneses la cargan por
+ * nombre y así viaja con ella.
+ */
+function _anclasSinSitio() {
+  const f = restaurarAnclajeDeFormulario;
+  return f.sinSitio || (f.sinSitio = new Map());
+}
+
+/** Que lo escrito en estos campos se olvide (p. ej. tras aplicarlo). */
+function olvidarAnclaje(ids) {
+  const m = _anclasSinSitio();
+  for (const id of ids) m.delete(id);
+}
+
 /** djb2. No es criptografía: solo tiene que cambiar cuando el texto cambia. */
 function _hashCorto(s) {
   let h = 5381;
@@ -276,10 +302,22 @@ function anclajeDeFormulario(contenedor) {
 }
 
 function restaurarAnclajeDeFormulario(contenedor, ancla) {
-  if (!contenedor || !ancla) return;
-  for (const [id, c] of Object.entries(ancla)) {
+  if (!contenedor) return;
+  // Lo que se quedó sin sitio en un repintado anterior y ESTE contenedor sí
+  // tiene: se recoge (lo propio de este repintado manda sobre ello).
+  const sinSitio = restaurarAnclajeDeFormulario.sinSitio
+    || (restaurarAnclajeDeFormulario.sinSitio = new Map());
+  const todo = {};
+  for (const [id, c] of sinSitio) {
+    if (contenedor.querySelector(`#${CSS.escape(id)}`)) {
+      todo[id] = c;
+      sinSitio.delete(id);
+    }
+  }
+  Object.assign(todo, ancla || {});
+  for (const [id, c] of Object.entries(todo)) {
     const el = contenedor.querySelector(`#${CSS.escape(id)}`);
-    if (!el) continue;
+    if (!el) { sinSitio.set(id, c); continue; }
     el.value = c.valor;
     el.dataset.tocado = '1';
     if (!c.foco) continue;
@@ -305,6 +343,83 @@ function marcarTocado(el) {
 /** Devuelve el proyecto activo, o null si no hay ninguno. */
 function getActiveProject() {
   return openProjects.find(p => p.id === activeSubTabId) || null;
+}
+
+/**
+ * Ejecuta `fn` con un proyecto de Tab 1 haciendo de activo, y lo deja como
+ * estaba. **`fn` tiene que ser síncrona.**
+ *
+ * `E()`, `setText`, `show` y `currentSession` resuelven contra el proyecto
+ * activo, así que para pintar en uno que no se está viendo había que cambiar
+ * `activeSubTabId` y restaurarlo después. Se hacía en varios sitios **a
+ * través de un `await`** —el cambio antes de la petición y la restauración
+ * al volver—, y durante esos segundos todo lo que el usuario tocaba iba al
+ * proyecto equivocado: al crear una serie, N comprobaciones del origen en
+ * vuelo dejaban `E()` apuntando a otro episodio y el nombre de uno se
+ * escribía en el otro (auditoría con Codex del 2026-10-17). Con la ventana
+ * reducida a un bloque síncrono no cabe ninguna interacción en medio.
+ *
+ * `currentSession` se restaura desde el proyecto activo REAL, no desde una
+ * copia de antes: si `fn` lo cambió, la copia sería justo lo que hay que
+ * evitar.
+ */
+function enProyecto(project, fn) {
+  const prevId = activeSubTabId;
+  activeSubTabId = project.id;
+  currentSession = project.session;
+  try {
+    return fn();
+  } finally {
+    activeSubTabId = prevId;
+    const activo = getActiveProject();
+    currentSession = activo ? activo.session : null;
+  }
+}
+
+/**
+ * Un argumento de JavaScript para un handler inline: el `${…}` que va dentro
+ * de un `onclick` o un `onchange` del HTML que genera el JS.
+ *
+ * `escHtml` protege el HTML, no el JavaScript: el navegador DECODIFICA las
+ * entidades del atributo antes de interpretar el handler, así que un
+ * `'${escHtml(nombre)}'` con un apóstrofo —«Ocean's Eleven», «Grey's
+ * Anatomy»— cierra la cadena: el botón muere y, con un nombre hecho a
+ * propósito, entra JavaScript. Escapar el apóstrofo como `&#39;` tampoco
+ * sirve, por lo mismo.
+ *
+ * Lo correcto por capas: `JSON.stringify` da un literal de JS válido (con
+ * comillas DOBLES y todo escapado) y `escHtml` lo protege dentro del
+ * atributo, que también va entre comillas dobles. Se usa SIN comillas
+ * alrededor: `abrirRuta(${jsArg(ruta)})` dentro del atributo.
+ */
+function jsArg(valor) {
+  return escHtml(JSON.stringify(valor === undefined ? null : valor));
+}
+
+/** Lo que el usuario edita en un proyecto de Tab 1 y solo existe en memoria
+ *  hasta que se guarda. Mismo conjunto que manda `saveSession`. */
+const _CAMPOS_EDITABLES_RIP = ['mkv_name', 'mkv_name_manual', 'included_tracks',
+                               'discarded_tracks', 'chapters'];
+
+/**
+ * La sesión que acaba de llegar del servidor, con las ediciones sin guardar
+ * del proyecto por encima.
+ *
+ * Un refresco de estado (fin de un rip por WebSocket, reabrir un proyecto ya
+ * abierto) sustituía la sesión ENTERA: los controles seguían enseñando lo
+ * que el usuario había tocado, pero el modelo ya no lo tenía, y el siguiente
+ * «Guardar» mandaba lo del servidor — perdiendo lo que se veía en pantalla
+ * (auditoría con Codex del 2026-10-17). El estado (status, historial, fase)
+ * es del servidor; lo editable, mientras haya cambios pendientes, del
+ * usuario.
+ */
+function sesionConEdiciones(project, nueva) {
+  if (!project || !project.dirty || !project.session || !nueva) return nueva;
+  const out = { ...nueva };
+  for (const campo of _CAMPOS_EDITABLES_RIP) {
+    if (campo in project.session) out[campo] = project.session[campo];
+  }
+  return out;
 }
 
 /**
@@ -739,7 +854,7 @@ function openProject(session) {
   // ¿Ya está abierto?
   const existing = openProjects.find(p => p.sessionId === session.id);
   if (existing) {
-    existing.session = session;
+    existing.session = sesionConEdiciones(existing, session);
     switchSubTab(existing.id);
     renderProjectPanel(existing);
     return existing;
@@ -878,6 +993,10 @@ function markProjectDirty() {
   const project = getActiveProject();
   if (!project) return;
   project.dirty = true;
+  // Cuántas ediciones van. Lo mira `saveSession`: una edición hecha MIENTRAS
+  // el PUT estaba en vuelo no va en ese PUT, así que al volver no se puede
+  // dar el proyecto por guardado.
+  project.ediciones = (project.ediciones || 0) + 1;
   const dot = document.getElementById(`unsaved-dot-${project.id}`);
   if (dot) dot.style.display = 'inline';
 }
@@ -1222,12 +1341,12 @@ function closeProject(pid, e) {
     saveCloseBtn.innerHTML = icono('caja') + ' ' + tr('core.guardar_y_cerrar');
     saveCloseBtn.onclick = async () => {
       closeModal('confirm-modal');
-      const activeBackup = activeSubTabId;
-      activeSubTabId = pid;
-      currentSession = project.session;
-      await saveSession();
-      activeSubTabId = activeBackup;
-      _doCloseProject(pid);
+      // Se guarda ESTE proyecto, sin tocar cuál es el activo. Antes se
+      // apuntaba `currentSession` al que se cerraba y no se devolvía: al
+      // cerrar uno que no se estaba viendo, las ediciones del activo iban a
+      // parar a la sesión cerrada (auditoría con Codex del 2026-10-17). Y si
+      // el guardado falla no se cierra: las ediciones solo viven aquí.
+      if (await saveSession(project)) _doCloseProject(pid);
     };
     okBtn.parentNode.insertBefore(saveCloseBtn, okBtn);
   } else {
@@ -1458,7 +1577,12 @@ async function _leerTrabajosActivos() {
   estado[1] = !!(queueState && (queueState.running ||
                                 (queueState.queue && queueState.queue.length)));
   const st = await apiFetch('/api/trabajos', { silent: true }).catch(() => null);
-  if (!st) return estado;
+  // **Un fallo NO es «no hay nada».** Devolvía la foto con Tab 2 y Tab 3 a
+  // falso, y `_avisoTick` lo leía como que sus trabajos acababan de
+  // terminar: avisaba «terminado» con el job corriendo y dejaba de vigilar
+  // (auditoría con Codex del 2026-10-17). `null` = no se sabe; quien llama
+  // conserva la foto anterior y lo vuelve a intentar.
+  if (!st) return null;
   const tabs = new Set([
     ...(st.activo ? [st.activo.tab] : []),
     ...(st.cola || []).map(j => j.tab),
@@ -1531,6 +1655,7 @@ async function _avisoTick() {
   let ahora;
   try { ahora = await _leerTrabajosActivos(); }
   catch (_) { return; }   // red caída: se reintenta en el siguiente tick
+  if (!ahora) return;     // tampoco una respuesta fallida: no se sabe nada
   let quedaAlguno = false;
   for (const tab of [1, 2, 3]) {
     if (_avisoTrabajosPrevios && _avisoTrabajosPrevios[tab] && !ahora[tab]) {
@@ -1552,13 +1677,24 @@ function _pararVigilancia() {
  * Al ocultarse la pestaña: si había algo corriendo, vigilar hasta que acabe.
  * Si no había nada, no se pollea — la foto vacía evita el tráfico inútil.
  */
+// Cada vez que la pestaña cambia de visibilidad. La foto que se toma al
+// ocultarse vuelve de la red DESPUÉS, y para entonces la pestaña puede estar
+// otra vez a la vista, o haberse ocultado una segunda vez con otra foto en
+// vuelo: las dos instalaban su intervalo, la segunda pisaba el id de la
+// primera y al volver solo se cancelaba uno — el otro seguía preguntando
+// para siempre (auditoría con Codex del 2026-10-17).
+let _avisoVisibilidad = 0;
+
 async function _instalarVigilanciaDeFin() {
   document.addEventListener('visibilitychange', async () => {
+    const turno = ++_avisoVisibilidad;
     if (!document.hidden) { _pararParpadeo(); _pararVigilancia(); return; }
     if (!avisoFinActivado() || _avisoTimer) return;
     try {
       const foto = await _leerTrabajosActivos();
-      if (![1, 2, 3].some(t => foto[t])) return;   // nada que vigilar
+      // Lo que pasó mientras volvía la foto manda sobre ella.
+      if (turno !== _avisoVisibilidad || !document.hidden || _avisoTimer) return;
+      if (!foto || ![1, 2, 3].some(t => foto[t])) return;   // nada que vigilar
       _avisoTrabajosPrevios = foto;
       _avisoTimer = setInterval(_avisoTick, _AVISO_INTERVALO_MS);
     } catch (_) { /* si falla, simplemente no se vigila esta vez */ }

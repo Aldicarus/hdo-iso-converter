@@ -135,6 +135,7 @@ globalThis.document = {{ hidden: false,
 let _peticiones = [];
 globalThis.apiFetch = async (url) => {{ _peticiones.push(url); return {json.dumps(None)} ?? RESP; }};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -287,6 +288,7 @@ class TestCadaPestanaMarcaLoSuyo(unittest.TestCase):
         guion = f"""
 let workbarEstado = {json.dumps(estado)};
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_iconos()}
 {_fn('trabajoSobre')}
 {_fn('insigniaDeTrabajo')}
@@ -369,6 +371,7 @@ class TestElRelojLoLLevaElNavegador(unittest.TestCase):
     def _correr(self, extra="") -> dict:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 globalThis.window = {{}};
 let _cb = null;
 globalThis.setInterval = (fn) => {{ _cb = fn; return 1; }};
@@ -395,6 +398,7 @@ console.log(JSON.stringify({{ html, texto: _els[0].textContent,
         de dos en dos segundos."""
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -422,6 +426,7 @@ console.log(JSON.stringify({{ html: _workbarActivoHTML(
         pero el transcurrido corre igual."""
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_iconos()}
 {_fn('_workbarTiempo')}
 {_fn('_relojHTML')}
@@ -466,6 +471,7 @@ Date.now = real;
         «Restante 4 min» que va al lado."""
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 globalThis.window = {{}};
 let _cb = null;
 globalThis.setInterval = (fn) => {{ _cb = fn; return 1; }};

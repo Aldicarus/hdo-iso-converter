@@ -3709,6 +3709,18 @@ select { appearance: none; cursor: pointer;
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
 }
+/* Sin porcentaje medido, la barra de la timeline de un trabajo dice que hay
+   trabajo pero no cuánto — igual que la de la columna. Antes se rellenaba
+   con «fases hechas / total», que no es un porcentaje del trabajo. */
+.cmv40-tl-progress-track.indeterminada .cmv40-tl-progress-fill {
+  width: 35% !important;
+  animation: workbar-vaiven 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmv40-tl-progress-track.indeterminada .cmv40-tl-progress-fill {
+    animation: none; width: 100% !important; opacity: var(--op-muy-tenue);
+  }
+}
 /* Variantes: completo (verde) y error (rojo), paran el shimmer */
 .cmv40-tl-progress.cmv40-tl-progress-done .cmv40-tl-progress-fill {
   background: linear-gradient(90deg, var(--green) 0%, #30b350 100%);

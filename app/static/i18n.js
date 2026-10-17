@@ -49,6 +49,26 @@ function localeActual() {
 const IDIOMA_POR_DEFECTO = 'es';
 const IDIOMA_PREF = 'hdo_idioma';
 
+// Los idiomas que el SERVIDOR dice tener (`/api/settings` →
+// `idioma.disponibles`). Hasta que se lean, vale la tabla de aquí.
+//
+// Era la segunda lista que la regla del proyecto prohíbe: ⚙︎ pintaba el
+// botón de un idioma que el servidor ofrecía y `cambiarIdioma` lo rechazaba
+// en silencio por no estar en `IDIOMAS` — sin petición y sin explicación
+// (auditoría con Codex del 2026-10-17).
+let _idiomasDelServidor = null;
+
+/** Lo llama ⚙︎ al pintar la lista que manda el servidor. */
+function fijarIdiomasDisponibles(codigos) {
+  if (Array.isArray(codigos) && codigos.length) _idiomasDelServidor = codigos.slice();
+}
+
+/** ¿Se puede pedir este idioma? Manda la lista del servidor si ya se leyó. */
+function idiomaDisponible(codigo) {
+  const lista = _idiomasDelServidor || IDIOMAS.map(i => i.codigo);
+  return typeof codigo === 'string' && lista.includes(codigo);
+}
+
 // El token de caché sale del `src` de ESTE script. Pasarlo a mano desde
 // `index.html` sería una novena referencia al token que mantener sincronizada,
 // y el desajuste parcial es peor que no tenerlo (ya pasó con los ocho assets).
@@ -115,7 +135,7 @@ function idiomaGuardado() {
  * blanco no. El `?v=` es el mismo token de caché que el resto de los assets.
  */
 async function cargarIdioma(codigo, token = TOKEN_I18N) {
-  const pedido = IDIOMAS.some(i => i.codigo === codigo) ? codigo : IDIOMA_POR_DEFECTO;
+  const pedido = idiomaDisponible(codigo) ? codigo : IDIOMA_POR_DEFECTO;
   try {
     const r = await fetch(`/static/i18n/${pedido}.json?v=${token || ''}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -241,17 +261,29 @@ const catalogoListo = _SEMBRADO
  * usuario vería como «el log sale en otro idioma» y que no sabría explicar.
  */
 async function cambiarIdioma(codigo) {
-  if (!IDIOMAS.some(i => i.codigo === codigo)) return;
-  try { localStorage.setItem(IDIOMA_PREF, codigo); } catch (e) { /* bloqueado */ }
+  if (!idiomaDisponible(codigo)) return;
+  // **Si el servidor no lo guarda, no se recarga.** Se recargaba siempre: un
+  // 500 pasaba porque no se miraba `resp.ok`, y un fallo de red solo iba a
+  // la consola. Como el idioma lo siembra el servidor al cargar, la página
+  // volvía en el idioma de antes sin explicar por qué (auditoría con Codex
+  // del 2026-10-17). Ni `localStorage` se toca hasta saber que se guardó: es
+  // el respaldo, y no puede decir algo distinto del servidor.
   try {
-    await fetch('/api/settings', {
+    const resp = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idioma: codigo }),
     });
+    if (!resp.ok) throw new Error(String(resp.status));
   } catch (e) {
     console.error('[i18n] el servidor no pudo guardar el idioma', e);
+    if (typeof showToast === 'function') {
+      showToast(tr('ajustes.idioma_no_se_pudo_guardar'), 'error', 8000);
+    }
+    return false;
   }
+  try { localStorage.setItem(IDIOMA_PREF, codigo); } catch (e) { /* bloqueado */ }
   location.reload();
+  return true;
 }
 

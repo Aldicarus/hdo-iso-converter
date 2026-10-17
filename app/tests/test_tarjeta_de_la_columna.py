@@ -90,6 +90,7 @@ class TarjetaCase(unittest.TestCase):
         """El html de la columna y lo que queda en la tira plegada."""
         guion = motor_i18n() + f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 const _els = {{}};
 for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-search', 'workbar-historial']) {{
   _els[id] = {{ value: '', style: {{}}, dataset: {{}}, textContent: '',

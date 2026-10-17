@@ -461,6 +461,7 @@ class TestElFiltroCubreLasCuatroSecciones(unittest.TestCase):
     def _render(self, tab="all", texto=""):
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 const _els = {{}};
 for (const id of ['workbar-body', 'workbar-count', 'workbar-toggle', 'workbar-search', 'workbar-historial']) {{
   _els[id] = {{ value: '', style: {{}}, dataset: {{}}, textContent: '',
@@ -728,14 +729,23 @@ class TestElClicNoSePierdeEnUnRepintado(unittest.TestCase):
     _workbarRender(otro);
     const durante = document.querySelector('#workbar-body .wb-card');
     const textoDurante = document.getElementById('workbar-body').textContent;
-    // Suelta: ahí sí se repinta, sin esperar al siguiente poll.
+    // Suelta. `pointerup` llega ANTES que `mouseup` y `click`, en la misma
+    // secuencia: el botón tiene que seguir en su sitio cuando el navegador
+    // genere el `click`, o el clic cae en el contenedor (F21 de la
+    // auditoría con Codex del 2026-10-17, reproducido en Chrome).
     document.dispatchEvent(new PointerEvent('pointerup', {bubbles: true}));
-    const despues = document.getElementById('workbar-body').textContent;
-    document.getElementById('__out').textContent = JSON.stringify({
-      mismoNodo: antes === durante,
-      congelado: textoDurante.includes('77 %') === false,
-      alSoltar: despues.includes('77 %'),
-    });
+    const vivoAlSoltar = antes.isConnected;
+    // El repintado que esperaba se aplica en la tarea siguiente, sin esperar
+    // al próximo poll.
+    setTimeout(() => {
+      const despues = document.getElementById('workbar-body').textContent;
+      document.getElementById('__out').textContent = JSON.stringify({
+        mismoNodo: antes === durante,
+        congelado: textoDurante.includes('77 %') === false,
+        vivoAlSoltar,
+        alSoltar: despues.includes('77 %'),
+      });
+    }, 0);
   }, 700);
 })();
 </script>
@@ -745,6 +755,12 @@ class TestElClicNoSePierdeEnUnRepintado(unittest.TestCase):
     def test_el_boton_sigue_siendo_el_mismo_nodo(self):
         self.assertTrue(self.m["mismoNodo"],
                         "el botón se destruyó bajo el dedo: el clic se pierde")
+
+    def test_el_boton_sigue_ahi_cuando_llega_el_click(self):
+        """Repintar dentro del `pointerup` destruía el botón antes del
+        `click`, que es justo lo que la guarda existía para evitar."""
+        self.assertTrue(self.m["vivoAlSoltar"],
+                        "el repintado se aplicó en el `pointerup`: el clic se pierde")
 
     def test_y_el_repintado_se_aplica_al_soltar(self):
         self.assertTrue(self.m["congelado"], "no llegó a congelarse")

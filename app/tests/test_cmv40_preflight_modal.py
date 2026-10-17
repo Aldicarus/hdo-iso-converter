@@ -105,6 +105,7 @@ class TestLosTresDesenlaces(unittest.TestCase):
     def _veredicto(self, sesion, trabajo=None) -> dict:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_pf_helpers()}
 {_fn('_cmv40PfVeredicto')}
 const v = _cmv40PfVeredicto({json.dumps(con_relato(sesion))}, {json.dumps(trabajo)});
@@ -162,6 +163,7 @@ class TestLasConclusiones(unittest.TestCase):
     def _checks(self, sesion) -> list:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_pf_helpers()}
 {_fn('_cmv40PfChecks')}
 console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(con_relato(sesion))})}}));
@@ -269,6 +271,7 @@ class TestElPieOfreceLoQueTocaEnCadaCaso(unittest.TestCase):
     def _pie(self, veredicto) -> str:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 const _els = {{}};
 _els['cmv40-pf-pie'] = {{ innerHTML: '' }};
 globalThis.document = {{ getElementById: id => _els[id] || null }};
@@ -344,6 +347,7 @@ class TestSeVuelveDesdeLaColumna(unittest.TestCase):
     def _render(self, interactivo) -> str:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_fn('_svg')}
 {_fn('_chipIcono')}
 """ + f"""
@@ -554,6 +558,7 @@ class TestUnaFaseCanceladaPARA_el_cronometro(unittest.TestCase):
     def _timeline(self, sesion, terminal=False) -> dict:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 let _tickPuesto = false;
 globalThis.window = {{}};
 {_fn('_cmv40FmtClock')}
@@ -847,6 +852,7 @@ class TestElModalNoRepiteUnaPreguntaYaContestada(unittest.TestCase):
     def _veredicto(self, sesion, trabajo=None) -> dict:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_pf_helpers()}
 {_fn('_cmv40PfVeredicto')}
 console.log(JSON.stringify({{v: _cmv40PfVeredicto({json.dumps(con_relato(sesion))},
@@ -860,6 +866,7 @@ console.log(JSON.stringify({{v: _cmv40PfVeredicto({json.dumps(con_relato(sesion)
         no una de sus piezas."""
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 const _els = {{}};
 _els['cmv40-pf-pie'] = {{ innerHTML: '' }};
 globalThis.document = {{ getElementById: id => _els[id] || null }};
@@ -877,6 +884,7 @@ console.log(JSON.stringify({{ html: _els['cmv40-pf-pie'].innerHTML }}));
     def _checks(self, sesion) -> list:
         guion = f"""
 globalThis.escHtml = t => String(t);
+globalThis.jsArg = v => JSON.stringify(v === undefined ? null : v);
 {_pf_helpers()}
 {_fn('_cmv40PfChecks')}
 console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(con_relato(sesion))})}}));
