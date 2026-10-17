@@ -339,13 +339,19 @@ class TestFaseHValidacion(CmvPhaseCase):
         from phases.cmv40_pipeline import run_phase_h_validate
         return await run_phase_h_validate(session, self.log)
 
+    def extract_rpu_completos(self):
+        """Los `extract-rpu` COMPLETOS. Los muestreos —el del MKV entregado y
+        el del análisis básico del precache— llevan `--limit`."""
+        return [c for c in self.tb.find("dovi_tool", "extract-rpu")
+                if "--limit" not in c.argv]
+
     async def test_drop_in_no_extrae_el_rpu_completo(self):
         session = self.prepare(artifacts=("source_injected.hevc",),
                                injected_props=INJ_FEL_V40)
         self.stage_output(session)
         result = await self.run_h(session)
-        self.assertFalse(self.tb.ran("dovi_tool", "extract-rpu"),
-                         "la cadena upstream ya garantiza P7 FEL CMv4.0")
+        self.assertEqual(self.extract_rpu_completos(), [],
+                         "la ruta rápida no paga el extract-rpu completo")
         self.assertEqual(result["profile"], 7)
         self.assertEqual(result["cm_version"], "v4.0")
 
@@ -389,7 +395,7 @@ class TestFaseHValidacion(CmvPhaseCase):
                                injected_props=INJ_FEL_V40)
         self.stage_output(session)
         result = await self.run_h(session)
-        extract = self.tb.one("dovi_tool", "extract-rpu")
+        [extract] = self.extract_rpu_completos()
         self.assertIn("DV_dual.hevc", " ".join(extract.argv))
         self.assertEqual(result["cm_version"], "v4.0")
 
@@ -400,7 +406,7 @@ class TestFaseHValidacion(CmvPhaseCase):
         self.stage_output(session)
         write_artifacts(self.wd, "_validate_full_rpu.bin", props=INJ_FEL_V40)
         await self.run_h(session)
-        self.assertFalse(self.tb.ran("dovi_tool", "extract-rpu"),
+        self.assertEqual(self.extract_rpu_completos(), [],
                          "releer el HEVC costaría 5-8 min para el mismo dato")
 
     async def test_rechaza_un_rpu_que_no_es_cmv4(self):

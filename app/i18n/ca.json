@@ -1205,5 +1205,11 @@
   "workload.tab_cmv40": "✨ Upgrade Dolby Vision CMv4.0",
   "workload.tab_mkv": "✏️ Consultar / Editar MKV",
   "workload.tab_rip": "💿 Blu-Ray ISO → MKV",
-  "cmv40_pipeline.gates_con_desfase_revisable": "gates amb un desfasament que es pot revisar al gràfic de sincronització (frames o letterbox): la revisió del sync no s'omet."
+  "cmv40_pipeline.gates_con_desfase_revisable": "gates amb un desfasament que es pot revisar al gràfic de sincronització (frames o letterbox): la revisió del sync no s'omet.",
+  "cmv40_pipeline.mkv_final_frames_distintos": "El MKV final té {actual} frames i se n'esperaven {expected} (Δ {diff}): el remux ha sortit incomplet. El .mkv.tmp es conserva per inspeccionar-lo.",
+  "cmv40_pipeline.mkv_final_sin_dv": "No s'ha pogut llegir el Dolby Vision del MKV final ({motivo}). El .mkv.tmp es conserva per inspeccionar-lo.",
+  "cmv40_pipeline.mkv_final_dv_distinto": "El MKV final porta Profile {profile} {el_type} CM {cm_version}, i havia de portar Profile {perfil} {capa} CM v4.0: el vídeo que s'ha multiplexat no és el processat. El .mkv.tmp es conserva per inspeccionar-lo.",
+  "cmv40_pipeline.mkv_final_dv_ok": "✓ Mostra de 30 s del MKV final: Profile {profile}{el_type} CM {cm_version}",
+  "cmv40_pipeline.mkv_final_pierde_pistas": "El MKV final té {a} pistes d'àudio i {s} de subtítols, i l'origen {a0} i {s0}: el remux ha perdut pistes. El .mkv.tmp es conserva per inspeccionar-lo.",
+  "cmv40_pipeline.mkv_final_pistas_sin_origen": "ℹ El MKV d'origen ja no es pot llegir: no es comprova que el final en conservi l'àudio i els subtítols."
 }

@@ -199,6 +199,9 @@ class TestLaFaseHPrecachea(PhaseTestCase):
         write_artifacts(self.wd, "RPU_target.bin", props=TGT_V40)
         write_artifacts(self.wd, "source_injected.hevc", props=INJ_V40)
         write_artifacts(self.wd, "source.mkv")
+        # Las mismas pistas que el MKV final de abajo: la Fase H comprueba que
+        # el remux conserve el audio y los subtítulos del origen.
+        self.tb.define_mkv("source.mkv", duration_s=7200.0)
         for nombre in ("RPU_target.bin",):
             self.tb.define_rpu_levels(nombre, l8_indices=[1, 28],
                                       l9_primary=0, l11_content_type=1)

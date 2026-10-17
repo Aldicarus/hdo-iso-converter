@@ -273,8 +273,12 @@ class FakeToolbox:
         self._flush()
 
     def define_media(self, name: str, duration: float = 7200.0,
-                     frames: int = 1000) -> None:
-        """Duración y frame count que `ffprobe` reportará para un fichero."""
+                     frames: int | None = 1000) -> None:
+        """Duración y frame count que `ffprobe` reportará para un fichero.
+
+        `frames=None` es el `N/A` del real: sobre un MKV, `stream=nb_frames`
+        puede no venir, y entonces el pipeline cae a estimarlo por duración.
+        """
         self._scenario["media"][name] = {"duration": duration, "frames": frames}
         self._flush()
 
@@ -1053,8 +1057,22 @@ def dovi_tool(sc, sub, json_args):
     if sub == "extract-rpu":
         # `-` es la entrada por stdin, no una opción: sin la excepción se
         # filtraba como tal y el modo pipe de la Fase A nunca se reconocía.
-        positional = [a for a in ARGV
-                      if (a == "-" or not a.startswith("-")) and a != "extract-rpu"]
+        # Las opciones con valor se saltan con su valor: `--limit 720` dejaba
+        # el `720` como primer posicional, el fake lo tomaba por el fichero de
+        # entrada y devolvía los valores POR DEFECTO. Todo muestreo con
+        # `--limit` —el de Tab 2 y el del MKV entregado de la Fase H— leía
+        # un CMv2.9 inventado en vez del RPU del fichero.
+        con_valor = {"--limit", "-l", "-o", "--rpu-out", "-m", "--mode", "--crop"}
+        positional, saltar = [], False
+        for a in ARGV:
+            if saltar:
+                saltar = False
+                continue
+            if a in con_valor:
+                saltar = True
+                continue
+            if (a == "-" or not a.startswith("-")) and a != "extract-rpu":
+                positional.append(a)
         src = positional[0] if positional else None
         out = opt("-o")
         if src == "-":
@@ -1357,7 +1375,8 @@ def ffprobe(sc):
                 sys.stdout.write(f"{idx}\n")
         return 0
     if "nb_frames" in joined:
-        sys.stdout.write("%d\n" % int(info.get("frames", 1000)))
+        frames = info.get("frames", 1000)
+        sys.stdout.write("N/A\n" if frames is None else "%d\n" % int(frames))
     elif "format=duration" in joined:
         sys.stdout.write("%.3f\n" % float(info.get("duration", 7200.0)))
     return 0
@@ -1552,6 +1571,110 @@ def ficheros_de_playlist(mpls):
         return None
 
 
+# Opciones de mkvmerge que llevan un valor detrás: ese valor no es una entrada.
+_CON_VALOR = {
+    "-o", "--output", "--title", "--chapters", "--track-order", "--track-name",
+    "--language", "--default-track", "--default-track-flag", "--forced-track",
+    "--forced-display-flag", "--audio-tracks", "-a", "--subtitle-tracks", "-s",
+    "--video-tracks", "-d", "--attachments", "--global-tags", "--tags",
+    "--segment-uid", "--sync", "--default-duration", "--timestamps", "--split",
+    "--cues", "--compression", "--aspect-ratio", "--display-dimensions",
+    "--cropping", "--attach-file", "--attachment-name", "--attachment-mime-type",
+    "--chapter-language", "--chapter-charset", "--ui-language", "--track-tags",
+    "--identification-format", "-F",
+}
+_SIN_VIDEO = ("--no-video", "-D")
+_SIN_AUDIO = ("--no-audio", "-A")
+_SIN_SUBS = ("--no-subtitles", "-S")
+
+
+def _entradas_del_mux():
+    """`[(ruta, opciones)]` en orden. Las opciones de mkvmerge se aplican al
+    fichero que las SIGUE; las que tienen valor se guardan como lista."""
+    entradas, pendientes, i = [], {}, 0
+    while i < len(ARGV):
+        a = ARGV[i]
+        if a in _CON_VALOR:
+            if a not in ("-o", "--output") and i + 1 < len(ARGV):
+                pendientes.setdefault(a, []).append(ARGV[i + 1])
+            i += 2
+            continue
+        if a.startswith("-"):
+            pendientes[a] = True
+            i += 1
+            continue
+        entradas.append((a, pendientes))
+        pendientes, i = {}, i + 1
+    return entradas
+
+
+def _por_id(valores):
+    """`["2:Castellano…", "1:Inglés"]` → `{2: "Castellano…", 1: "Inglés"}`."""
+    out = {}
+    for v in valores or []:
+        tid, _, resto = str(v).partition(":")
+        if tid.strip().isdigit():
+            out[int(tid)] = resto
+    return out
+
+
+def _pistas_del_mux(entradas, sc):
+    """Las pistas del MKV de salida y la entrada de la que sale el vídeo."""
+    seleccion = {"video": ("--video-tracks", "-d"), "audio": ("--audio-tracks", "-a"),
+                 "subtitles": ("--subtitle-tracks", "-s")}
+    excluye = {"video": _SIN_VIDEO, "audio": _SIN_AUDIO, "subtitles": _SIN_SUBS}
+    pistas, ruta_video = [], None
+    for fi, (ruta, op) in enumerate(entradas):
+        if ruta.endswith(".hevc"):
+            del_fichero = [{"id": 0, "type": "video", "codec": "HEVC/H.265/MPEG-H",
+                            "dimensions": "3840x2160", "fps": 23.976}]
+        else:
+            spec = (sc.get("mkvs", {}).get(Path(ruta).name)
+                    or {"tracks": [{"type": "video", "codec": "HEVC/H.265/MPEG-H",
+                                    "dimensions": "3840x2160", "fps": 23.976}]})
+            del_fichero = [dict(t, id=t.get("id", i)) for i, t in enumerate(spec["tracks"])]
+        nombres = _por_id(op.get("--track-name"))
+        idiomas = _por_id(op.get("--language"))
+        por_defecto = _por_id(op.get("--default-track") or op.get("--default-track-flag"))
+        forzadas = _por_id(op.get("--forced-track") or op.get("--forced-display-flag"))
+        for t in del_fichero:
+            tipo = t["type"]
+            if any(f in op for f in excluye.get(tipo, ())):
+                continue
+            elegidas = [v for f in seleccion.get(tipo, ()) for v in op.get(f, [])]
+            if elegidas:
+                ids = {int(x) for v in elegidas for x in str(v).split(",") if x.strip().isdigit()}
+                if t["id"] not in ids:
+                    continue
+            nueva = {k: v for k, v in t.items() if k not in ("id", "multiplexed_tracks")}
+            if t["id"] in nombres:
+                nueva["track_name"] = nombres[t["id"]]
+            if t["id"] in idiomas:
+                nueva["language"] = idiomas[t["id"]]
+            if t["id"] in por_defecto:
+                nueva["default"] = por_defecto[t["id"]] in ("yes", "1", "true")
+            if t["id"] in forzadas:
+                nueva["forced"] = forzadas[t["id"]] in ("yes", "1", "true")
+            nueva["_origen"] = [fi, t["id"]]
+            if tipo == "video" and ruta_video is None:
+                ruta_video = ruta
+            pistas.append(nueva)
+    # `--track-order F:ID,…` reordena; lo que no menciona va detrás, en orden.
+    orden = [v for _, op in entradas for v in op.get("--track-order", [])]
+    if orden:
+        claves = []
+        for par in ",".join(orden).split(","):
+            f, _, tid = par.partition(":")
+            if f.strip().isdigit() and tid.strip().isdigit():
+                claves.append([int(f), int(tid)])
+        rango = {tuple(c): i for i, c in enumerate(claves)}
+        pistas.sort(key=lambda t: rango.get(tuple(t["_origen"]), len(rango)))
+    for i, t in enumerate(pistas):
+        t["id"] = i
+        t.pop("_origen", None)
+    return pistas, ruta_video
+
+
 def mkvmerge(sc):
     # `-J` y `--identify --identification-format json` son EQUIVALENTES en
     # mkvmerge, y el pipeline usa las dos: Tab 2 y la Fase A van con `-J`, la
@@ -1563,6 +1686,13 @@ def mkvmerge(sc):
         positional = [a for a in ARGV if not a.startswith("-")]
         name = Path(positional[-1]).name if positional else ""
         spec = sc.get("mkvs", {}).get(name)
+        if spec is None and positional:
+            # Un MKV que escribió el mux falso lleva sus pistas dentro: es lo
+            # que el `-J` del real leería del fichero. Lo que el escenario
+            # declare explícitamente gana, porque es la intención del test.
+            hechas = read_props(positional[-1], sc).get("tracks")
+            if hechas is not None:
+                spec = {"tracks": hechas, "title": "", "duration_s": 7200.0}
         if spec is None:
             # Sin declarar: un MKV mínimo válido (una pista de vídeo).
             spec = {"tracks": [{"type": "video", "codec": "HEVC/H.265/MPEG-H",
@@ -1640,15 +1770,25 @@ def mkvmerge(sc):
     if out and sc.get("mkvmerge_sin_salida"):
         out = None       # sale con 0 y no escribe nada
     if out:
-        # El MKV final hereda el RPU del HEVC que se multiplexa: es el primer
-        # positional tras las opciones de salida.
-        positional = [a for a in ARGV if not a.startswith("-")]
-        hevc = None
-        for p in positional:
-            if p.endswith(".hevc"):
-                hevc = p
-                break
-        produce(out, read_props(hevc, sc))
+        # El MKV se CONSTRUYE con lo que el argv pide, como el real: cada
+        # opción de entrada se aplica al fichero que la sigue, el vídeo sale de
+        # la primera entrada sin `--no-video` y su RPU es el del MKV. Antes
+        # heredaba el RPU del primer `.hevc` que apareciera en el argv,
+        # estuviera o no detrás de un `--no-video`, y el `-J` posterior leía
+        # las pistas del escenario: un remux que tomara el vídeo del MKV origen
+        # —o que dejara fuera su audio— salía idéntico a uno bueno.
+        entradas = _entradas_del_mux()
+        faltan = [r for r, _ in entradas if not Path(r).exists()]
+        if faltan:
+            sys.stderr.write("Error: The file '%s' could not be opened for "
+                             "reading: open file error.\n" % faltan[0])
+            return 2
+        pistas, ruta_video = _pistas_del_mux(entradas, sc)
+        props = read_props(ruta_video, sc) if ruta_video else dict(DEFAULT_PROPS)
+        props["tracks"] = pistas
+        if opt("--title") is not None:
+            props["title"] = opt("--title")
+        produce(out, props)
     # Progreso en el formato REAL de `--gui-mode`. Las fases D y E traducen
     # "#GUI#progress 45%" a "Progress: 45%" (contrato del parser del panel de
     # cola) y descartan el resto de líneas `#GUI#`; con una sola línea al 100 %

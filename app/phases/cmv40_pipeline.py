@@ -462,6 +462,14 @@ async def _probe_duration(media_path: str) -> float:
 
 async def _probe_frame_count(media_path: str) -> int:
     """Devuelve nb_frames del stream v:0 (0 si falla). Rápido — lee metadata."""
+    n, _ = await _contar_frames(media_path)
+    return n
+
+
+async def _contar_frames(media_path: str) -> tuple[int, bool]:
+    """`(frames, exacto)`: `exacto` es False cuando `ffprobe` no da
+    `nb_frames` y el número sale de duración × 23,976 — una estimación que no
+    puede tumbar ninguna comprobación."""
     try:
         rc, out, _ = await _run([
             FFPROBE_BIN, "-v", "error",
@@ -471,7 +479,7 @@ async def _probe_frame_count(media_path: str) -> int:
             media_path,
         ], timeout=15)
         if rc == 0 and out.strip() and out.strip() != "N/A":
-            return int(out.strip())
+            return int(out.strip()), True
     except CMv40Cancelled:
         # Ver `_probe_duration`: cancelar no es que la sonda falle.
         raise
@@ -481,10 +489,10 @@ async def _probe_frame_count(media_path: str) -> int:
     try:
         dur = await _probe_duration(media_path)
         if dur > 0:
-            return int(dur * 23.976)
+            return int(dur * 23.976), False
     except Exception:
         pass
-    return 0
+    return 0, False
 
 
 # Ratios medidos vs wall-time de ffmpeg HEVC extract (anclaje empírico).
@@ -1824,18 +1832,28 @@ async def run_phase_a_analyze_source(
         log_callback,
             _et() + '┌─ ' + tr('cmv40_pipeline.paso_1_4_extrayendo_stream_hevc'))
         t0 = time.monotonic()
-        rc = await _run_streaming([
-            FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
-            "-map", "0:v:0", "-c:v", "copy",
-            "-bsf:v", "hevc_mp4toannexb",
-            "-f", "hevc", str(source_hevc),
-        ], log_callback=log_callback, proc_callback=proc_callback,
-           progress_ctx={
-               "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
-               "label": tr('cmv40_pipeline.lbl_extrayendo_hevc_origen'),
-           })
+        # Un ffmpeg que falla o al que cancelan deja el HEVC a medias, y el
+        # reintento lo REUTILIZA si pasa del 50 % del MKV (`existing_too_small`
+        # arriba): el truncado lo cazaría el frames gate, pero después de
+        # gastar el resto de la fase. Se borra en cualquier salida que no sea
+        # un éxito.
+        try:
+            rc = await _run_streaming([
+                FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
+                "-map", "0:v:0", "-c:v", "copy",
+                "-bsf:v", "hevc_mp4toannexb",
+                "-f", "hevc", str(source_hevc),
+            ], log_callback=log_callback, proc_callback=proc_callback,
+               progress_ctx={
+                   "duration": duration, "offset": 0.0, "weight": W_FFMPEG,
+                   "label": tr('cmv40_pipeline.lbl_extrayendo_hevc_origen'),
+               })
+        except BaseException:
+            source_hevc.unlink(missing_ok=True)
+            raise
         ffmpeg_elapsed = time.monotonic() - t0
         if rc != 0:
+            source_hevc.unlink(missing_ok=True)
             raise RuntimeError(tr('cmv40_pipeline.ffmpeg_fallo_al_extraer_hevc_codigo', rc=rc))
 
         # Validación post-ffmpeg: el HEVC debe tener un tamaño razonable
@@ -4694,7 +4712,20 @@ async def run_phase_g_remux(
 #  FASE H — Validación final
 # ══════════════════════════════════════════════════════════════════════
 
-# Frame count check: ÚNICAMENTE INFORMATIVO, no bloquea.
+# Frame count check de la ruta RÁPIDA: falla con más de ±2 frames de
+# diferencia, pero SOLO cuando el recuento lo da `ffprobe` (`exacto`).
+#
+# La ruta rápida es exclusiva del drop-in P7 FEL, donde el frames gate exige
+# que el bin y el disco tengan exactamente los mismos frames y todos llevan
+# RPU, así que la diferencia legítima que se explica abajo —un P8 con frames
+# sin RPU— no puede llegar aquí. Los ±2 son el redondeo de `ffprobe` sobre un
+# MKV (ver la nota de nb_frames). Hasta el 2026-10-17 esto solo registraba la
+# diferencia, y un MKV truncado se entregaba: la auditoría de la suite lo
+# encontró con una mutación que fijaba el recuento al esperado y pasaba en
+# verde. Sin `nb_frames`, el número es duración × 23,976 y se sigue
+# registrando sin bloquear: una estimación no puede tumbar la fase.
+#
+# Por qué no se compara en la rama merge, y la historia del check antiguo:
 #
 # El antiguo check estricto comparaba `ffprobe nb_frames del MKV` (que
 # cuenta frames del HEVC stream) contra `target_frame_count` (que viene
@@ -4711,15 +4742,15 @@ async def run_phase_g_remux(
 #   2. Path clásico: HEAD+TAIL extract-rpu confirma CMv4.0 en ambos extremos
 #   3. Drop-in: cadena upstream determinista (pre-flight + Fase B + inject-rpu)
 #
-# Por eso este helper SOLO loguea info, nunca lanza excepción salvo en el
-# caso patológico de actual=0 (ffprobe no devuelve nada — probable
-# corrupción severa o fichero inaccesible).
 _FRAME_COUNT_INFO_DELTA_PCT = 1.0  # Δ relativo > 1% se loguea como warning
+_FRAME_COUNT_TOLERANCE = 2         # redondeo de `ffprobe` sobre un MKV
 
 
-async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
-    """Loguea info sobre el frame count. NO bloquea salvo actual=0
-    (señal de corrupción severa o fichero inaccesible)."""
+async def _check_frame_count(actual: int, expected: int, log_callback,
+                             exacto: bool = False) -> None:
+    """Compara el frame count del MKV con el esperado. Lanza con `actual=0`
+    (fichero ilegible) y, si el recuento es `exacto`, con más de
+    `_FRAME_COUNT_TOLERANCE` frames de diferencia. Si no, registra."""
     if expected <= 0:
         return  # No hay referencia, nada que comparar
     if actual <= 0:
@@ -4727,6 +4758,9 @@ async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
             tr('cmv40_pipeline.ffprobe_no_pudo_determinar_el_frame', expected=expected)
         )
     diff = abs(actual - expected)
+    if exacto and diff > _FRAME_COUNT_TOLERANCE:
+        raise RuntimeError(tr('cmv40_pipeline.mkv_final_frames_distintos',
+                              actual=actual, expected=expected, diff=diff))
     if diff == 0:
         await _log(
         log_callback,
@@ -4743,6 +4777,97 @@ async def _check_frame_count(actual: int, expected: int, log_callback) -> None:
             await log_callback(
                 _et() + tr('cmv40_pipeline.frame_count_vs_dentro_de_margen', actual=actual, expected=expected, diff=diff)
             )
+
+
+async def _dv_del_mkv_entregado(mkv: Path, wd: Path, plan, session,
+                                log_callback) -> DoviInfo:
+    """El RPU que lleva el MKV que se va a entregar, de sus primeros 30 s.
+
+    Las dos rutas de la Fase H validaban otra cosa: la rápida construía el
+    resultado a mano y la completa lee el HEVC PREVIO al mux. Ninguna miraba
+    el fichero final, así que un remux que tomara el vídeo del MKV origen
+    —CMv2.9— pasaba. Es el mismo muestreo que el pre-flight hace sobre el
+    origen (`ffmpeg -t 30` + `extract-rpu`), segundos en un UHD.
+
+    Lanza si el MKV no lleva Dolby Vision, o si lleva otro perfil, otra capa
+    o una versión CM que no es la v4.0.
+    """
+    sniff_hevc = wd / "_sniff_final.hevc"
+    sniff_rpu = wd / "_sniff_final.rpu"
+    try:
+        rc = await _run_streaming([
+            FFMPEG_BIN, "-y", "-t", "30", "-i", str(mkv),
+            "-map", "0:v:0", "-c:v", "copy",
+            "-bsf:v", "hevc_mp4toannexb",
+            "-f", "hevc", str(sniff_hevc),
+        ], log_callback=None)
+        if rc != 0 or not sniff_hevc.exists() or sniff_hevc.stat().st_size == 0:
+            raise RuntimeError(tr('cmv40_pipeline.mkv_final_sin_dv', motivo=f"ffmpeg rc={rc}"))
+        # `--limit`, como el muestreo del análisis básico de Tab 2: es la marca
+        # de que este `extract-rpu` es un muestreo y no el completo.
+        rc, _out, err = await _run([
+            DOVI_TOOL_BIN, "extract-rpu", "--limit", "720", str(sniff_hevc),
+            "-o", str(sniff_rpu),
+        ], timeout=60)
+        if rc != 0 or not sniff_rpu.exists() or sniff_rpu.stat().st_size == 0:
+            raise RuntimeError(tr('cmv40_pipeline.mkv_final_sin_dv',
+                                  motivo=(err or "").strip()[:200]))
+        rc, summary, err = await _run(
+            [DOVI_TOOL_BIN, "info", "--summary", str(sniff_rpu)], timeout=60)
+        if rc != 0:
+            raise RuntimeError(tr('cmv40_pipeline.mkv_final_sin_dv',
+                                  motivo=(err or "").strip()[:200]))
+    finally:
+        for f in (sniff_hevc, sniff_rpu):
+            f.unlink(missing_ok=True)
+
+    info = _parse_dovi_summary(summary)
+    perfil = 8 if plan.inputs.single_layer_output else 7
+    capa = plan.validate.expected_el_type or ""
+    if (info.cm_version != "v4.0" or info.profile != perfil
+            or (capa and info.el_type != capa)):
+        raise RuntimeError(tr(
+            'cmv40_pipeline.mkv_final_dv_distinto',
+            profile=info.profile, el_type=info.el_type or "-",
+            cm_version=info.cm_version or "?",
+            perfil=perfil, capa=capa or "-"))
+    await _log(log_callback, _et() + tr(
+        'cmv40_pipeline.mkv_final_dv_ok', profile=info.profile,
+        el_type=f" {info.el_type}" if info.el_type else "", cm_version=info.cm_version))
+    return info
+
+
+async def _comprobar_pistas_del_origen(session, salida_json: str,
+                                       log_callback) -> None:
+    """El MKV final lleva el audio y los subtítulos del MKV origen.
+
+    La Fase G los toma del origen con `--no-video`, y un remux que los dejara
+    fuera —o que tomara el vídeo del origen y el audio de ninguna parte—
+    salía en verde porque nadie contaba las pistas. Si el origen ya no se
+    puede leer (se movió de sitio), no hay contra qué comparar y se dice.
+    """
+    def _cuenta(texto):
+        pistas = (json.loads(texto) or {}).get("tracks") or []
+        return (sum(1 for t in pistas if t.get("type") == "audio"),
+                sum(1 for t in pistas if t.get("type") == "subtitles"))
+    try:
+        final = _cuenta(salida_json)
+    except (ValueError, TypeError):
+        return
+    origen = None
+    if session.source_mkv_path and Path(session.source_mkv_path).exists():
+        rc, out, _ = await _run([MKVMERGE_BIN, "-J", session.source_mkv_path], timeout=60)
+        if rc in (0, 1):
+            try:
+                origen = _cuenta(out)
+            except (ValueError, TypeError):
+                origen = None
+    if origen is None:
+        await _log(log_callback, _et() + tr('cmv40_pipeline.mkv_final_pistas_sin_origen'))
+        return
+    if final != origen:
+        raise RuntimeError(tr('cmv40_pipeline.mkv_final_pierde_pistas',
+                              a=final[0], s=final[1], a0=origen[0], s0=origen[1]))
 
 
 def resolve_validation_target(session: CMv40Session, wd: Path) -> tuple[Path, bool]:
@@ -4892,14 +5017,15 @@ async def run_phase_h_validate(
         # solo confirmaría lo mismo a un coste de 5-8 min de CPU sobre el HEVC.
         await _log(log_callback, _et() + tr('cmv40_pipeline.paso_1_2_leyendo_frame_count'))
         await _emit_progress(log_callback, 30, tr('cmv40_pipeline.frame_count_del_mkv_final'))
-        actual_frames = await _probe_frame_count(str(output_mkv))
-        await _check_frame_count(actual_frames, expected_frames, log_callback)
-        result_info = DoviInfo(
-            profile=7,
-            el_type="FEL",
-            cm_version="v4.0",
-            frame_count=actual_frames or expected_frames or 0,
-        )
+        actual_frames, exacto = await _contar_frames(str(output_mkv))
+        await _check_frame_count(actual_frames, expected_frames, log_callback,
+                                 exacto=exacto)
+        # El DV sale del MKV, no de lo que la cadena upstream garantiza: era
+        # un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito
+        # a mano, que decía lo mismo llevara el fichero lo que llevara.
+        result_info = await _dv_del_mkv_entregado(output_mkv, wd, plan, session,
+                                                  log_callback)
+        result_info.frame_count = actual_frames or expected_frames or 0
     else:
         # ── PATH CLÁSICO (merge CMv4.0 sobre P7/P8 source) ──────────────
         # El RPU final viene de un merge frame-a-frame (`dovi_tool editor
@@ -4979,7 +5105,10 @@ async def run_phase_h_validate(
             # sin actividad ~5-8 min y parece colgado. Cada 30s emitimos el
             # tiempo transcurrido para confirmar que sigue trabajando.
             if not prewarmed:
-                import time
+                # Sin `import time` aquí: `time` ya es del módulo, y un import
+                # dentro de la función lo convertía en variable LOCAL de toda
+                # ella — la copia entre sistemas de ficheros de más abajo
+                # reventaba con `UnboundLocalError` cuando esta rama no corría.
                 hb_start = time.monotonic()
 
                 async def _heartbeat():
@@ -5083,7 +5212,18 @@ async def run_phase_h_validate(
             #   - Información redundante: la integridad ya se valida con el
             #     extract-rpu completo arriba (RPU vs RPU expected, ±2)
         finally:
-            full_rpu.unlink(missing_ok=True)
+            # `_validate_full_rpu.bin` NO se borra: es el RPU extraído del
+            # stream, el que `_precachear_analisis_de_tab2` prefiere al
+            # inyectado porque es evidencia de lo que hay dentro del fichero.
+            # Se borraba aquí, antes del precache, que acababa usando el
+            # inyectado. Lo borra un rehacer de la Fase F, que es cuando deja
+            # de corresponder al stream.
+            pass
+
+        # Y el MKV que se entrega lleva ese stream: el RPU de arriba es el del
+        # HEVC previo al mux, y un remux que tomara el vídeo del MKV origen
+        # pasaba la validación entera.
+        await _dv_del_mkv_entregado(output_mkv, wd, plan, session, log_callback)
 
         # result_info: el RPU completo es la fuente autoritativa
         result_info = DoviInfo(
@@ -5120,6 +5260,7 @@ async def run_phase_h_validate(
     )
     if rc not in (0, 1):
         raise RuntimeError(tr('cmv40_pipeline.mkvmerge_j_fallo_sobre_mkv_final', p1=err[:200]))
+    await _comprobar_pistas_del_origen(session, out, log_callback)
 
     # Renombrar .tmp → .mkv (atómico si mkvmerge escribió ya en /mnt/output,
     # fallback a move con monitor de progreso si viene de workdir legacy).

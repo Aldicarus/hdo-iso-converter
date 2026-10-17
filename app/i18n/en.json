@@ -1205,5 +1205,11 @@
   "workload.tab_cmv40": "✨ Dolby Vision CMv4.0 upgrade",
   "workload.tab_mkv": "✏️ Inspect / edit MKV",
   "workload.tab_rip": "💿 Blu-Ray ISO → MKV",
-  "cmv40_pipeline.gates_con_desfase_revisable": "gates with an offset that can be reviewed on the sync chart (frames or letterbox): the sync review is not skipped."
+  "cmv40_pipeline.gates_con_desfase_revisable": "gates with an offset that can be reviewed on the sync chart (frames or letterbox): the sync review is not skipped.",
+  "cmv40_pipeline.mkv_final_frames_distintos": "The final MKV has {actual} frames and {expected} were expected (Δ {diff}): the remux came out incomplete. The .mkv.tmp is kept for inspection.",
+  "cmv40_pipeline.mkv_final_sin_dv": "Could not read the Dolby Vision of the final MKV ({motivo}). The .mkv.tmp is kept for inspection.",
+  "cmv40_pipeline.mkv_final_dv_distinto": "The final MKV carries Profile {profile} {el_type} CM {cm_version}, and it had to carry Profile {perfil} {capa} CM v4.0: the video that was muxed is not the processed one. The .mkv.tmp is kept for inspection.",
+  "cmv40_pipeline.mkv_final_dv_ok": "✓ 30 s sample of the final MKV: Profile {profile}{el_type} CM {cm_version}",
+  "cmv40_pipeline.mkv_final_pierde_pistas": "The final MKV has {a} audio and {s} subtitle tracks, and the source {a0} and {s0}: the remux lost tracks. The .mkv.tmp is kept for inspection.",
+  "cmv40_pipeline.mkv_final_pistas_sin_origen": "ℹ The source MKV can no longer be read: it is not checked that the final one keeps its audio and subtitles."
 }
