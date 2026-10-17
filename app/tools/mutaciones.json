@@ -1627,5 +1627,113 @@
   "modulos": [
    "test_mkv_quality_pipeline"
   ]
+ },
+ {
+  "id": "T4a-1 cancelar no apaga el auto en disco",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        session.auto_pipeline = False\n        _cmv40_propagar_a_la_viva(session_id, auto_pipeline=False)",
+  "nuevo": "        _cmv40_propagar_a_la_viva(session_id, auto_pipeline=False)",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-2 cancelar no apaga el auto en la viva",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        session.auto_pipeline = False\n        _cmv40_propagar_a_la_viva(session_id, auto_pipeline=False)",
+  "nuevo": "        session.auto_pipeline = False",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-3 cancelar una copia en cola no la saca",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    if _mkv_apply_state.get(\"step\") in (\"en_cola\", \"\"):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-4 cancelar finge haber sacado una copia que no estaba",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        if n:\n            return {\"ok\": True, \"descartada\": True}",
+  "nuevo": "        if True:\n            return {\"ok\": True, \"descartada\": True}",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-5 la serie que falla no guarda su resultado",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        _guardar_resultado_de_serie(_clave, {\"created\": [], \"error\": mensaje})\n",
+  "nuevo": "        pass\n",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-6 la serie que falla no se apunta",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            inicio=_inicio, estado=\"error\", error=mensaje)\n        return",
+  "nuevo": "            inicio=_inicio, estado=\"done\", error=mensaje)\n        return",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-7 la serie buena no guarda su resultado",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    _guardar_resultado_de_serie(_clave, resultado_final)\n",
+  "nuevo": "    pass\n",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-8 el progreso de series no trae los resultados",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            \"resultados_por_job\": {k: v for k, v in _series_resultados.items()",
+  "nuevo": "            \"resultados_por_job\": {k: v for k, v in {}.items()",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-9 el recorte no reordena el repetido",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    _series_resultados.pop(job, None)     # al final: es el más reciente\n",
+  "nuevo": "",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-10 el fallo de una auditoría no se guarda",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    _guardar_resultado_de_auditoria(target_audit_id, step=step, error=error_msg)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-11 el resultado de A solo si sigue siendo el actual",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        _guardar_resultado_de_auditoria(my_audit_id, step=\"done\", result=result)\n        if _mkv_quality_state.get(\"audit_id\") == my_audit_id:\n            _mkv_quality_state[\"result\"] = result\n",
+  "nuevo": "        if _mkv_quality_state.get(\"audit_id\") == my_audit_id:\n            _guardar_resultado_de_auditoria(my_audit_id, step=\"done\", result=result)\n            _mkv_quality_state[\"result\"] = result\n",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4a-12 la misma temporada ve el resultado viejo",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "                                   if k != actual or not _series_create_progress.get(\"running\")}}",
+  "nuevo": "                                   if True}}",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
  }
 ]

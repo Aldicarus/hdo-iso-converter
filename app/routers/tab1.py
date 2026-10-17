@@ -1873,12 +1873,33 @@ _series_create_progress: dict = {
 }
 
 
+#: Los resultados de las últimas creaciones de serie TERMINADAS, por `job`. El
+#: singleton de progreso es del trabajo que corre: con los dos discos de una
+#: temporada en la cola, el modal del primero leía ya el progreso del segundo,
+#: descartaba lo que no llevaba su sello y hacía poll cada 700 ms para siempre
+#: (auditoría con Codex del 2026-10-17).
+_series_resultados: dict[str, dict] = {}
+
+
+def _guardar_resultado_de_serie(job, resultado) -> None:
+    if not job or resultado is None:
+        return
+    _series_resultados.pop(job, None)     # al final: es el más reciente
+    _series_resultados[job] = resultado
+    while len(_series_resultados) > 3:
+        _series_resultados.pop(next(iter(_series_resultados)))
+
+
 @router.get("/api/series-create-progress",
          summary="Polling del progreso de /api/create-series-sessions")
 async def series_create_progress():
     """Devuelve el estado actual del único job de creación de sesiones en
-    curso. Si no hay ninguno, `running=False` y los campos quedan vacíos."""
-    return _series_create_progress
+    curso. Si no hay ninguno, `running=False` y los campos quedan vacíos.
+    `resultados_por_job` lleva los de los trabajos ya terminados."""
+    actual = _series_create_progress.get("job")
+    return {**_series_create_progress,
+            "resultados_por_job": {k: v for k, v in _series_resultados.items()
+                                   if k != actual or not _series_create_progress.get("running")}}
 
 
 async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
@@ -2215,13 +2236,28 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 created_sessions.append(_session_payload(session))
                 _series_create_progress["completed"].append(ep_label)
                 _series_create_progress["current_episode_step"] = "done"
-    except SourceError as e:
-        _series_create_progress["running"] = False
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        # Un fallo del origen (no se monta, no está) o de cualquier otra cosa
+        # deja su resultado por job —el modal que lo espera tiene que poder
+        # leerlo aunque otro trabajo ya ocupe el progreso— y su línea en el
+        # historial: «cuentan las tres salidas», y la que falla es la que se
+        # mira después. El `HTTPException` que había aquí no lo escuchaba
+        # nadie: esto corre en la cola, el POST respondió hace rato.
+        if isinstance(e, SourceError):
+            mensaje = str(e)
+        else:
+            _logger.exception("Error global en create-series-sessions")
+            mensaje = tr('tab1.error_creando_sesiones', e=e)
+        _guardar_resultado_de_serie(_clave, {"created": [], "error": mensaje})
+        _series_create_progress["error"] = mensaje
         _series_create_progress["running"] = False
-        _logger.exception("Error global en create-series-sessions")
-        raise HTTPException(status_code=500, detail=tr('tab1.error_creando_sesiones', e=e))
+        workload.liberar(_clave)
+        historial.anotar(
+            id=_clave, tab=historial.TAB_RIP, tipo="crear_serie", que=_que,
+            titulo=_titulo_serie,
+            poster=trabajos.poster_de({"poster_url": body.series_poster_url}),
+            inicio=_inicio, estado="error", error=mensaje)
+        return
 
     # Dos claves y no un sufijo de una letra: el plural del catalán no siempre
     # añade una `s` y el REGISTRO lo prohíbe por eso.
@@ -2239,7 +2275,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
     # pudieron crear los proyectos con los proyectos ya creados. Eran los
     # ~700 ms de una vuelta contra una ventana de microsegundos, pero el
     # desenlace era decir lo contrario de lo que pasó.
-    _series_create_progress["resultado"] = {
+    _series_create_progress["resultado"] = resultado_final = {
         "created": created_sessions,
         "failed": failed_episodes,
         "skipped_existing": skipped_existing,  # mode=skip_existing
@@ -2247,6 +2283,7 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
         "encolados": encolados,                # auto_execute
         "iso_path": body.iso_path,
     }
+    _guardar_resultado_de_serie(_clave, resultado_final)
     _series_create_progress["running"] = False
     workload.liberar(_clave)
     historial.anotar(

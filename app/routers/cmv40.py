@@ -3965,6 +3965,14 @@ async def cmv40_cancel(session_id: str):
     session = load_cmv40_session(session_id)
     if session:
         _cmv40_marcar_libre(session)
+        # Cancelar apaga el auto-pipeline también AQUÍ. La interfaz lo apagaba
+        # solo en su copia y avisaba «auto-avance desactivado» mientras el
+        # backend seguía en auto: relanzar una fase a mano encadenaba el resto,
+        # y al reabrir el proyecto volvía a salir «Auto ON» (auditoría con
+        # Codex del 2026-10-17). Y a la sesión viva, que la fase cancelada
+        # guarda al terminar.
+        session.auto_pipeline = False
+        _cmv40_propagar_a_la_viva(session_id, auto_pipeline=False)
         for line in log_lines:
             await _cmv40_log(session, line)
         await _cmv40_log(session, '🛑 Cancelado ' + tr('tab1.por_el_usuario'))

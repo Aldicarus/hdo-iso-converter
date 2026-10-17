@@ -708,6 +708,7 @@ def _mkv_quality_state_finalize_if(target_audit_id: str, error_msg: str, step: s
     _mkv_quality_state["error"] = error_msg
     _mkv_quality_state["step"] = step
     _mkv_quality_state["active"] = False
+    _guardar_resultado_de_auditoria(target_audit_id, step=step, error=error_msg)
     return True
 
 
@@ -739,10 +740,33 @@ def _mkv_quality_check_cancel():
         raise RuntimeError(tr('cmv40.cancelado_por_el_usuario'))
 
 
+#: Cómo terminaron las últimas auditorías, por `audit_id`, con la forma del
+#: singleton (`step` done/error/cancelled, `result`, `error`). El singleton
+#: `_mkv_quality_state` es del trabajo que corre AHORA: con dos auditorías
+#: seguidas, la pestaña que esperaba la primera leía ya la segunda y la suya
+#: se perdía (auditoría con Codex del 2026-10-17). Pocas y recientes: viajan
+#: en cada poll.
+_mkv_quality_resultados: dict[str, dict] = {}
+_RESULTADOS_QUE_SE_GUARDAN = 3
+
+
+def _guardar_resultado_de_auditoria(audit_id, *, step: str, result=None,
+                                    error: str | None = None) -> None:
+    if not audit_id:
+        return
+    _mkv_quality_resultados.pop(audit_id, None)   # al final: es el más reciente
+    _mkv_quality_resultados[audit_id] = {"step": step, "result": result, "error": error}
+    while len(_mkv_quality_resultados) > _RESULTADOS_QUE_SE_GUARDAN:
+        _mkv_quality_resultados.pop(next(iter(_mkv_quality_resultados)))
+
+
 @router.get("/api/mkv/quality-audit/progress")
 async def mkv_quality_audit_progress():
     """Polling endpoint para el modal de auditoría."""
-    return dict(_mkv_quality_state)
+    # Sin filtrar el actual: un id es de un solo análisis, así que el que
+    # corre todavía no está aquí (al revés que la clave de una serie, que se
+    # repite al volver a crear la misma temporada).
+    return {**_mkv_quality_state, "resultados_por_audit": dict(_mkv_quality_resultados)}
 
 
 async def _mkv_quality_reap_proc(proc):
@@ -1182,6 +1206,9 @@ async def _ejecutar_analisis_extendido(my_audit_id: str, mkv_full: str,
         # state se hacen condicionados al audit_id: si el usuario ya
         # relanzó otro audit, no pisamos su state con datos viejos.
         persist_mkv_quality_to_cache(mkv_full, result)
+        # Por su id y SIEMPRE: si otro audit ya ocupa el estado, este
+        # resultado es justo el que su pestaña no podría leer de ahí.
+        _guardar_resultado_de_auditoria(my_audit_id, step="done", result=result)
         if _mkv_quality_state.get("audit_id") == my_audit_id:
             _mkv_quality_state["result"] = result
             _mkv_quality_state["step"] = "done"
@@ -1515,6 +1542,16 @@ async def mkv_apply_cancel():
     'copying' (mkvpropedit es instantáneo, no hay nada útil que cancelar)."""
     if not _mkv_apply_state.get("active"):
         return {"ok": False, "reason": "no_active_job"}
+    # En cola: sacarla de la cola. Antes contestaba «no está copiando» con un
+    # 200, la interfaz lo daba por cancelado y la copia corría después
+    # (auditoría con Codex del 2026-10-17). El hook de descarte pone el
+    # estado en `cancelled`.
+    if _mkv_apply_state.get("step") in ("en_cola", ""):
+        clave = _mkv_apply_state.get("clave") or ""
+        n = await queue_manager.descartar([clave]) if clave else 0
+        if n:
+            return {"ok": True, "descartada": True}
+        return {"ok": False, "reason": "not_in_queue"}
     if _mkv_apply_state.get("step") != "copying":
         return {"ok": False, "reason": "not_in_copying_step"}
     _mkv_apply_cancel["requested"] = True

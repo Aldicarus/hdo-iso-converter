@@ -3329,7 +3329,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **180 mutaciones** en
+de entonces seguían en verde. Hoy hay **192 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:
@@ -3576,6 +3576,21 @@ algo, con su test y su mutación:
 - **Tab 3, frontend.** Abrir un proyecto manual **lanzaba la Fase C**: el
   respaldo «para sesiones anteriores al campo `auto_pipeline`» se aplicaba a
   todas, porque el modelo lo pone a `False` por defecto (`_cmv40AutoAlAbrir`).
+- **Cancelar y los resultados de la cola.** Cancelar una fase CMv4.0 **apaga
+  el auto-pipeline en el servidor** —la interfaz lo apagaba en su copia y
+  anunciaba «auto-avance desactivado» con el backend en auto— y cancelar una
+  copia desde biblioteca **en cola** la saca de la cola (`{"ok": true,
+  "descartada": true}`); antes contestaba «no está copiando» con un 200 y la
+  copia corría después. Y el resultado de una creación de serie y de un
+  análisis extendido se guarda **por trabajo** (`resultados_por_job` en
+  `/api/series-create-progress`, `resultados_por_audit` en el progreso del
+  análisis, los tres últimos): el progreso es un singleton del que corre
+  AHORA, así que con dos seguidos en la cola el modal del primero leía ya el
+  segundo y el suyo se perdía — el de series hacía poll cada 700 ms para
+  siempre. Una serie que falla entera deja también su resultado (`error`) y
+  su línea en el historial. La clave de una serie se repite al volver a crear
+  la misma temporada, así que mientras corre no se sirve el resultado viejo
+  de su propia clave; un `audit_id` no se repite y no hace falta filtrarlo.
 
 ### CI — `.github/workflows/tests.yml`
 
