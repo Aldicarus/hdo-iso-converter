@@ -89,15 +89,29 @@ class TestHelpersDelPlan(unittest.TestCase):
         ]
         for wf, tt, trust, ov in combinaciones:
             with self.subTest(wf=wf, target=tt, trust=trust, override=ov):
+                # Con gates evaluados: es cuando la ruta de un bin P8 depende
+                # de la confianza (sin ella, merge conservador).
                 s = {"target_trust_ok": trust, "trust_override": ov,
-                     "target_type": tt, "source_workflow": wf}
-                esperado = plan_for(WorkflowInputs(wf, tt, trust, ov))
+                     "target_type": tt, "source_workflow": wf,
+                     "target_trust_gates": {"frames": {"ok": True, "severity": "ok"}}}
+                esperado = plan_for(WorkflowInputs(wf, tt, trust, ov, gates_evaluados=True))
                 self.assertEqual(self.evaluar("_cmv40Trust", s),
                                  esperado.inputs.trust_effective)
                 self.assertEqual(self.evaluar("_cmv40DropIn", s),
                                  esperado.inputs.drop_in)
                 self.assertEqual(self.evaluar("_cmv40TargetNeedsMerge", s),
                                  esperado.inputs.target_needs_merge)
+
+    def test_un_bin_p8_sin_gates_evaluados_no_predice_merge(self):
+        """Antes de la Fase B `target_trust_ok` es False porque no se sabe:
+        predecir merge ahí diría «merge» durante toda la Fase A a un job que
+        irá directo. Igual que el backend (`gates_evaluados`)."""
+        from phases.cmv40_strategy import WorkflowInputs
+        s = {"target_trust_ok": False, "target_type": "trusted_p8_source",
+             "source_workflow": "p8"}
+        self.assertFalse(self.evaluar("_cmv40TargetNeedsMerge", s))
+        self.assertFalse(WorkflowInputs("p8", "trusted_p8_source", False,
+                                        gates_evaluados=False).target_needs_merge)
 
     def test_sin_override_asume_auto(self):
         # Sesiones antiguas pueden no traer el campo; el default del modelo es

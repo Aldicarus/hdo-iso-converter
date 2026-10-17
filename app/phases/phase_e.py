@@ -378,7 +378,20 @@ async def run_phase_e_propedit(
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     work_path = _nombre_de_trabajo(output_path)
     try:
-        shutil.move(intermediate_mkv, work_path)
+        # En un thread: entre montajes `move` COPIA decenas de GB, y en el
+        # bucle eso congelaba la app entera —cancelar, los WS, el
+        # healthcheck— (auditoría con Codex del 2026-10-17). Si a la tarea la
+        # cancelan, se ESPERA a que el thread termine antes de limpiar: borrar
+        # el parcial mientras el thread aún escribe no lo limpiaría.
+        copia = asyncio.ensure_future(asyncio.to_thread(shutil.move, intermediate_mkv, work_path))
+        try:
+            await asyncio.shield(copia)
+        except asyncio.CancelledError:
+            try:
+                await copia
+            finally:
+                _limpiar_parcial(work_path)
+            raise
         os.replace(work_path, output_path)
     except BaseException:
         _limpiar_parcial(work_path)

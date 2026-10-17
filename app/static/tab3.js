@@ -147,8 +147,18 @@ function _cmv40DropIn(s) {
 function _cmv40TargetNeedsMerge(s) {
   const plan = _cmv40Plan(s);
   if (plan) return !!plan.target_needs_merge;
-  return ['trusted_p7_fel_final', 'trusted_p7_mel_final', 'generic']
-    .includes(s.target_type);
+  if (['trusted_p7_fel_final', 'trusted_p7_mel_final', 'generic'].includes(s.target_type)) {
+    return true;
+  }
+  // Un bin P8 de confianza se inyecta entero, pero SOLO con la confianza:
+  // sin ella, merge conservador (`WorkflowInputs.target_needs_merge`). Antes
+  // de la Fase B los gates no existen y no se sabe, que no es lo mismo que
+  // fallar.
+  if (s.target_type === 'trusted_p8_source') {
+    const evaluados = !!s.target_trust_gates && Object.keys(s.target_trust_gates).length > 0;
+    return evaluados && !_cmv40Trust(s);
+  }
+  return false;
 }
 
 /** Deduce el label de la siguiente fase que el auto-pipeline disparara,
@@ -2116,6 +2126,23 @@ function _cmv40RehydratePendingTarget(project) {
   project.pendingTarget = { kind, value };
 }
 
+/**
+ * ¿El proyecto se abre en modo auto? Lo dice `session.auto_pipeline`, que es
+ * la fuente de verdad: el orquestador del backend encadena las fases con ese
+ * campo y con ningún otro.
+ *
+ * Había un respaldo «para sesiones anteriores al campo» —a mitad de pipeline
+ * con target de confianza, o con una fase en marcha, se suponía auto— pero
+ * el modelo tiene `auto_pipeline: bool = False`, así que «falso» y «ausente»
+ * llegan igual y el respaldo se aplicaba a TODO proyecto manual: abrir uno
+ * con auto apagado lanzaba la Fase C en menos de un segundo y la cabecera
+ * decía «Auto ON» (auditoría con Codex del 2026-10-17, reproducido en
+ * Chrome). El backend no la habría lanzado.
+ */
+function _cmv40AutoAlAbrir(session) {
+  return !!session && session.auto_pipeline === true;
+}
+
 function openCMv40Project(session) {
   // Si ya está abierto, activar su subtab
   const existing = openCMv40Projects.find(p => p.id === session.id);
@@ -2129,23 +2156,7 @@ function openCMv40Project(session) {
   }
 
   const pid = session.id;
-  // resumeAuto: refleja el estado persistente `session.auto_pipeline` del
-  // backend. Esta es ahora la FUENTE DE VERDAD del modo auto. El backend
-  // encadena fases automáticamente sin depender del frontend (resiliente
-  // a Mac sleep / pestaña cerrada / navegador crashado). Frontend solo
-  // necesita reflejar el flag para mostrar la UI correcta.
-  // Fallback heurístico para sesiones legacy (creadas antes del campo
-  // auto_pipeline): si está en mid-pipeline con target trusted o con
-  // running_phase, asumimos que estaba en auto.
-  const isMidPipeline = session.phase
-    && session.phase !== 'done'
-    && session.phase !== 'created'
-    && !session.error_message
-    && !session.archived;
-  const wasInAutoFlowLegacy = !!session.running_phase
-    || (session.target_trust_ok === true);
-  const resumeAuto = (session.auto_pipeline === true)
-    || (isMidPipeline && wasInAutoFlowLegacy);
+  const resumeAuto = _cmv40AutoAlAbrir(session);
   const project = {
     id: pid,
     subTabId: pid,

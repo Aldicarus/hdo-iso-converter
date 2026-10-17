@@ -173,6 +173,39 @@ class TestFaseCReutilizacionDelDemux(CmvPhaseCase):
                              f"{parcial}: los parciales deben irse para que el reintento empiece limpio")
 
 
+class TestFaseCNoReutilizaUnSourceHevcAMedias(CmvPhaseCase):
+    """Lo mismo que la Fase A: un `source.hevc` sin la marca de extracción
+    terminada no es de fiar —la re-extracción de la Fase C dejaba el suyo
+    tras un fallo y el siguiente intento lo aceptaba por existir—."""
+
+    async def run_c(self, session):
+        from phases.cmv40_pipeline import run_phase_c_extract
+        await run_phase_c_extract(session, self.log)
+
+    def _extracciones(self):
+        return [c for c in self.tb.find("ffmpeg") if any(a.endswith("source.hevc") for a in c.argv)]
+
+    async def test_sin_la_marca_se_re_extrae(self):
+        session = self.prepare(artifacts=("source.hevc",))
+        await self.run_c(session)
+        self.assertTrue(self._extracciones(), "ha reutilizado un source.hevc sin terminar")
+
+    async def test_con_la_marca_se_reutiliza(self):
+        from phases.cmv40_pipeline import MARCA_SOURCE_HEVC
+        session = self.prepare(artifacts=("source.hevc",))
+        (self.wd / MARCA_SOURCE_HEVC).write_text("ok\n")
+        await self.run_c(session)
+        self.assertEqual(self._extracciones(), [])
+
+    async def test_una_re_extraccion_fallida_no_deja_parcial(self):
+        session = self.prepare()
+        self.tb.fail("ffmpeg", "*", tras_producir=True)
+        from phases.cmv40_pipeline import run_phase_c_extract
+        with self.assertRaises(RuntimeError):
+            await run_phase_c_extract(session, self.log)
+        self.assertFalse((self.wd / "source.hevc").exists(), "queda un source.hevc a medias")
+
+
 class TestFaseCDatosPerFrame(CmvPhaseCase):
 
     async def run_c(self, session):

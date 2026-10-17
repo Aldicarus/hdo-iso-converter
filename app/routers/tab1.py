@@ -561,6 +561,33 @@ async def list_sources():
 # ── CRUD de sesiones ──────────────────────────────────────────────────────────
 
 
+def _es_episodio(session: Session) -> bool:
+    """Una sesión de serie. Con la temporada y el episodio basta —es la señal
+    robusta que usa también el modal—: las muy antiguas pueden llevar
+    `media_type="movie"` por el default de Pydantic."""
+    return session.media_type == "series" or bool(session.season_number and session.episode_number)
+
+
+def _nombre_automatico_de_episodio(session: Session) -> str:
+    """El `mkv_name` de un episodio cuando el usuario no lo ha tocado.
+
+    `reapply-rules` y `recalculate-name` construían el de una PELÍCULA a
+    partir del origen, que en una serie es el mismo para todos los episodios
+    del disco: dos episodios acababan con el mismo nombre en la raíz de
+    output, sin la estructura de carpetas, y el segundo rip sobrescribía el
+    MKV del primero (auditoría con Codex del 2026-10-17, reproducido)."""
+    from phases.phase_b import build_series_mkv_name
+    return build_series_mkv_name(
+        series_name=session.series_name or "",
+        series_year=session.series_year,
+        season_number=session.season_number or 1,
+        episode_number=session.episode_number or 1,
+        episode_title=session.episode_title or "",
+        has_fel=session.has_fel,
+        audio_dcp=session.audio_dcp,
+    )
+
+
 def _session_payload(session: Session) -> dict:
     """El dump de la sesión **más los campos calculados** que la UI espera.
 
@@ -704,7 +731,8 @@ async def reapply_rules(session_id: str, body: ReapplyModeRequest):
     session.ambiguous_subtitle_langs = rules.get("ambiguous_subtitle_langs", [])
     # No sobrescribir mkv_name si el usuario lo editó manualmente
     if not session.mkv_name_manual:
-        session.mkv_name = rules["mkv_name"]
+        session.mkv_name = (_nombre_automatico_de_episodio(session)
+                            if _es_episodio(session) else rules["mkv_name"])
     save_session(session)
     return _session_payload(session)
 
@@ -1856,7 +1884,8 @@ async def series_create_progress():
 async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                                       source_abs: str, episodios,
                                       skipped_existing, to_replace_ids,
-                                      fingerprint: str) -> None:
+                                      fingerprint: str,
+                                      reemplazos: dict | None = None) -> None:
     """Analiza los N episodios y crea sus sesiones, ya con turno.
 
     Sale del endpoint porque el endpoint ya no espera: son ~30 s de
@@ -2167,6 +2196,14 @@ async def _ejecutar_creacion_de_serie(body, stype: str, spath: str,
                 )
                 _series_create_progress["current_episode_step"] = "save"
                 save_session(session)
+                # El proyecto que este episodio sustituye, ahora que el nuevo
+                # existe: si el análisis hubiera fallado, el viejo seguiría.
+                viejo = (reemplazos or {}).get(str(ep.episode_number))
+                if viejo and viejo != session_id:
+                    try:
+                        delete_session(viejo)
+                    except Exception as _e:
+                        _logger.warning("No se pudo borrar la sesión reemplazada %s: %s", viejo, _e)
                 if body.auto_execute:
                     # En el momento de crearlo, para que el orden de la cola
                     # sea el de los episodios. No arranca nada todavía: este
@@ -2341,6 +2378,7 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
     # Determinar qué episodios procesar y cuáles saltar/reemplazar
     skipped_existing: list[dict] = []
     to_replace_ids: list[str] = []
+    reemplazos: dict[str, str] = {}
     episodes_to_process = []
     for ep in body.episodes:
         key = (body.season_number, ep.episode_number)
@@ -2354,16 +2392,14 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
             continue
         if existing and mode == "replace":
             to_replace_ids.append(existing.id)
+            reemplazos[str(ep.episode_number)] = existing.id
         episodes_to_process.append(ep)
 
-    # Borrar las sesiones a reemplazar antes del bucle — evita ambigüedad
-    # si dos episodios en la misma petición apuntaran al mismo id (no
-    # debería pasar, pero por seguridad).
-    for sid in to_replace_ids:
-        try:
-            delete_session(sid)
-        except Exception as _e:
-            _logger.warning("No se pudo borrar sesión existente %s: %s", sid, _e)
+    # Las sesiones a reemplazar NO se borran aquí: se borraban antes de
+    # encolar, y si la cola descartaba el trabajo por duplicado —el modal de
+    # serie abierto dos veces sobre el mismo disco— el proyecto desaparecía y
+    # nadie iba a recrearlo. Las borra el runner, cada una cuando el episodio
+    # que la sustituye ya está guardado (auditoría con Codex del 2026-10-17).
 
     created_sessions = []
     failed_episodes: list[dict] = []
@@ -2407,6 +2443,9 @@ async def create_series_sessions(body: CreateSeriesSessionsRequest):
                "episodios": [e.model_dump() for e in episodes_to_process],
                "skipped_existing": skipped_existing,
                "replaced_ids": to_replace_ids,
+               # Qué sesión sustituye cada episodio: el runner la borra cuando
+               # el episodio nuevo ya está guardado, no antes.
+               "reemplazos": reemplazos,
                # Ya calculado para detectar conflictos: son 1 MB de lectura
                # que no hay por qué repetir cuando llegue el turno.
                "fingerprint": fingerprint},
@@ -2446,6 +2485,10 @@ async def recalculate_mkv_name(session_id: str):
         raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
     if session.mkv_name_manual:
         return {"mkv_name": session.mkv_name, "manual": True}
+    if _es_episodio(session):
+        session.mkv_name = _nombre_automatico_de_episodio(session)
+        save_session(session)
+        return {"mkv_name": session.mkv_name, "manual": False}
 
     from phases.phase_b import _build_mkv_name, _extract_title_year
     title, year      = _extract_title_year(session.source_path or session.iso_path)
@@ -2536,6 +2579,15 @@ async def reset_chapters(session_id: str):
 
 # ── Ejecución del pipeline (Fases D + E) ──────────────────────────────────────
 
+def _mpls_nombre_de_la_sesion(session) -> str | None:
+    """El nombre del MPLS que la sesión dice que es suyo, o None si no lo sabe."""
+    if session.mpls_path:
+        return Path(session.mpls_path).name
+    if session.bdinfo_result and session.bdinfo_result.main_mpls:
+        return session.bdinfo_result.main_mpls
+    return None
+
+
 def _mpls_de_la_sesion(session, disc_root: str) -> str | None:
     """El MPLS que reproduce la sesión, dentro del disco abierto en ``disc_root``.
 
@@ -2544,11 +2596,7 @@ def _mpls_de_la_sesion(session, disc_root: str) -> str | None:
     persiste solo el nombre porque el punto de montaje cambia entre montajes.
     ``None`` si la sesión no lo sabe o el fichero ya no está.
     """
-    nombre = None
-    if session.mpls_path:
-        nombre = Path(session.mpls_path).name
-    elif session.bdinfo_result and session.bdinfo_result.main_mpls:
-        nombre = session.bdinfo_result.main_mpls
+    nombre = _mpls_nombre_de_la_sesion(session)
     if not nombre:
         return None
     for playlist_dir in (Path(disc_root) / "BDMV" / "PLAYLIST",
@@ -2557,6 +2605,21 @@ def _mpls_de_la_sesion(session, disc_root: str) -> str | None:
         if candidato.exists():
             return str(candidato)
     return None
+
+
+def _origen_de_la_sesion(session) -> str:
+    """El fichero o carpeta que esta sesión extrae.
+
+    En una serie de M2TS sueltos `iso_path` es el PRIMER fichero del conjunto
+    —se guardó así al crearla— y el del episodio va en `mpls_path`. Mirar
+    `iso_path` comprobaba la disponibilidad de otro fichero y, si faltaba el
+    del episodio, el rip extraía el primero con el nombre del episodio
+    (auditoría con Codex del 2026-10-17).
+    """
+    if (getattr(session, "source_type", "") or "iso") == "m2ts" and session.mpls_path \
+            and Path(session.mpls_path).is_absolute():
+        return session.mpls_path
+    return session.iso_path
 
 
 def _check_source_available(session) -> tuple[bool, str, str]:
@@ -2571,7 +2634,7 @@ def _check_source_available(session) -> tuple[bool, str, str]:
     Compat: sesiones legacy sin source_type lo asumen 'iso'.
     """
     source_type = getattr(session, 'source_type', '') or "iso"
-    p = Path(session.iso_path)
+    p = Path(_origen_de_la_sesion(session))
     if not p.exists():
         return False, source_type, str(p)
     if source_type == "iso":
@@ -2659,6 +2722,15 @@ async def execute_session(session_id: str):
             detail=tr('tab1.no_disponible_comprueba_que_sigue_en', type_label=type_label, source_path=source_path),
         )
 
+    # Dos proyectos con el mismo `mkv_name` escriben el MISMO fichero: el
+    # segundo rip sustituye al primero (`os.replace`) y el primer proyecto
+    # sigue apuntando a un MKV que ya no es suyo. Se dice antes de gastar
+    # cuarenta minutos, que es lo que el usuario puede arreglar renombrando.
+    otro = await asyncio.to_thread(_otro_proyecto_con_el_mismo_destino, session)
+    if otro:
+        raise HTTPException(status_code=409, detail=tr(
+            'tab1.otro_proyecto_escribe_ese_mkv', mkv_name=session.mkv_name, otro=otro))
+
     session.status        = "queued"
     session.output_log    = []
     session.error_message = None
@@ -2666,6 +2738,19 @@ async def execute_session(session_id: str):
 
     queue_status = await _encolar_rip(session)
     return {"ok": True, "session_id": session_id, **queue_status}
+
+
+def _otro_proyecto_con_el_mismo_destino(session: Session) -> str | None:
+    """El título de OTRO proyecto de Tab 1 cuyo MKV de salida es el mismo
+    fichero que el de este, o None."""
+    from storage import list_sessions_summary
+    propio = (session.mkv_name or "").strip().casefold()
+    if not propio:
+        return None
+    for s in list_sessions_summary():
+        if s.get("id") != session.id and (s.get("mkv_name") or "").strip().casefold() == propio:
+            return s.get("mkv_name") or s.get("id")
+    return None
 
 
 async def _mkvmerge_container_duration_s(path: str) -> float:
@@ -2878,7 +2963,7 @@ async def _run_pipeline(session_id: str) -> None:
         else:  # m2ts
             await log('[Fase A] ┌─ ' + tr('tab1.paso_1_origen_directo_leyendo_el'))
 
-        source_obj = await Source.open(session.iso_path)
+        source_obj = await Source.open(_origen_de_la_sesion(session))
         await source_obj.__aenter__()
         # Alias para que código posterior que lee `mount_point` siga
         # funcionando (típicamente referencias al bdmv_root del montaje).
@@ -2898,22 +2983,24 @@ async def _run_pipeline(session_id: str) -> None:
         # iso/bdmv_folder → MPLS (principal o del episodio en serie)
         # m2ts → el propio fichero
         if stype == "m2ts":
-            # session.iso_path apunta al m2ts directo. Para serie
-            # multi-fichero, session.mpls_path tiene el path absoluto
-            # del m2ts del episodio (lo guardamos así en create_series).
-            mkvmerge_source = (
-                session.mpls_path
-                if session.mpls_path and Path(session.mpls_path).exists()
-                else session.iso_path
-            )
+            # El del episodio en una serie multi-fichero (`mpls_path`); el
+            # propio origen en una película. Si el del episodio no está NO se
+            # cae al primero del conjunto: sería otro episodio con este nombre.
+            mkvmerge_source = _origen_de_la_sesion(session)
+            if not Path(mkvmerge_source).exists():
+                raise RuntimeError(tr('iso_mount.m2ts_no_encontrado', ruta=mkvmerge_source))
             await log('[Fase A] ' + tr('tab1.fichero_de_origen', p1=Path(mkvmerge_source).name))
         else:
-            # Buscar el MPLS dentro del bdmv_root. Prioridades:
-            #   1. session.mpls_path (modo serie — nombre del MPLS específico)
-            #   2. session.bdinfo_result.main_mpls (modo película — detectado en Fase A)
-            #   3. find_main_mpls (fallback general)
-            mkvmerge_source = (_mpls_de_la_sesion(session, mount_point)
-                               or find_main_mpls(mount_point))
+            # El MPLS que la sesión dice que es suyo: el del episodio en una
+            # serie, el que eligió la Fase A en una película. `find_main_mpls`
+            # solo para una sesión que no lo sabe (anterior a guardarlo): si lo
+            # sabe y ya no está, elegir otro sería extraer otro título.
+            sabido = _mpls_nombre_de_la_sesion(session)
+            mkvmerge_source = _mpls_de_la_sesion(session, mount_point)
+            if mkvmerge_source is None and sabido:
+                raise RuntimeError(tr('tab1.mpls_no_encontrado_en', mpls=sabido,
+                                      origen=mount_point))
+            mkvmerge_source = mkvmerge_source or find_main_mpls(mount_point)
             await log('[Fase A] ' + tr('tab1.playlist_principal', p1=Path(mkvmerge_source).name))
 
         # Alias mpls_path para no romper código posterior — semánticamente
@@ -2959,20 +3046,18 @@ async def _run_pipeline(session_id: str) -> None:
                         '[Pipeline] ' + tr('tab1.ruta_con_intermedio_no_hay_reordenacion')
                     )
 
-                    # Phase D: extraer todo al intermedio. Para m2ts (o tras el
-                    # fallback) pasamos source_path explícito; para iso/bdmv
-                    # pasamos share_path y el helper busca el MPLS.
+                    # Phase D: extraer al intermedio LO QUE SE ELIGIÓ ARRIBA. Con
+                    # `source_path=None` en un ISO o una carpeta BDMV, la fase
+                    # volvía a elegir por su cuenta —el `.mpls` más grande— y el
+                    # MKV salía con otro título y los capítulos y metadatos de
+                    # este, en verde (auditoría con Codex del 2026-10-17).
                     _mark_phase("extract")
                     intermediate_mkv = await run_phase_d(
                         share_path=mount_point or "",
                         tmp_dir=paths.TMP_DIR,
                         log_callback=log,
                         proc_callback=_register_proc,
-                        source_path=(
-                            extraction_source
-                            if (stype == "m2ts" or m2ts_fallback_active)
-                            else None
-                        ),
+                        source_path=extraction_source,
                     )
                     _mark_phase("extract", done=True)
                     await log('[Fase B] ' + tr('tab1.intermedio_listo_en', intermediate_mkv=intermediate_mkv))
@@ -3023,7 +3108,17 @@ async def _run_pipeline(session_id: str) -> None:
         await firma.firmar(final_mkv)
 
         # ── Validación final del MKV ─────────────────────────────
-        validation_ok = await _validate_final_mkv(session, final_mkv, log)
+        # El MKV ya tiene su nombre definitivo: un fallo de infraestructura
+        # aquí (no poder lanzar mkvmerge -J) llegaba al `except` de abajo,
+        # que lo BORRABA — y en una re-ejecución el anterior ya estaba
+        # sustituido, así que se perdían los dos. Es una validación que no
+        # se pudo hacer, no un MKV malo.
+        try:
+            validation_ok = await _validate_final_mkv(session, final_mkv, log)
+        except Exception as e:
+            _logger.exception("La validación final no se pudo ejecutar")
+            await log('[Validación] ' + tr('tab1.validacion_no_se_pudo_ejecutar', e=e))
+            validation_ok = False
 
         # `done` en los dos casos, y a propósito: el MKV existe y se puede
         # reproducir, así que marcarlo `error` sería mentir en la otra
@@ -3066,15 +3161,18 @@ async def _run_pipeline(session_id: str) -> None:
             session.error_message = str(e)
             await log('[Pipeline] ' + tr('tab1.error', e=e))
 
-        # Limpiar ficheros temporales/parciales
-        for path in [intermediate_mkv, session.output_mkv_path]:
-            if path and Path(path).exists():
-                try:
-                    Path(path).unlink()
-                    await log('[Pipeline] ' + tr('tab1.temporal_eliminado', p1=Path(path).name))
-                except OSError:
-                    pass
-        session.output_mkv_path = None
+        # Limpiar lo temporal: el intermedio. El MKV de salida NO: cada fase
+        # borra su parcial (`_limpiar_parcial`, con el nombre de trabajo
+        # `.mkv.tmp`), y lo que está en `output_mkv_path` es un MKV ya
+        # entregado con su nombre definitivo.
+        if intermediate_mkv and Path(intermediate_mkv).exists():
+            try:
+                Path(intermediate_mkv).unlink()
+                await log('[Pipeline] ' + tr('tab1.temporal_eliminado', p1=Path(intermediate_mkv).name))
+            except OSError:
+                pass
+        if not (session.output_mkv_path and Path(session.output_mkv_path).exists()):
+            session.output_mkv_path = None
 
     finally:
         # Libera el hueco de trabajo pesado SIEMPRE: si esto se escapara, la
@@ -3318,8 +3416,9 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     # ── Validar capítulos (extracción real, no num_entries) ─────
     import subprocess as _sp
     try:
-        _ch_result = _sp.run(
-            ["mkvextract", mkv_path, "chapters", "--simple"],
+        # A un thread: es un subproceso síncrono y para el bucle mientras dura.
+        _ch_result = await asyncio.to_thread(
+            _sp.run, ["mkvextract", mkv_path, "chapters", "--simple"],
             capture_output=True, text=True, timeout=10,
         )
         num_chapters = sum(1 for l in _ch_result.stdout.splitlines() if l.startswith("CHAPTER") and "NAME" not in l)
@@ -3751,7 +3850,7 @@ async def _runner_creacion_de_serie(trabajo) -> None:
             cuerpo, d.get("stype") or "iso", d.get("spath") or "",
             d.get("source_abs") or "", episodios,
             d.get("skipped_existing") or [], d.get("replaced_ids") or [],
-            d.get("fingerprint") or "")
+            d.get("fingerprint") or "", reemplazos=d.get("reemplazos") or {})
     except Exception as e:                              # noqa: BLE001
         _logger.exception("La creación de la serie falló")
         _series_create_progress["running"] = False

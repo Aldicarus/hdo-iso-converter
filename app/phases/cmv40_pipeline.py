@@ -29,7 +29,8 @@ from pathlib import Path
 
 import firma
 from models import CMv40Phase, CMv40PhaseRecord, CMv40Session, DoviInfo
-from phases.cmv40_strategy import WORKFLOWS, gates_dan_confianza, resolve_plan
+from phases.cmv40_strategy import (WORKFLOWS, gates_dan_confianza, niveles_del_merge,
+                                   resolve_plan)
 from phases.phase_a import _parse_dovi_summary
 
 _logger = logging.getLogger(__name__)
@@ -465,6 +466,29 @@ async def _probe_duration(media_path: str) -> float:
     except Exception:
         pass
     return 0.0
+
+
+#: La marca de que `source.hevc` se extrajo ENTERO. La reutilización se
+#: certificaba por el tamaño (≥ 50 % del MKV): un reinicio del contenedor al 70 %
+#: de la extracción dejaba un HEVC que pasaba, su RPU con el 70 % de los frames
+#: —que también pasaba el guard del 50 %— y la sesión se quedaba con esa cifra
+#: como referencia: el Δ invitaba a «quitar créditos» al target y el MKV salía
+#: corto en verde (auditoría con Codex del 2026-10-17). Es la misma clase que
+#: el `.demux_done` de la Fase C, y la misma solución: se escribe SOLO tras un
+#: éxito, y sin ella el HEVC no se reutiliza.
+MARCA_SOURCE_HEVC = ".source_hevc_done"
+
+
+def _source_hevc_completo(wd: Path) -> bool:
+    return (wd / "source.hevc").exists() and (wd / MARCA_SOURCE_HEVC).exists()
+
+
+def _marcar_source_hevc(wd: Path, completo: bool) -> None:
+    marca = wd / MARCA_SOURCE_HEVC
+    if completo:
+        marca.write_text("ok\n", encoding="utf-8")
+    else:
+        marca.unlink(missing_ok=True)
 
 
 async def _probe_frame_count(media_path: str) -> int:
@@ -1832,7 +1856,11 @@ async def run_phase_a_analyze_source(
     existing_too_small = (
         existing_size < 1_000_000
         or (mkv_size > 0 and existing_size < MIN_HEVC_RATIO * mkv_size)
+        or not _source_hevc_completo(wd)
     )
+    if existing_too_small:
+        # Lo que haya no es una extracción terminada: fuera, y la marca con él.
+        _marcar_source_hevc(wd, False)
 
     # ── Pasos 1+2 en una sola pasada ────────────────────────────────────
     # ffmpeg (limitado por disco) y extract-rpu (limitado por CPU) hacen el
@@ -1871,6 +1899,7 @@ async def run_phase_a_analyze_source(
                 raise RuntimeError(
                     tr('cmv40_pipeline.ffmpeg_termino_con_rc_0_pero', p1=format(hevc_size / 1e9, '.2f'), p2=format(mkv_size / 1e9, '.2f'), p3=format(hevc_size / mkv_size, '.1%'), p4=format(MIN_HEVC_RATIO, '.0%'))
                 )
+            _marcar_source_hevc(wd, True)
             await _log(
         log_callback,
                 _et() + tr('cmv40_pipeline.hevc_gb_rpu_extraidos_en_una', p1=format(hevc_size / 1e9, '.1f'), p2=format(ffmpeg_elapsed, '.0f'))
@@ -1949,6 +1978,7 @@ async def run_phase_a_analyze_source(
                 raise RuntimeError(
                     tr('cmv40_pipeline.ffmpeg_termino_con_rc_0_pero_2', p1=format(hevc_size / 1e9, '.2f'), p2=format(mkv_size / 1e9, '.2f'), p3=format(ratio, '.1%'), p4=format(MIN_HEVC_RATIO, '.0%'))
                 )
+        _marcar_source_hevc(wd, True)
     elif not piped_ok:
         await _log(log_callback, _et() + tr('cmv40_pipeline.source_hevc_ya_existe_reutilizando'))
     if not piped_ok:
@@ -2011,6 +2041,19 @@ async def run_phase_a_analyze_source(
     # muchos menos frames de los esperados, también abortamos. Cubre
     # casos donde ffmpeg sacó tamaño suficiente pero el HEVC tenía
     # corrupciones internas que dovi_tool no pudo procesar entero.
+    # Con el recuento EXACTO del MKV (la etiqueta de mkvmerge) se exige el
+    # mismo número: un Profile 7 del Blu-ray lleva un RPU por frame, y una
+    # extracción cortada da menos. El guard del 50 % de abajo es el respaldo
+    # para cuando el MKV no trae la etiqueta. En P8 un frame puede no llevar
+    # RPU, así que ahí no se exige.
+    exacto_mkv, es_exacto = await _contar_frames(session.source_mkv_path)
+    if (es_exacto and dovi_info.profile == 7 and dovi_info.frame_count > 0
+            and abs(dovi_info.frame_count - exacto_mkv) > _FRAME_COUNT_TOLERANCE):
+        source_hevc.unlink(missing_ok=True)
+        rpu_source.unlink(missing_ok=True)
+        _marcar_source_hevc(wd, False)
+        raise RuntimeError(tr('cmv40_pipeline.rpu_del_origen_incompleto',
+                              rpu=dovi_info.frame_count, mkv=exacto_mkv))
     if frame_count > 0 and dovi_info.frame_count > 0:
         ratio = dovi_info.frame_count / frame_count
         if ratio < 0.5:
@@ -2272,7 +2315,7 @@ async def preflight_target_path(
         await log_callback('[Pre-flight] ┌─ ' + tr('cmv40_pipeline.copiando_bin_local', p1=src.name))
 
     _descartar_correccion_de_otro_target(session, wd)
-    shutil.copy2(src, rpu_target)
+    await asyncio.to_thread(shutil.copy2, src, rpu_target)
 
     session.target_rpu_source = "path"
     session.target_rpu_path = str(src)
@@ -2482,7 +2525,7 @@ async def run_phase_b_target_from_path(
         )
         await log_callback(_et() + '┌─ ' + tr('cmv40_pipeline.copiando_rpu_target_local', p1=src.name))
     _descartar_correccion_de_otro_target(session, wd)
-    shutil.copy2(src, rpu_target)
+    await asyncio.to_thread(shutil.copy2, src, rpu_target)
     await _emit_progress(log_callback, 70, tr('cmv40_pipeline.analizando_rpu'))
 
     session.target_rpu_source = "path"
@@ -3587,20 +3630,29 @@ async def run_phase_c_extract(
     # source.hevc puede haberse borrado tras un Fase C previo (housekeeping
     # v1.9). Si el usuario rehace Fase C lo re-extraemos en ~30s con
     # ffmpeg -c copy desde el MKV origen.
+    if source_hevc.exists() and not _source_hevc_completo(wd):
+        # Un HEVC sin la marca es una extracción que no terminó: re-extraer.
+        source_hevc.unlink(missing_ok=True)
     if not source_hevc.exists():
         if Path(session.source_mkv_path).exists():
             await _log(
         log_callback,
                 _et() + tr('cmv40_pipeline.source_hevc_no_encontrado_fue_borrado')
             )
-            rc = await _run_streaming([
-                FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
-                "-map", "0:v:0", "-c:v", "copy",
-                "-bsf:v", "hevc_mp4toannexb",
-                "-f", "hevc", str(source_hevc),
-            ], log_callback=log_callback, proc_callback=proc_callback)
+            try:
+                rc = await _run_streaming([
+                    FFMPEG_BIN, "-y", "-i", session.source_mkv_path,
+                    "-map", "0:v:0", "-c:v", "copy",
+                    "-bsf:v", "hevc_mp4toannexb",
+                    "-f", "hevc", str(source_hevc),
+                ], log_callback=log_callback, proc_callback=proc_callback)
+            except BaseException:
+                source_hevc.unlink(missing_ok=True)
+                raise
             if rc != 0 or not source_hevc.exists():
+                source_hevc.unlink(missing_ok=True)
                 raise RuntimeError(tr('cmv40_pipeline.re_extraccion_de_source_hevc_fallo'))
+            _marcar_source_hevc(wd, True)
         else:
             raise RuntimeError(tr('cmv40_pipeline.source_hevc_no_existe_y_el'))
     if not rpu_target.exists():
@@ -4244,6 +4296,7 @@ async def run_phase_f_inject(
             rpu_target_v40=rpu_target_effective,
             output=rpu_merged,
             log_callback=log_callback,
+            conservar_niveles_del_disco=inject.conservar_niveles_del_disco,
         )
         had_merge = True
         await _emit_progress(log_callback, MERGE_WEIGHT, tr('cmv40_pipeline.rpu_merged_listo'))
@@ -4336,6 +4389,7 @@ async def _merge_cmv40_into_p7(
     rpu_target_v40: Path,
     output: Path,
     log_callback=None,
+    conservar_niveles_del_disco: bool = False,
 ) -> None:
     """Transfiere los niveles CMv4.0 del RPU target al RPU source, preservando
     la estructura (profile + el_type) del source. Funciona para P7 FEL, P7 MEL
@@ -4411,22 +4465,16 @@ async def _merge_cmv40_into_p7(
     # Detección por `expected_el_type` capturado del RPU source — es la marca
     # autoritativa: el header del RPU dice si es FEL o no, independientemente
     # del label que la sesión arrastre.
-    is_fel_source = (expected_el_type or "").upper() == "FEL"
-    if is_fel_source:
-        # Lista FEL: transferimos L1/L2/L6 también porque el L1 del BD FEL
-        # captura el BL+EL combinado y a veces está desactualizado respecto
-        # al WEB grading restaurado. Coincide con override FEL de
-        # bbeny123/remuxer.sh línea 2090.
-        levels = [1, 2, 3, 6, 8, 9, 10, 11, 254]
-        levels_label = "FEL [1,2,3,6,8,9,10,11,254]"
+    # La lista sale de `cmv40_strategy.niveles_del_merge`, que es también de
+    # donde la sacan los textos: FEL con los dos másters concordando trae
+    # L1/L2/L6 del bin (bbeny123/remuxer.sh, override FEL); MEL, P8 o un L1/L6
+    # que diverge, solo lo exclusivo de CMv4.0 más L3 y la marca.
+    levels = list(niveles_del_merge(expected_el_type, conservar_niveles_del_disco))
+    levels_label = "[" + ",".join(str(n) for n in levels) + "]"
+    if 1 in levels:
+        levels_label = "FEL " + levels_label
         preserve_note = tr('cmv40_pipeline.nota_l5_preservado')
     else:
-        # Lista default conservadora para MEL / P8: solo levels CMv4.0-exclusivos
-        # + L3 + marker. L1/L2/L5/L6 del BD se quedan (describen sus píxeles).
-        # Coincide con default global de bbeny123/remuxer.sh línea 31 y con la
-        # docs oficial de dovi_tool.
-        levels = [3, 8, 9, 11, 254]
-        levels_label = "[3,8,9,11,254]"
         preserve_note = tr('cmv40_pipeline.nota_l1l2l5l6_preservados')
 
     # NOTA: el campo `add_cmv4_default_metadata` documentado en docs/editor.md
@@ -4856,6 +4904,27 @@ async def run_phase_g_remux(
 #
 _FRAME_COUNT_INFO_DELTA_PCT = 1.0  # Δ relativo > 1% se loguea como warning
 _FRAME_COUNT_TOLERANCE = 2         # margen: medido, la etiqueta coincide exacta
+
+
+async def _mkv_tan_largo_como_el_origen(mkv: Path, session, log_callback) -> None:
+    """El MKV que se entrega tiene los frames de vídeo del MKV origen.
+
+    La rama merge valida el RPU del HEVC PREVIO al mux: entero aunque el mux
+    se hubiera cortado, así que un `.mkv.tmp` con media película —un remux
+    interrumpido que el forward-roll dio por bueno— pasaba todas las
+    comprobaciones (auditoría con Codex del 2026-10-17). Se compara VÍDEO con
+    VÍDEO —la etiqueta `NUMBER_OF_FRAMES` de los dos MKV—, no frames de RPU,
+    así que la salvedad de P8 (frames de vídeo sin RPU) no aplica. Sin la
+    etiqueta en alguno de los dos no hay recuento exacto y solo se registra."""
+    actual, exacto = await _contar_frames(str(mkv))
+    origen, exacto_o = await _contar_frames(session.source_mkv_path)
+    if not (exacto and exacto_o):
+        await _log(log_callback, _et() + tr('cmv40_pipeline.longitud_no_comparable'))
+        return
+    if abs(actual - origen) > _FRAME_COUNT_TOLERANCE:
+        raise RuntimeError(tr('cmv40_pipeline.mkv_con_otra_longitud',
+                              actual=actual, origen=origen))
+    await _log(log_callback, _et() + tr('cmv40_pipeline.longitud_del_mkv_ok', frames=actual))
 
 
 async def _check_frame_count(actual: int, expected: int, log_callback,
@@ -5348,6 +5417,7 @@ async def run_phase_h_validate(
             # HEVC previo al mux, y un remux que tomara el vídeo del MKV origen
             # pasaba la validación entera.
             await _dv_del_mkv_entregado(output_mkv, wd, plan, session, log_callback)
+            await _mkv_tan_largo_como_el_origen(output_mkv, session, log_callback)
 
             # result_info: el RPU completo es la fuente autoritativa
             result_info = DoviInfo(

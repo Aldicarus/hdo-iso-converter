@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from i18n import t as tr
 
 from services.settings_store import (
+    redactar_claves,
     get_google_api_key,
     get_cmv40_sheet_id_gid,
 )
@@ -407,7 +408,7 @@ async def _fetch_sheet_xlsx() -> list[list[dict]] | None:
                 return None
             xlsx_bytes = resp.content
     except Exception as e:
-        _logger.warning("XLSX fetch falló: %s", e)
+        _logger.warning("XLSX fetch falló: %s", redactar_claves(e))
         return None
 
     try:
@@ -476,7 +477,7 @@ async def _fetch_sheet_html() -> list[list[dict]] | None:
             rows = _parse_gviz_html(resp.text)
             return rows if rows else None
     except Exception as e:
-        _logger.warning("gviz HTML fetch falló: %s", e)
+        _logger.warning("gviz HTML fetch falló: %s", redactar_claves(e))
         return None
 
 
@@ -553,8 +554,8 @@ async def _fetch_sheet_api(api_key: str) -> list[list[dict]] | None:
                 return None
             data = grid_resp.json()
     except Exception as e:
-        _sheets_api_error = tr('rec999_sheet.error_de_red', motivo=e)
-        _logger.warning("Sheets API v4 falló: %s", e)
+        _sheets_api_error = tr('rec999_sheet.error_de_red', motivo=redactar_claves(e))
+        _logger.warning("Sheets API v4 falló: %s", redactar_claves(e))
         return None
 
     rows: list[list[dict]] = []
@@ -649,7 +650,7 @@ async def get_recommendations(force_refresh: bool = False) -> list[Recommendatio
         except OSError as e:
             _logger.warning("No pude persistir cache del sheet: %s", e)
     except Exception as e:
-        _logger.warning("Fetch CSV del sheet REC_9999 falló: %s", e)
+        _logger.warning("Fetch CSV del sheet REC_9999 falló: %s", redactar_claves(e))
 
     # Intento 3: último CSV bueno en disco
     source = "csv" if live_csv_ok else "disk"

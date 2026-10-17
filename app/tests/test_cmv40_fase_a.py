@@ -271,3 +271,56 @@ class TestLosDosSummariesDelArnesDicenLoMismo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUnHevcAMediasNoSeReutiliza(FaseACase):
+    """Un reinicio del contenedor al 70 % de la extracción dejaba un
+    `source.hevc` que pasaba el guard de tamaño (≥ 50 % del MKV) y se
+    reutilizaba; su RPU, con el 70 % de los frames, pasaba también el del 50 %
+    y la sesión se quedaba con esa cifra como referencia (auditoría con Codex
+    del 2026-10-17). La reutilización exige ahora la marca que solo escribe
+    una extracción terminada, y un RPU de un Profile 7 que no tiene los frames
+    exactos del MKV tumba la fase."""
+
+    def _hevc_previo(self, *, marca):
+        # Grande: más del 50 % del MKV de `write_artifacts`.
+        hevc = self.wd / "source.hevc"
+        hevc.write_bytes(b"\x00" * (4 * 1024 * 1024))
+        if marca:
+            from phases.cmv40_pipeline import MARCA_SOURCE_HEVC
+            (self.wd / MARCA_SOURCE_HEVC).write_text("ok\n")
+        return hevc
+
+    def _extracciones(self):
+        return [c for c in self.tb.find("ffmpeg") if "-t" not in c.argv]
+
+    async def test_sin_la_marca_se_vuelve_a_extraer(self):
+        self._hevc_previo(marca=False)
+        await self.correr()
+        self.assertTrue(self._extracciones(), "se ha reutilizado un HEVC sin terminar")
+        from phases.cmv40_pipeline import MARCA_SOURCE_HEVC
+        self.assertTrue((self.wd / MARCA_SOURCE_HEVC).exists(),
+                        "la extracción terminada no deja su marca")
+
+    async def test_con_la_marca_se_reutiliza(self):
+        self._hevc_previo(marca=True)
+        write_artifacts(self.wd, "RPU_source.bin", props=SRC)
+        await self.correr()
+        self.assertEqual(self._extracciones(), [], "ha extraído otra vez un HEVC completo")
+
+    async def test_un_rpu_con_frames_de_menos_tumba_la_fase(self):
+        """La referencia de toda la Fase D es este recuento: si la extracción
+        se quedó corta, mejor parar aquí que «corregir» el target."""
+        from phases.cmv40_pipeline import MARCA_SOURCE_HEVC
+        self.tb.define_rpu("RPU_source.bin", **dict(SRC.as_dict(), frames=700))
+        session = self.prepare()
+        self.tb.define_rpu("RPU_source.bin", **dict(SRC.as_dict(), frames=700))
+        write_artifacts(self.wd, Path(session.source_mkv_path).name,
+                        props=RpuProps(**dict(SRC.as_dict(), frames=700)))
+        self.tb.define_media(Path(session.source_mkv_path).name, frames=FRAMES)
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        with self.assertRaises(RuntimeError) as ctx:
+            await run_phase_a_analyze_source(session, log_callback=self.log)
+        self.assertIn("700", str(ctx.exception))
+        self.assertFalse((self.wd / "source.hevc").exists())
+        self.assertFalse((self.wd / MARCA_SOURCE_HEVC).exists())

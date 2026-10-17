@@ -200,3 +200,71 @@ class TestUnaSolaTabla(CleanupTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElBorradoMiraSiSigueSiendoHuerfano(CleanupTestCase):
+    """La validación de arriba solo mira la UBICACIÓN. Un preview viejo —o una
+    petición a mano— podía llevarse el workdir de un proyecto con sesión, y el
+    panel marcaba de serie el `.mkv.tmp` de un proyecto CMv4.0 parado en
+    `remuxed` (auditoría con Codex del 2026-10-17)."""
+
+    def setUp(self):
+        super().setUp()
+        import storage
+        self.cmv40_cfg = self.tmp / "config" / "cmv40"
+        self.cmv40_cfg.mkdir(parents=True, exist_ok=True)
+        orig = storage.CMV40_DIR
+        storage.CMV40_DIR = self.cmv40_cfg
+        self.addCleanup(setattr, storage, "CMV40_DIR", orig)
+        storage._cmv40_summary_by_file.clear()
+        self.addCleanup(storage._cmv40_summary_by_file.clear)
+
+    def _proyecto(self, sid, **campos):
+        import storage
+        from models import CMv40Session
+        s = CMv40Session(id=sid, source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+                         output_mkv_name="Peli [CMv4.0].mkv",
+                         artifacts_dir=str(self.cmv40_work / sid), **campos)
+        storage.save_cmv40_session(s)
+        return s
+
+    def _viejo(self, p):
+        import os
+        hace_dos_horas = __import__("time").time() - 7200
+        os.utime(p, (hace_dos_horas, hace_dos_horas))
+
+    def test_el_mkv_tmp_de_un_proyecto_vivo_no_se_ofrece(self):
+        self._proyecto("cmv40_vivo_2024_1", phase="remuxed")
+        tmp = self.output / "Peli [CMv4.0].mkv.tmp"
+        tmp.write_bytes(b"x" * 100)
+        self._viejo(tmp)
+        rutas = [i["path"] for i in self.main._scan_orphans()]
+        self.assertNotIn(str(tmp), rutas, "el remux de un proyecto vivo no es un huérfano")
+
+    def test_el_de_un_proyecto_archivado_si(self):
+        self._proyecto("cmv40_viejo_2024_1", archived=True)
+        tmp = self.output / "Peli [CMv4.0].mkv.tmp"
+        tmp.write_bytes(b"x" * 100)
+        self._viejo(tmp)
+        self.assertIn(str(tmp), [i["path"] for i in self.main._scan_orphans()])
+
+    def test_borrar_un_workdir_que_ya_tiene_sesion_no_lo_borra(self):
+        import asyncio
+        s = self._proyecto("cmv40_vivo_2024_2")
+        wd = Path(s.artifacts_dir)
+        wd.mkdir(parents=True, exist_ok=True)
+        (wd / "BL.hevc").write_bytes(b"x")
+        r = asyncio.run(self.main.cleanup_execute_endpoint(
+            self.main.CleanupExecuteRequest(paths=[str(wd)])))
+        self.assertTrue(wd.exists(), "se ha borrado el workdir de un proyecto vivo")
+        self.assertEqual(len(r["failed"]), 1, r)
+
+    def test_un_huerfano_de_verdad_si_se_borra(self):
+        import asyncio
+        wd = self.cmv40_work / "cmv40_sin_sesion_2024_9"
+        wd.mkdir()
+        (wd / "BL.hevc").write_bytes(b"x")
+        self._viejo(wd)
+        asyncio.run(self.main.cleanup_execute_endpoint(
+            self.main.CleanupExecuteRequest(paths=[str(wd)])))
+        self.assertFalse(wd.exists())

@@ -65,6 +65,33 @@ WORKFLOWS = ("p7_fel", "p7_mel", "p8")
 # con un source single-layer: hay que mergear en vez de inyectar directo.
 _NEEDS_MERGE_TARGETS = ("trusted_p7_fel_final", "trusted_p7_mel_final", "generic")
 
+#: Los niveles que el merge trae del bin sobre un RPU P7 FEL: los de bbeny123
+#: (`remuxer.sh`), porque el L1 de un BD FEL describe BL+EL combinados y a
+#: veces está desfasado respecto al grading restaurado. Solo cuando los dos
+#: másters CONCUERDAN —ver `niveles_divergen`—.
+NIVELES_MERGE_FEL = (1, 2, 3, 6, 8, 9, 10, 11, 254)
+#: Los conservadores: solo lo exclusivo de CMv4.0 más L3 y la marca. L1, L2,
+#: L5 y L6 se quedan del disco, que es quien describe sus píxeles.
+NIVELES_MERGE_CONSERVADORES = (3, 8, 9, 11, 254)
+#: Los gates que, si quitan la confianza, dicen que el L1/L6 del bin describe
+#: OTRO máster: traerlos sería pintar este vídeo con el brillo de aquel.
+_GATES_DE_NIVELES = ("l1_div", "l6_div")
+
+
+def niveles_del_merge(el_type_del_rpu: str, conservar_los_del_disco: bool) -> tuple[int, ...]:
+    """Qué niveles trae el merge del bin. **Una sola definición**: la usan la
+    Fase F para el `rpu_levels` del editor y los textos que lo cuentan.
+
+    Hasta el 2026-10-17 un bin P7 FEL que perdía la confianza por el L1 iba
+    por merge —eso estaba bien— con la lista FEL, que vuelve a traer el L1, el
+    L2 y el L6 del bin: justo lo que el gate había dicho que no cuadraba, y
+    CLAUDE.md afirmaba lo contrario («por merge se conserva el L1 del disco»).
+    Decidido con el usuario: si el L1 o el L6 divergen, la lista conservadora.
+    """
+    if (el_type_del_rpu or "").upper() == "FEL" and not conservar_los_del_disco:
+        return NIVELES_MERGE_FEL
+    return NIVELES_MERGE_CONSERVADORES
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  Entradas
@@ -100,6 +127,12 @@ def gates_dan_confianza(gates) -> bool:
     return not any(gate_rompe_la_confianza(g) for g in gates.values())
 
 
+def _niveles_divergen(gates) -> bool:
+    if not isinstance(gates, dict):
+        return False
+    return any(gate_rompe_la_confianza(gates.get(k)) for k in _GATES_DE_NIVELES)
+
+
 def hay_sync_por_revisar(gates) -> bool:
     """¿Queda algún gate que la Fase D pueda arreglar?
 
@@ -125,6 +158,13 @@ class WorkflowInputs:
     user_acknowledged: bool = False
     #: Queda algún gate cuya severidad dice que la Fase D puede arreglarlo.
     sync_pendiente: bool = False
+    #: El L1 o el L6 del bin no cuadran con los del disco (`_GATES_DE_NIVELES`).
+    niveles_divergen: bool = False
+    #: La Fase B ya evaluó los gates. Antes de eso `target_trust_ok` es False
+    #: porque NO SE SABE, no porque falle: decidir con él la ruta de un bin P8
+    #: predeciría merge durante toda la Fase A a un job que irá directo. Es la
+    #: misma razón por la que existe `drop_in_posible`.
+    gates_evaluados: bool = True
 
     @classmethod
     def from_session(cls, session) -> "WorkflowInputs":
@@ -135,6 +175,8 @@ class WorkflowInputs:
             trust_override=session.trust_override or "auto",
             user_acknowledged=bool(session.user_acknowledged_degradation),
             sync_pendiente=hay_sync_por_revisar(session.target_trust_gates),
+            niveles_divergen=_niveles_divergen(session.target_trust_gates),
+            gates_evaluados=bool(session.target_trust_gates),
         )
 
     @property
@@ -217,8 +259,23 @@ class WorkflowInputs:
 
     @property
     def target_needs_merge(self) -> bool:
-        """El bin no encaja como reemplazo directo del RPU del source."""
-        return self.target_type in _NEEDS_MERGE_TARGETS
+        """El bin no encaja como reemplazo directo del RPU del source.
+
+        Un bin P8 de confianza SÍ encaja en una salida single-layer —se
+        inyecta entero—, pero **solo con la confianza**: sin ella se inyectaba
+        igual y el L1, el L5 y el L6 del disco se sustituían por los de un
+        bin cuyos gates acababan de decir que no cuadran (auditoría con Codex
+        del 2026-10-17). Ahora, sin confianza, merge conservador.
+        """
+        if self.target_type in _NEEDS_MERGE_TARGETS:
+            return True
+        return (self.target_type == "trusted_p8_source" and self.gates_evaluados
+                and not self.trust_effective)
+
+    @property
+    def conservar_niveles_del_disco(self) -> bool:
+        """El merge NO trae L1/L2/L6 del bin aunque el disco sea FEL."""
+        return self.niveles_divergen
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -270,6 +327,8 @@ class InjectPlan:
     plan_key: str        # lo estable para un test: la clave, no la frase
     result_text: str
     skipped_markers: tuple[str, ...] = ()
+    #: El merge (si lo hay) usa la lista conservadora aunque el disco sea FEL.
+    conservar_niveles_del_disco: bool = False
 
     @property
     def missing_input_error(self) -> str:
@@ -412,6 +471,9 @@ def _inject_plan(inp: WorkflowInputs) -> InjectPlan:
         )
 
     if inp.source_workflow == "p7_fel":
+        plan_key = ('cmv40_strategy.plan_f_p7fel_merge_conservador'
+                    if inp.conservar_niveles_del_disco
+                    else 'cmv40_strategy.plan_f_p7fel_merge')
         return InjectPlan(
             required_input=EL_HEVC,
             required_input_hint=tr('cmv40_strategy.hint_fase_c'),
@@ -420,10 +482,10 @@ def _inject_plan(inp: WorkflowInputs) -> InjectPlan:
             needs_merge=True,
             needs_profile8=False,
             inject_label=tr('cmv40_strategy.label_f_p7fel_merge'),
-            plan_text=("[Fase F] 📋 Plan: "
-                       + tr('cmv40_strategy.plan_f_p7fel_merge')),
-            plan_key='cmv40_strategy.plan_f_p7fel_merge',
+            plan_text="[Fase F] 📋 Plan: " + tr(plan_key),
+            plan_key=plan_key,
             result_text=tr('cmv40_strategy.res_f_p7fel_merge'),
+            conservar_niveles_del_disco=inp.conservar_niveles_del_disco,
         )
 
     if inp.source_workflow == "p7_mel":

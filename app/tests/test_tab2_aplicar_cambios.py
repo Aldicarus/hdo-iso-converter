@@ -70,14 +70,18 @@ _CUERPO = """
     chapters: [],
   });
 
-  async function caso(nombre, ruta, copia, aplicar, progreso) {
+  async function caso(nombre, ruta, copia, aplicar, progreso, editar) {
+    // Tab 2 abre como mucho cinco: cada caso empieza con la columna vacía.
+    for (const q of openMkvProjects.slice()) _doCloseMkvProject(q.id);
     openMkvProject(analisis(nombre, ruta));
     const p = mkvProject;
+    if (editar) editar(p);
+    let cuerpo = null;
     // Después de abrir: lo que cuenta es lo que dice el flujo de aplicar.
     toasts.length = 0; llamadas.length = 0;
     const pasos = (progreso || []).slice();
-    responder = (url) => {
-      if (url === '/api/mkv/apply') return aplicar;
+    responder = (url, opts) => {
+      if (url === '/api/mkv/apply') { cuerpo = JSON.parse((opts && opts.body) || 'null'); return aplicar; }
       if (url === '/api/mkv/apply/progress') return pasos.length > 1 ? pasos.shift() : pasos[0];
       if (url === '/api/mkv/analyze') return analisis(p.fileName, p.filePath);
       return null;
@@ -86,6 +90,7 @@ _CUERPO = """
     try { await _doApplyMkvEdits(copia); } catch (e) { excepcion = e.message; }
     return {excepcion, filePath: p.filePath, toasts: toasts.slice(),
             reanalizo: llamadas.includes('/api/mkv/analyze'),
+            capitulosEnviados: cuerpo ? cuerpo.chapters : 'sin-cuerpo',
             esperoAlJob: llamadas.includes('/api/mkv/apply/progress')};
   }
 
@@ -107,6 +112,9 @@ _CUERPO = """
       out.casos.falloCopiando = await caso('Heat.mkv', '/mnt/library/Heat.mkv', true,
         {ok: true, queued: true},
         [{active: true, step: 'error', error: 'disco lleno', result: null}]);
+      out.casos.capitulosEditados = await caso('Tenet.mkv', '/mnt/output/Tenet.mkv', false,
+        {ok: true, new_path: '/mnt/output/Tenet.mkv', output: ''}, null,
+        (p) => { p.analysis.chapters = [{number: 1, timestamp: '00:00:00.000', name: 'Inicio'}]; });
       out.casos.cancelada = await caso('Alien.mkv', '/mnt/library/Alien.mkv', true,
         {ok: true, queued: true},
         [{active: true, step: 'copying', pct: 10}, {active: true, step: 'cancelled'}]);
@@ -182,6 +190,18 @@ class TestAplicarCambios(unittest.TestCase):
         c = self.c["falloCopiando"]
         self.assertEqual(c["filePath"], "/mnt/library/Heat.mkv")
         self.assertEqual(c["toasts"][-1], "error")
+
+    def test_sin_tocar_los_capitulos_no_se_mandan(self):
+        """`null` = no tocarlos. Mandándolos siempre, el servidor reescribía la
+        estructura entera con una única edición plana y, sobre un MKV SIN
+        capítulos, el mkvpropedit real fallaba con una `EditionEntry` vacía:
+        «Aplicar cambios» no funcionaba nunca (auditoría con Codex del
+        2026-10-17)."""
+        self.assertIsNone(self.c["sinCopia"]["capitulosEnviados"])
+
+    def test_si_se_tocan_se_mandan(self):
+        self.assertEqual(self.c["capitulosEditados"]["capitulosEnviados"],
+                         [{"number": 1, "timestamp": "00:00:00.000", "name": "Inicio"}])
 
     def test_cancelada_avisa_y_no_toca_la_pestana(self):
         c = self.c["cancelada"]

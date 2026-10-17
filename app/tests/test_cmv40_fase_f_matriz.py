@@ -52,7 +52,7 @@ class FaseFTestCase(PhaseTestCase):
     def build(self, *, source_workflow: str, target_type: str,
               source_props: RpuProps, target_props: RpuProps,
               trust_ok: bool = True, trust_override: str = "auto",
-              artifacts: tuple[str, ...] = ()):
+              artifacts: tuple[str, ...] = (), gates: dict | None = None):
         self.tb.define_rpu("RPU_source.bin", **source_props.as_dict())
         self.tb.define_rpu("RPU_target.bin", **target_props.as_dict())
         write_artifacts(self.wd, "RPU_source.bin", props=source_props)
@@ -67,6 +67,7 @@ class FaseFTestCase(PhaseTestCase):
             trust_override=trust_override,
             source_frame_count=FRAMES,
             target_frame_count=FRAMES,
+            target_trust_gates=gates or {},
         )
 
     async def run_f(self, session):
@@ -361,6 +362,93 @@ class TestP8SegunTarget(FaseFTestCase):
         )
         inj = await self.run_f(session)
         self.assertEqual(inj.opt_name("-o"), "BL_injected.hevc")
+
+
+GATE_OK = {"ok": True, "severity": "ok"}
+GATE_L1_ACK = {"ok": False, "severity": "ack_required"}
+GATE_FRAMES_REVISAR = {"ok": False, "severity": "sync_review"}
+
+
+class TestLaPoliticaDeNivelesDelMerge(FaseFTestCase):
+    """Qué niveles vienen del disco y cuáles del bin, mirando el RPU que acaba
+    inyectado (el `editor` falso aplica `rpu_levels`).
+
+    Decidido con el usuario el 2026-10-17: si el L1 o el L6 del bin divergen
+    del disco —el gate pide ACK—, el merge FEL pasa a la lista conservadora; y
+    un bin P8 sin confianza ya no sustituye el RPU entero en una salida
+    single-layer, se mergea. Antes, con el L1 divergente, el merge FEL volvía
+    a traer justo ese L1, y CLAUDE.md afirmaba lo contrario."""
+
+    DISCO = RpuProps(profile=7, el_type="FEL", cm_version="v2.9", frames=FRAMES,
+                     l1_max_cll=1000.0, l6_max_cll=1000, l5=(276, 276, 0, 0))
+    BIN = RpuProps(profile=8, el_type="", cm_version="v4.0", frames=FRAMES,
+                   has_l8=True, l1_max_cll=300.0, l6_max_cll=4000, l5=(0, 0, 0, 0))
+
+    def _inyectado(self, inj):
+        return self.tb.props_of(self.wd / inj.opt_name("--rpu-in"))
+
+    async def test_fel_con_el_l1_divergente_conserva_el_del_disco(self):
+        s = self.build(source_workflow="p7_fel", target_type="trusted_p7_fel_final",
+                       source_props=self.DISCO, target_props=self.BIN, trust_ok=False,
+                       artifacts=("EL.hevc",),
+                       gates={"frames": GATE_OK, "l1_div": GATE_L1_ACK})
+        inj = await self.run_f(s)
+        self.assertEqual(self.merge_levels, [3, 8, 9, 11, 254])
+        rpu = self._inyectado(inj)
+        self.assertEqual((rpu.l1_max_cll, rpu.l6_max_cll), (1000.0, 1000),
+                         "el L1/L6 del bin divergente ha acabado en el MKV")
+        self.assertTrue(rpu.has_l8, "sin los trims CMv4.0 no hay upgrade")
+        self.assertIn("conservador", self.log.text.lower())
+
+    async def test_fel_con_el_l6_divergente_tambien(self):
+        s = self.build(source_workflow="p7_fel", target_type="trusted_p7_fel_final",
+                       source_props=self.DISCO, target_props=self.BIN, trust_ok=False,
+                       artifacts=("EL.hevc",),
+                       gates={"frames": GATE_OK, "l6_div": GATE_L1_ACK})
+        await self.run_f(s)
+        self.assertEqual(self.merge_levels, [3, 8, 9, 11, 254])
+
+    async def test_fel_sin_divergencia_de_niveles_usa_la_lista_fel(self):
+        """Sin confianza por un desfase de frames, no por los niveles: los dos
+        másters concuerdan y el merge FEL trae L1/L2/L6 del bin."""
+        s = self.build(source_workflow="p7_fel", target_type="trusted_p7_fel_final",
+                       source_props=self.DISCO, target_props=self.BIN, trust_ok=False,
+                       artifacts=("EL.hevc",),
+                       gates={"frames": GATE_FRAMES_REVISAR, "l1_div": GATE_OK})
+        inj = await self.run_f(s)
+        self.assertEqual(self.merge_levels, [1, 2, 3, 6, 8, 9, 10, 11, 254])
+        self.assertEqual(self._inyectado(inj).l1_max_cll, 300.0)
+
+    async def test_p8_con_bin_p8_sin_confianza_mergea(self):
+        disco = RpuProps(profile=8, el_type="", cm_version="v2.9", frames=FRAMES,
+                         l1_max_cll=1000.0, l5=(276, 276, 0, 0))
+        s = self.build(source_workflow="p8", target_type="trusted_p8_source",
+                       source_props=disco, target_props=self.BIN, trust_ok=False,
+                       artifacts=("source.hevc",),
+                       gates={"frames": GATE_OK, "l5_div": GATE_L1_ACK})
+        inj = await self.run_f(s)
+        self.assertTrue(self.merged, "un bin P8 sin confianza sustituía el RPU entero")
+        self.assertEqual(self.merge_levels, [3, 8, 9, 11, 254])
+        rpu = self._inyectado(inj)
+        self.assertEqual(tuple(rpu.l5), (276, 276, 0, 0), "el L5 del disco se ha perdido")
+        self.assertEqual(rpu.profile, 8)
+
+    async def test_p7_mel_con_bin_p8_sin_confianza_mergea(self):
+        s = self.build(source_workflow="p7_mel", target_type="trusted_p8_source",
+                       source_props=SRC_MEL, target_props=self.BIN, trust_ok=False,
+                       artifacts=("BL.hevc",),
+                       gates={"frames": GATE_OK, "l1_div": GATE_L1_ACK})
+        await self.run_f(s)
+        self.assertTrue(self.merged)
+
+    async def test_p8_con_bin_p8_de_confianza_sigue_siendo_directo(self):
+        disco = RpuProps(profile=8, el_type="", cm_version="v2.9", frames=FRAMES)
+        s = self.build(source_workflow="p8", target_type="trusted_p8_source",
+                       source_props=disco, target_props=self.BIN, trust_ok=True,
+                       artifacts=("source.hevc",), gates={"frames": GATE_OK})
+        inj = await self.run_f(s)
+        self.assertFalse(self.merged)
+        self.assertEqual(inj.opt_name("--rpu-in"), "RPU_target.bin")
 
 
 class TestGuardsDeFaseF(FaseFTestCase):

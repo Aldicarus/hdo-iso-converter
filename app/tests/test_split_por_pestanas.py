@@ -130,7 +130,10 @@ class TestRecoveryDelApplyAlArrancar(unittest.TestCase):
             parcial = output / "A medio copiar.mkv"
             parcial.write_bytes(b"y" * 4096)
             (config / "mkv_apply_state.json").write_text(json.dumps({
-                "active": True, "step": "copying", "file_name": "A medio copiar.mkv",
+                # `dst_creado`: el destino lo creó ESTA copia. Sin la marca el
+                # recovery no lo borra (puede ser de otro).
+                "active": True, "step": "copying", "dst_creado": True,
+                "file_name": "A medio copiar.mkv",
                 "src_path": "/mnt/library/A medio copiar.mkv",
                 "dst_path": str(parcial), "bytes_copied": 4096,
                 "total_bytes": 70_000_000_000,

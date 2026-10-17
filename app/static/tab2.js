@@ -3041,6 +3041,16 @@ async function _esperarCopiaEncolada() {
   }
 }
 
+/**
+ * ¿El usuario cambió los capítulos respecto a lo que se analizó? Compara lo
+ * que se escribe en el MKV —inicio y nombre de cada uno, en orden—, no el
+ * objeto entero: el análisis trae campos auxiliares que la edición no toca.
+ */
+function _mkvCapitulosCambiados(project) {
+  const forma = (caps) => JSON.stringify((caps || []).map(c => [c.timestamp, c.name]));
+  return forma(project?.analysis?.chapters) !== forma(project?.originalAnalysis?.chapters);
+}
+
 async function _doApplyMkvEdits(copyToOutput) {
   const project = mkvProject;
   if (!project) return;
@@ -3058,7 +3068,12 @@ async function _doApplyMkvEdits(copyToOutput) {
     title: null,
     audio_tracks: audioEdits,
     subtitle_tracks: subEdits,
-    chapters: a.chapters,
+    // Solo si se tocaron: `null` deja los del MKV como están. Se mandaban
+    // siempre, y el servidor los reescribía como una única edición plana en
+    // `spa` aunque solo se hubiera renombrado una pista —perdiendo ediciones,
+    // jerarquía e idiomas— y sobre un MKV sin capítulos el `apply` fallaba
+    // siempre (auditoría con Codex del 2026-10-17).
+    chapters: _mkvCapitulosCambiados(project) ? a.chapters : null,
     copy_to_output: copyToOutput,
   };
 

@@ -613,7 +613,8 @@ class TestRecommendAction(unittest.TestCase):
         action, label, reason = recommend_action(s)
         self.assertEqual(action, "merge")
         self.assertIn("Inyectar RPU", label)
-        self.assertIn("preserva", label.lower())
+        # Un MKV P8: el merge es el conservador, conserva lo del disco.
+        self.assertIn("conserva l1, l2, l5 y l6", label.lower())
         self.assertIn("no coincide", reason.lower())
 
     def test_merge_when_l2_differs(self):
@@ -628,7 +629,53 @@ class TestRecommendAction(unittest.TestCase):
         action, label, reason = recommend_action(s)
         self.assertEqual(action, "merge")
         self.assertIn("L2 difiere", reason)
-        self.assertIn("preserva", label.lower())
+        # Un MKV FEL con los másters concordando: el merge FEL trae L1, L2 y
+        # L6 del bin. La etiqueta decía «(preserva L2)», que era falso.
+        self.assertIn("l1, l2 y l6 del bin", label.lower())
+
+
+class TestLaRecomendacionCuentaLosNivelesQueSeUsan(unittest.TestCase):
+    """La etiqueta y el motivo salen del plan de la Fase F: decían «(preserva
+    L2)» también cuando el merge FEL trae el L2 del bin, y en un P8 de
+    confianza que se inyecta entero hablaban de transferir niveles."""
+
+    def _sesion(self, **kw):
+        s = TestRecommendAction._base_session(TestRecommendAction())
+        s.target_preflight_ok = True
+        s.preflight_decision = "ok"
+        s.source_l2_combos = [_make_l2(2081, slope=2000)]
+        s.source_l2_unique_count = 1
+        s.target_l2_combos = [_make_l2(2081, slope=2000)]
+        for k, v in kw.items():
+            setattr(s, k, v)
+        return s
+
+    def test_fel_con_el_l1_divergente_dice_que_conserva(self):
+        s = self._sesion(source_workflow="p7_fel", target_type="trusted_p7_fel_final",
+                         target_dv_info=DoviInfo(profile=7, el_type="FEL", cm_version="v4.0"),
+                         target_trust_ok=False,
+                         target_trust_gates={"l1_div": {"ok": False, "severity": "ack_required"}})
+        accion, etiqueta, motivo = recommend_action(s)
+        self.assertEqual(accion, "merge")
+        self.assertIn("conserva l1, l2, l5 y l6", etiqueta.lower())
+        self.assertIn("[3,8,9,11,254]", motivo)
+
+    def test_fel_sin_divergencia_dice_que_trae_l1_l2_l6(self):
+        s = self._sesion(source_workflow="p7_fel", target_type="trusted_p7_fel_final",
+                         target_dv_info=DoviInfo(profile=7, el_type="FEL", cm_version="v4.0"),
+                         target_trust_ok=False,
+                         target_trust_gates={"frames": {"ok": False, "severity": "sync_review"}})
+        _, etiqueta, motivo = recommend_action(s)
+        self.assertIn("l1, l2 y l6 del bin", etiqueta.lower())
+        self.assertNotIn("[3,8,9,11,254]", motivo)
+
+    def test_un_p8_de_confianza_se_dice_que_sustituye(self):
+        s = self._sesion(source_workflow="p8", target_type="trusted_p8_source",
+                         target_dv_info=DoviInfo(profile=8, cm_version="v4.0"),
+                         target_trust_ok=True,
+                         target_trust_gates={"frames": {"ok": True, "severity": "ok"}})
+        _, etiqueta, _ = recommend_action(s)
+        self.assertIn("sustituye", etiqueta.lower())
 
 
 class TestLaRecomendacionNoSeInventaLaRuta(unittest.TestCase):

@@ -1320,10 +1320,16 @@ def recuperar_apply_interrumpido() -> None:
     # Solo si la copia llegó a ESCRIBIR. En `en_cola` (o antes) el destino no
     # es nuestro: el endpoint comprobó que no existía al encolar, y lo que
     # haya ahí ahora lo ha puesto otro mientras el trabajo esperaba turno.
-    if dst and persisted.get("step") in ("copying", "applying"):
+    if dst and persisted.get("step") in ("copying", "applying") and persisted.get("dst_creado"):
         try:
             dst_path = Path(dst)
-            if dst_path.exists() and dst_path.is_file():
+            # Y solo dentro de output: la ruta viene de un JSON persistido.
+            dentro = True
+            try:
+                dst_path.resolve().relative_to(Path(paths.OUTPUT_DIR_MKV).resolve())
+            except ValueError:
+                dentro = False
+            if dentro and dst_path.exists() and dst_path.is_file():
                 freed = dst_path.stat().st_size
                 dst_path.unlink()
                 _logger.info(
@@ -1363,6 +1369,12 @@ def _mkv_apply_reset(total_bytes: int = 0, src_path: str = "", dst_path: str = "
         # de descarte no puede distinguir SI el que se fue es este o uno
         # posterior que el usuario ya haya lanzado.
         "clave": f"apply:{Path(src_path).name}" if src_path else "",
+        # El resultado y la propiedad del destino son de ESTE trabajo: sin
+        # vaciarlos, una copia que fallaba heredaba el `new_file_path` de la
+        # anterior y la pestaña pasaba al fichero de otro (auditoría con
+        # Codex del 2026-10-17).
+        "result": None,
+        "dst_creado": False,
     })
     _mkv_apply_cancel["requested"] = False
     _persist_mkv_apply_state()
@@ -1413,38 +1425,53 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
 
     CHUNK = 8 * 1024 * 1024  # 8 MB
 
+    creado = {"dst": False}
+
     def _copy_thread():
-        copied = 0
-        last_persist = _t.monotonic()
         # `xb` y no `wb`: el trabajo puede llevar cuarenta minutos en la cola
         # desde que el endpoint comprobó que el destino no existía, y en ese
         # rato puede haber aparecido un fichero con ese nombre. Con `wb` se
         # truncaba, y si la copia fallaba el `except` de abajo lo borraba.
-        with src.open("rb") as fin, dst.open("xb") as fout:
-            while True:
-                if _mkv_apply_cancel["requested"]:
-                    raise MkvApplyCancelled()
-                buf = fin.read(CHUNK)
-                if not buf:
-                    break
-                fout.write(buf)
-                copied += len(buf)
-                _mkv_apply_state["bytes_copied"] = copied
-                _mkv_apply_state["pct"] = min(99, int(copied * 100 / total)) if total else 0
-                started = _mkv_apply_state.get("started_at") or _t.monotonic()
-                elapsed = max(0.001, _t.monotonic() - started)
-                _mkv_apply_state["elapsed_s"] = int(elapsed)
-                if copied > 0:
-                    rate = copied / elapsed
-                    remaining = total - copied
-                    _mkv_apply_state["eta_s"] = int(remaining / rate) if rate > 0 else 0
-                # Persistir cada 1s mientras copia. El frontend polea a 1s
-                # también, así que es la granularidad útil. El polling REST
-                # devuelve el state in-memory, no el persistido — la
-                # persistencia es solo para survival ante crash.
-                if _t.monotonic() - last_persist > 1.0:
-                    _persist_mkv_apply_state()
-                    last_persist = _t.monotonic()
+        #
+        # **El destino se abre ANTES que el origen, y se anota que es
+        # nuestro.** Abriendo primero el origen, un fallo de lectura saltaba
+        # al `except` de abajo, que borraba el destino aunque fuera de otro;
+        # y el recovery borraba con `step=copying` aunque el `xb` no hubiera
+        # llegado a crear nada. Lo que se borra es solo lo que esta copia creó.
+        with dst.open("xb") as fout:
+            creado["dst"] = True
+            _mkv_apply_state["dst_creado"] = True
+            _persist_mkv_apply_state()
+            with src.open("rb") as fin:
+                _copiar_trozos(fin, fout)
+
+    def _copiar_trozos(fin, fout):
+        copied = 0
+        last_persist = _t.monotonic()
+        while True:
+            if _mkv_apply_cancel["requested"]:
+                raise MkvApplyCancelled()
+            buf = fin.read(CHUNK)
+            if not buf:
+                break
+            fout.write(buf)
+            copied += len(buf)
+            _mkv_apply_state["bytes_copied"] = copied
+            _mkv_apply_state["pct"] = min(99, int(copied * 100 / total)) if total else 0
+            started = _mkv_apply_state.get("started_at") or _t.monotonic()
+            elapsed = max(0.001, _t.monotonic() - started)
+            _mkv_apply_state["elapsed_s"] = int(elapsed)
+            if copied > 0:
+                rate = copied / elapsed
+                remaining = total - copied
+                _mkv_apply_state["eta_s"] = int(remaining / rate) if rate > 0 else 0
+            # Persistir cada 1s mientras copia. El frontend polea a 1s
+            # también, así que es la granularidad útil. El polling REST
+            # devuelve el state in-memory, no el persistido — la
+            # persistencia es solo para survival ante crash.
+            if _t.monotonic() - last_persist > 1.0:
+                _persist_mkv_apply_state()
+                last_persist = _t.monotonic()
 
     try:
         await asyncio.to_thread(_copy_thread)
@@ -1456,15 +1483,15 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
         # marca step="cancelled" en el estado para que el frontend cierre el
         # modal con el mensaje correcto en el siguiente poll.
         try:
-            if dst.exists():
+            if creado["dst"] and dst.exists():
                 dst.unlink()
         except Exception:
             pass
         raise
     except Exception as e:
-        # Best-effort cleanup: borra destino parcial para no dejar basura
+        # Best-effort cleanup: borra el destino parcial, si es nuestro.
         try:
-            if dst.exists():
+            if creado["dst"] and dst.exists():
                 dst.unlink()
         except Exception:
             pass
@@ -1508,15 +1535,20 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
     """
     workload.registrar(_clave_copia, workload.TAB_MKV,
                        tr('tab2.copia_de_a_output', fichero=src_path.name))
-    paths.OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
-    _mkv_apply_reset(
-        total_bytes=src_path.stat().st_size,
-        src_path=str(src_path),
-        dst_path=str(dst_path),
-        file_name=src_path.name,
-    )
     copiado = False
     try:
+        # La preparación DENTRO del try: con el origen borrado mientras el
+        # trabajo esperaba turno, el `stat()` lanzaba antes del `finally` y el
+        # registro DIFERIDO se quedaba puesto — la cola entera (rips y fases
+        # CMv4.0) esperaba a que se liberara, hasta reiniciar (auditoría con
+        # Codex del 2026-10-17, reproducido).
+        paths.OUTPUT_DIR_MKV.mkdir(parents=True, exist_ok=True)
+        _mkv_apply_reset(
+            total_bytes=src_path.stat().st_size,
+            src_path=str(src_path),
+            dst_path=str(dst_path),
+            file_name=src_path.name,
+        )
         await _mkv_copy_to_output_with_progress(src_path, dst_path)
         copiado = True
         _mkv_apply_set_step("applying", tr('tab2.aplicando_cambios_con_mkvpropedit'))

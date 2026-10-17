@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from models import L2Combo, L8Combo
-from phases.cmv40_strategy import va_por_drop_in
+from phases.cmv40_strategy import resolve_plan, va_por_drop_in
 
 logger = logging.getLogger("hdo.rpu_analyze")
 
@@ -1525,9 +1525,21 @@ def recommend_action(session) -> tuple[str, str, str]:
             tr('rpu_analyze.el_perfil_del_bin_coincide_con_el', p1=perfil_mkv, quality_label=quality_label),
         )
 
-    # Merge selectivo. El motivo, del más raíz al más fino: `profile_match`
-    # y el L2 ya no deciden nada, pero siguen siendo lo que hay que contarle
-    # al usuario cuando son ellos los que impiden la ruta rápida.
+    # Qué hace la Fase F con este bin lo dice el plan, no esta función: un P8
+    # de confianza sobre una salida single-layer se inyecta ENTERO —no hay
+    # merge—, y un merge FEL trae L1/L2/L6 del bin salvo que diverjan. La
+    # etiqueta decía «(preserva L2)» en los tres casos.
+    inject = resolve_plan(session).inject
+    if not inject.needs_merge and session.target_type == "trusted_p8_source":
+        return ("merge", tr('rpu_analyze.inyectar_directo'),
+                tr('rpu_analyze.directo_p8_de_confianza', calidad=quality_label))
+    conservador = not (source_wf == "p7_fel" and not inject.conservar_niveles_del_disco)
+    etiqueta = tr('rpu_analyze.inyectar_merge_conservador' if conservador
+                  else 'rpu_analyze.inyectar_merge_fel')
+
+    # Merge. El motivo, del más raíz al más fino: `profile_match` y el L2 ya
+    # no deciden nada, pero siguen siendo lo que hay que contarle al usuario
+    # cuando son ellos los que impiden la ruta rápida.
     if not profile_match:
         reason = tr(
             'rpu_analyze.perfil_no_coincide',
@@ -1552,10 +1564,11 @@ def recommend_action(session) -> tuple[str, str, str]:
             k for k, v in (session.target_trust_gates or {}).items()
             if isinstance(v, dict) and not v.get("ok", True)
         )
-        reason = tr('rpu_analyze.drop_in_gates_caidos',
+        reason = tr('rpu_analyze.drop_in_gates_caidos_conservador' if conservador
+                    else 'rpu_analyze.drop_in_gates_caidos',
                     gates=caidos or "?", calidad=quality_label)
 
-    return ("merge", tr('rpu_analyze.inyectar_rpu_cmv4_0_preserva_l2'), reason)
+    return ("merge", etiqueta, reason)
 
 
 # ── Procedencia declarada en el nombre del bin ───────────────────────────────

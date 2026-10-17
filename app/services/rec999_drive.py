@@ -27,6 +27,7 @@ import httpx
 from pydantic import BaseModel
 
 from services.settings_store import (
+    redactar_claves,
     get_google_api_key,
     registrar_descarga_de_bin,
     get_cmv40_drive_folder_id,
@@ -191,7 +192,7 @@ async def list_bin_files(force_refresh: bool = False) -> list[DriveFile]:
     except PermissionError:
         raise
     except Exception as e:
-        _logger.warning("Drive list falló: %s — intento cache en disco", e)
+        _logger.warning("Drive list falló: %s — intento cache en disco", redactar_claves(e))
         disk = _load_cache()
         if disk:
             _cache_files = disk
@@ -405,7 +406,12 @@ async def download_file(file_id: str, dest_path: Path,
     params = {"alt": "media", "key": api_key}
 
     bytes_written = 0
-    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=20.0)) as client:
+    # Sin tope TOTAL —un bin de 60 MB por una línea lenta puede tardar— pero
+    # con tope de INACTIVIDAD: sin `read`, un stream que deja de mandar bytes
+    # dejaba el pre-flight colgado para siempre (auditoría con Codex del
+    # 2026-10-17). Y lo que se escribió a medias se borra: un bin truncado no
+    # puede quedarse con el nombre que luego se reutiliza.
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=20.0, read=120.0)) as client:
         async with client.stream("GET", url, params=params) as resp:
             if resp.status_code != 200:
                 text = await resp.aread()
@@ -425,15 +431,23 @@ async def download_file(file_id: str, dest_path: Path,
                 )
             total_s = resp.headers.get("content-length")
             total = int(total_s) if total_s and total_s.isdigit() else None
-            with dest_path.open("wb") as fp:
-                async for chunk in resp.aiter_bytes(chunk_size=256 * 1024):
-                    fp.write(chunk)
-                    bytes_written += len(chunk)
-                    if progress_cb:
-                        try:
-                            await progress_cb(bytes_written, total)
-                        except Exception:
-                            pass
+            try:
+                with dest_path.open("wb") as fp:
+                    async for chunk in resp.aiter_bytes(chunk_size=256 * 1024):
+                        fp.write(chunk)
+                        bytes_written += len(chunk)
+                        if progress_cb:
+                            try:
+                                await progress_cb(bytes_written, total)
+                            except Exception:
+                                pass
+            except BaseException:
+                dest_path.unlink(missing_ok=True)
+                raise
+            if total is not None and bytes_written != total:
+                dest_path.unlink(missing_ok=True)
+                raise RuntimeError(tr('rec999_drive.descarga_incompleta',
+                                      bytes=bytes_written, total=total))
     # Un bin más del repo que mantiene otra persona. Solo cuenta si se está
     # usando el enlace que trae la app (el helper lo decide); con repo propio
     # es un no-op. Va DESPUÉS del stream y no antes: lo que se cuenta son

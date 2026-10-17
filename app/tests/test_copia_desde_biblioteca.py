@@ -196,6 +196,44 @@ class TestLaCopiaCompleta(CopiaCase):
         self.assertFalse((self.tab2._mkv_apply_state.get("result") or {}).get("new_file_path"))
 
 
+class TestLoQueNoEsDeLaCopiaNoSeToca(CopiaCase):
+    """Auditoría completa con Codex del 2026-10-17: dos ventanas que el `xb`
+    no cubría, y una que paraba la cola entera."""
+
+    def test_un_origen_ilegible_no_borra_un_destino_ajeno(self):
+        r = self._pedir()
+        self.assertEqual(r.status_code, 200, r.text)
+        self.dst.write_bytes(b"ajeno")        # aparece mientras espera turno
+        self.src.chmod(0o000)
+        self.addCleanup(self.src.chmod, 0o644)
+        asyncio.run(self._correr(self._turno()))
+        self.assertEqual(self.tab2._mkv_apply_state["step"], "error")
+        self.assertEqual(self.dst.read_bytes(), b"ajeno", "se ha borrado un fichero ajeno")
+
+    def test_un_origen_que_desaparece_en_la_cola_no_bloquea_la_cola(self):
+        import workload
+        r = self._pedir()
+        self.assertEqual(r.status_code, 200, r.text)
+        self.src.unlink()
+        asyncio.run(self._correr(self._turno()))
+        st = self.tab2._mkv_apply_state
+        self.assertEqual(st["step"], "error", st)
+        self.assertIsNone(workload.bloqueado_por(None),
+                          "el registro diferido se ha quedado puesto: la cola entera esperaría")
+
+    def test_una_copia_que_falla_no_hereda_el_resultado_de_la_anterior(self):
+        self.tab2._mkv_apply_state["result"] = {"ok": True, "new_file_path": "/mnt/output/OTRA.mkv",
+                                               "copied_from_library": True}
+        self._lenta(falla_en=2)
+        r = self._pedir()
+        self.assertEqual(r.status_code, 200, r.text)
+        asyncio.run(self._correr(self._turno()))
+        st = self.tab2._mkv_apply_state
+        self.assertEqual(st["step"], "error")
+        self.assertIsNone(st.get("result"),
+                          "la pestaña pasaría al fichero de la copia anterior")
+
+
 class TestLoQueSeRechazaAntesDeEncolar(CopiaCase):
 
     def test_sin_confirmar_la_copia_es_409_y_no_se_encola_nada(self):
@@ -266,7 +304,7 @@ class TestElReinicioAMitad(CopiaCase):
 
     def test_una_copia_cortada_borra_el_parcial_y_lo_dice(self):
         self.dst.write_bytes(self.contenido[: 8 * MB])
-        self._persistido(step="copying")
+        self._persistido(step="copying", dst_creado=True)
         self.tab2.recuperar_apply_interrumpido()
         self.assertFalse(self.dst.exists())
         self.assertEqual(self.src.read_bytes(), self.contenido)
@@ -297,6 +335,26 @@ class TestElReinicioAMitad(CopiaCase):
                 self._persistido(step=paso)
                 self.tab2.recuperar_apply_interrumpido()
                 self.assertEqual(self.dst.read_bytes(), self.contenido)
+
+    def test_copying_sin_haber_creado_el_destino_no_lo_borra(self):
+        """El paso `copying` se persiste ANTES del `xb`: un reinicio en ese
+        hueco dejaba `copying` en disco con un destino que era de otro
+        (auditoría con Codex del 2026-10-17). Lo que decide es la marca de
+        que el destino lo creó esta copia."""
+        self.dst.write_bytes(self.contenido)
+        self._persistido(step="copying")
+        self.tab2.recuperar_apply_interrumpido()
+        self.assertEqual(self.dst.read_bytes(), self.contenido)
+
+    def test_un_destino_fuera_de_output_no_se_borra(self):
+        """La ruta sale de un JSON persistido: el recovery no borra fuera."""
+        fuera = self.tmp / "ajeno.mkv"
+        fuera.write_bytes(b"ajeno")
+        self.tab2._MKV_APPLY_STATE_FILE.write_text(json.dumps({
+            "active": True, "step": "copying", "dst_creado": True,
+            "src_path": str(self.src), "dst_path": str(fuera), "file_name": "x"}))
+        self.tab2.recuperar_apply_interrumpido()
+        self.assertTrue(fuera.exists())
 
     def test_sin_nada_activo_no_toca_nada(self):
         self.dst.write_bytes(self.contenido)

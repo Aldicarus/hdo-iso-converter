@@ -147,6 +147,7 @@ def _cmv40_marcar_activa(session: CMv40Session, fase: str) -> None:
     """Marca la sesión como ocupada por `fase` (en el objeto y en el registro)."""
     session.running_phase = fase
     _cmv40_activas[session.id] = fase
+    _cmv40_sesion_viva[session.id] = session
 
 
 def _cmv40_marcar_libre(session: CMv40Session) -> None:
@@ -154,6 +155,31 @@ def _cmv40_marcar_libre(session: CMv40Session) -> None:
     session.running_phase = None
     _cmv40_activas.pop(session.id, None)
     _cmv40_progreso_vivo.pop(session.id, None)
+    # Solo si es ESTE objeto: `cancel` libera sobre una copia leída del disco
+    # mientras la fase todavía termina con la suya.
+    if _cmv40_sesion_viva.get(session.id) is session:
+        _cmv40_sesion_viva.pop(session.id, None)
+
+
+#: El objeto de sesión que tiene en la mano una fase o un pre-flight en marcha.
+#: La fase lo guarda al terminar, ENTERO: un endpoint que mientras tanto
+#: escribiera en el disco —apagar el auto-pipeline, la ficha de TMDb o el
+#: veredicto de la hoja que se hidratan al crear el proyecto— veía su cambio
+#: deshecho por esa copia vieja, y con el auto apagado la fase siguiente se
+#: encadenaba igual (auditoría con Codex del 2026-10-17, reproducido). Releer
+#: al empezar cada fase protege la espera en la cola, no los minutos que dura.
+_cmv40_sesion_viva: dict[str, CMv40Session] = {}
+
+
+def _cmv40_propagar_a_la_viva(session_id: str, **campos) -> None:
+    """Lleva a la sesión viva (si la hay) lo que un endpoint acaba de guardar.
+
+    Lo llaman SOLO los escritores de campos del usuario —no los de la fase—,
+    justo después de su save y sin un `await` de por medio."""
+    viva = _cmv40_sesion_viva.get(session_id)
+    if viva is not None:
+        for campo, valor in campos.items():
+            setattr(viva, campo, valor)
 
 
 def recuperar_sesiones_interrumpidas() -> None:
@@ -195,6 +221,10 @@ def recuperar_sesiones_interrumpidas() -> None:
                 last.error_message = msg
                 from datetime import datetime as _dt, timezone as _tz
                 last.finished_at = _dt.now(_tz.utc)
+                # Un remux cortado por el reinicio deja su `.mkv.tmp` a medias
+                # con el nombre que la Fase H va a validar.
+                if getattr(last, "phase", "") == "remux":
+                    _cmv40_cleanup_orphan_tmp(s)
         save_cmv40_session(s)
         count += 1
     if count:
@@ -959,6 +989,13 @@ async def _run_cmv40_phase_locked(
             record.finished_at = datetime.now(timezone.utc)
             record.elapsed_seconds = (record.finished_at - started).total_seconds()
             session.phase = previous_phase
+            # Un remux cancelado deja el `.mkv.tmp` A MEDIAS. Solo se borraba
+            # cuando el remux FALLABA, y con el historial guardando un remux
+            # `done` anterior el forward-roll lo daba por bueno: la Fase H lo
+            # validaba y, por la rama merge, se entregaba truncado (auditoría
+            # con Codex del 2026-10-17).
+            if phase_name == "remux":
+                _cmv40_cleanup_orphan_tmp(session)
             await _cmv40_log(
                 session,
                 '🛑 Cancelado: ' + tr(
@@ -1539,6 +1576,12 @@ async def _cmv40_runner_de_la_cola(trabajo) -> None:
             session = load_cmv40_session(trabajo.clave)
             if session is None:
                 _logger.warning("[cola] la sesión %s ya no existe — %s descartada",
+                                trabajo.clave, fase)
+                return
+            # Un proyecto archivado (limpiado) ya no tiene artefactos: correr
+            # una fase sobre él falla a mitad o, peor, regenera trozos sueltos.
+            if session.archived:
+                _logger.warning("[cola] la sesión %s está archivada — %s descartada",
                                 trabajo.clave, fase)
                 return
             if fase == "preflight":
@@ -2339,6 +2382,7 @@ async def cmv40_tmdb_refresh(session_id: str, body: dict | None = None):
 
     session.tmdb_info = {**details.model_dump(), "idioma": idioma_activo()}
     save_cmv40_session(session)
+    _cmv40_propagar_a_la_viva(session.id, tmdb_info=session.tmdb_info)
     return {"tmdb_configured": True, "updated": True,
             "details": session.tmdb_info}
 
@@ -2699,6 +2743,7 @@ async def _cmv40_hydrate_tmdb(session_id: str) -> None:
             return
         fresh.tmdb_info = {**details.model_dump(), "idioma": idioma_activo()}
         save_cmv40_session(fresh)
+        _cmv40_propagar_a_la_viva(session_id, tmdb_info=fresh.tmdb_info)
     except Exception as e:
         # No crítico
         _logger.warning("TMDb hydrate falló para %s: %s", session_id, e)
@@ -2727,6 +2772,7 @@ async def _cmv40_hydrate_sheet_recommendation(session_id: str) -> None:
             return
         fresh.sheet_recommendation = rec.model_dump()
         save_cmv40_session(fresh)
+        _cmv40_propagar_a_la_viva(session_id, sheet_recommendation=fresh.sheet_recommendation)
     except Exception as e:
         _logger.warning("Sheet hydrate falló para %s: %s", session_id, e)
 
@@ -2973,11 +3019,12 @@ async def cmv40_get(session_id: str, include_log: bool = True,
                                   "injected")
             and session.output_mkv_name):
         tmp_path = _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
-        had_successful_remux = any(
-            (rec.phase == "remux" and rec.status == "done")
-            for rec in (session.phase_history or [])
-        )
-        if tmp_path.exists() and had_successful_remux:
+        # El ÚLTIMO remux, no cualquiera: con un remux bueno de ayer y uno de
+        # hoy cancelado, interrumpido o en marcha, el `.mkv.tmp` es el de hoy
+        # —a medias— y bastaba con el de ayer para darlo por terminado.
+        remuxes = [rec for rec in (session.phase_history or []) if rec.phase == "remux"]
+        had_successful_remux = bool(remuxes) and remuxes[-1].status == "done"
+        if tmp_path.exists() and had_successful_remux and not session.running_phase:
             _logger.info(
                 "Forward-roll de sesión %s: phase=%s pero .mkv.tmp existe + remux done en historial → remuxed",
                 session.id, session.phase,
@@ -3077,10 +3124,10 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     session = load_cmv40_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
-    if session.running_phase:
-        # Borrar el proyecto entero con una fase corriendo deja el subproceso
-        # huérfano escribiendo en un workdir que ya no tiene dueño.
-        _cmv40_guard_not_running(session, tr('cmv40.borrar_el_proyecto'))
+    # Borrar el proyecto entero con una fase corriendo deja el subproceso
+    # huérfano escribiendo en un workdir que ya no tiene dueño; con una fase
+    # en cola, el save final de esa fase lo resucitaba. El guard mira las dos.
+    _cmv40_guard_not_running(session, tr('cmv40.borrar_el_proyecto'))
     if clean_artifacts and session.artifacts_dir:
         wd = Path(session.artifacts_dir)
         if wd.exists():
@@ -3136,10 +3183,21 @@ def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
     tienen su guard (`_cmv40_guard_no_pending_error`); estos dos no tenían
     ninguno. `reset-sync` sí lo comprueba, con el mismo criterio.
     """
-    if session.running_phase:
+    en_curso = session.running_phase or _cmv40_activas.get(session.id)
+    if en_curso:
         raise HTTPException(
             status_code=409,
-            detail=(tr('cmv40.hay_una_fase_en_curso_cancelala', running_phase=session.running_phase, accion=accion)),
+            detail=(tr('cmv40.hay_una_fase_en_curso_cancelala', running_phase=en_curso, accion=accion)),
+        )
+    # Una fase que espera turno no tiene `running_phase`, y la cola la
+    # despacharía después sobre lo que este endpoint acabe de borrar o
+    # cambiar: limpiar un proyecto con su Fase F en cola borraba los
+    # artefactos y la F corría igual (auditoría con Codex del 2026-10-17).
+    cola = _cmv40_posicion_en_cola(session.id)
+    if cola:
+        raise HTTPException(
+            status_code=409,
+            detail=tr('cmv40.hay_una_fase_en_cola', fase=cola.get("fase") or "?", accion=accion),
         )
 
 
@@ -3149,6 +3207,7 @@ async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_mutable(session)
+    _cmv40_guard_not_running(session, tr('cmv40.renombrar_el_mkv_de_salida'))
     new_name = body.output_mkv_name.strip()
     if not new_name:
         raise HTTPException(status_code=400, detail=tr('cmv40.nombre_vacio'))
@@ -3386,6 +3445,7 @@ async def cmv40_set_auto_pipeline(session_id: str, body: CMv40AutoPipelineReques
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     session.auto_pipeline = body.enabled
     save_cmv40_session(session)
+    _cmv40_propagar_a_la_viva(session_id, auto_pipeline=body.enabled)
     if body.enabled:
         await _cmv40_log(session, tr('cmv40.auto_pipeline_backend_activado_el_job_avanzara'))
         # Dispara orquestador inmediatamente — si la sesión está en una fase

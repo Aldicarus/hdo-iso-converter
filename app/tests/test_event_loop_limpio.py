@@ -33,7 +33,12 @@ APP_DIR = Path(__file__).resolve().parents[1]
 
 _FICHEROS = ("main.py", "routers/tab1.py", "routers/tab2.py",
              "routers/cmv40.py",
-             "phases/mkv_analyze.py", "phases/luminance.py")
+             "phases/mkv_analyze.py", "phases/luminance.py",
+             # Las fases: la copia del intermedio de Tab 1 entre /mnt/tmp y
+             # /mnt/output (`shutil.move` = copiar decenas de GB) corría en el
+             # bucle y no la miraba nadie (auditoría con Codex del 2026-10-17).
+             "phases/phase_a.py", "phases/phase_d.py", "phases/phase_e.py",
+             "phases/cmv40_pipeline.py", "firma.py")
 
 # Llamadas cuyo coste escala con el TAMAÑO del dato: un volcado de RPU, un
 # árbol de artefactos de 400 GB, un JSON de 24 MB.
@@ -44,6 +49,12 @@ _PESADAS = {
     "copyfileobj": {"shutil", "_sh", "_shutil"},
     "rglob": None,                       # cualquier receptor (Path)
     "walk": {"os"},
+    # Entre montajes distintos `move` COPIA el fichero entero.
+    "move": {"shutil", "_sh", "_shutil"},
+    "copyfile": {"shutil", "_sh", "_shutil"},
+    "copy2": {"shutil", "_sh", "_shutil"},
+    # Un subproceso síncrono para el bucle mientras dure.
+    "run": {"subprocess", "_subprocess", "_sp"},
 }
 
 # (fichero, función, llamada) → motivo por el que se acepta. Vacío a
@@ -57,8 +68,34 @@ def _receptor(func: ast.AST) -> str | None:
     return None
 
 
+def _es_pesada(nodo: ast.Call) -> str | None:
+    f = nodo.func
+    nombre = f.attr if isinstance(f, ast.Attribute) else (
+        f.id if isinstance(f, ast.Name) else None)
+    if nombre not in _PESADAS:
+        return None
+    receptores = _PESADAS[nombre]
+    if receptores is not None and _receptor(f) not in receptores:
+        return None
+    return nombre
+
+
+def _helpers_pesados(arbol: ast.AST) -> set[str]:
+    """Las funciones SÍNCRONAS de módulo que hacen algo pesado dentro. Una
+    corrutina que las LLAME directamente para el bucle igual que si lo hiciera
+    ella —el `rmtree` del borrado de huérfanos vivía en un helper y el guard
+    no lo veía—; pasarlas a `asyncio.to_thread(helper, …)` no es llamarlas."""
+    pesados = set()
+    for fn in getattr(arbol, "body", []):
+        if isinstance(fn, ast.FunctionDef):
+            if any(isinstance(n, ast.Call) and _es_pesada(n) for n in ast.walk(fn)):
+                pesados.add(fn.name)
+    return pesados
+
+
 def _hallazgos(ruta: Path, etiqueta: str) -> list[tuple[str, str, str]]:
     arbol = ast.parse(ruta.read_text())
+    helpers = _helpers_pesados(arbol)
     fuera = []
     for fn in ast.walk(arbol):
         if not isinstance(fn, ast.AsyncFunctionDef):
@@ -73,13 +110,10 @@ def _hallazgos(ruta: Path, etiqueta: str) -> list[tuple[str, str, str]]:
         for nodo in ast.walk(fn):
             if not isinstance(nodo, ast.Call) or id(nodo) in en_helper:
                 continue
-            f = nodo.func
-            nombre = f.attr if isinstance(f, ast.Attribute) else (
-                f.id if isinstance(f, ast.Name) else None)
-            if nombre not in _PESADAS:
-                continue
-            receptores = _PESADAS[nombre]
-            if receptores is not None and _receptor(f) not in receptores:
+            nombre = _es_pesada(nodo)
+            if nombre is None and isinstance(nodo.func, ast.Name) and nodo.func.id in helpers:
+                nombre = nodo.func.id
+            if nombre is None:
                 continue
             fuera.append((etiqueta, fn.name, nombre))
     return fuera
@@ -109,6 +143,37 @@ class TestSinTrabajoPesadoEnElBucle(unittest.TestCase):
         self.assertEqual(muertas, [],
                          "exenciones que ya no corresponden a ningún código; "
                          f"bórralas de _EXENTAS: {muertas}")
+
+
+class TestElDetectorVeLasFormasNuevas(unittest.TestCase):
+    """El detector sobre fuente sintética: si deja de ver una forma, el guard
+    de arriba pasa en verde vigilando el vacío."""
+
+    def _ve(self, codigo):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+            f.write(codigo)
+        try:
+            return [c for _, _, c in _hallazgos(Path(f.name), "x")]
+        finally:
+            Path(f.name).unlink()
+
+    def test_un_helper_sincrono_pesado_llamado_desde_una_corrutina(self):
+        codigo = ("import shutil\n"
+                  "def _borrar(p):\n    shutil.rmtree(p)\n"
+                  "async def endpoint():\n    _borrar('/x')\n")
+        self.assertEqual(self._ve(codigo), ["_borrar"])
+
+    def test_pasarlo_a_un_thread_no_es_llamarlo(self):
+        codigo = ("import asyncio, shutil\n"
+                  "def _borrar(p):\n    shutil.rmtree(p)\n"
+                  "async def endpoint():\n    await asyncio.to_thread(_borrar, '/x')\n")
+        self.assertEqual(self._ve(codigo), [])
+
+    def test_move_y_subprocess_run(self):
+        codigo = ("import shutil, subprocess\n"
+                  "async def f():\n    shutil.move('a', 'b')\n    subprocess.run(['x'])\n")
+        self.assertEqual(sorted(self._ve(codigo)), ["move", "run"])
 
 
 class TestLosSitiosArregladosSiguenEnUnThread(unittest.TestCase):

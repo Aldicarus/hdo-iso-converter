@@ -463,3 +463,26 @@ class TestElPerfilSobreviveAlCache(AuditoriaCase):
                          "reabrir el MKV ha vuelto a extraer el RPU")
         self.assertEqual(self.tb.find("dovi_tool", "export"), [],
                          "reabrir el MKV ha vuelto a exportar niveles")
+
+
+class TestLaReservaEnDosPasadasCompleta(AuditoriaCase):
+    """Cuando el pipe no se puede usar, la extracción va en dos pasadas
+    (ffmpeg → HEVC en disco → extract-rpu). Ningún test la completaba, así que
+    quitarle el `-c:v copy` —recodificar con libx265 durante días y perder el
+    RPU— sobrevivía a la suite (auditoría con Codex del 2026-10-17)."""
+
+    async def test_extrae_el_hevc_sin_recodificar_y_termina(self):
+        async def _sin_pipe(*a, **k):
+            return False
+        # `mkv_analyze` lo importa del pipeline al llamarlo: se sustituye ahí.
+        from phases import cmv40_pipeline
+        orig = cmv40_pipeline._ffmpeg_extract_rpu_piped
+        cmv40_pipeline._ffmpeg_extract_rpu_piped = _sin_pipe
+        self.addCleanup(setattr, cmv40_pipeline, "_ffmpeg_extract_rpu_piped", orig)
+        r, pasos = await self.auditar()
+        self.assertEqual(pasos[-1], ("done", 100.0))
+        self.assertEqual(r.get("quality_total_frames_rpu"), 50, r)
+        [ff] = [c for c in self.tb.find("ffmpeg") if any(a.endswith(".hevc") for a in c.argv)]
+        self.assertEqual(ff.opt("-c:v"), "copy", "recodificar pierde el RPU")
+        self.assertTrue(any(".hevc" in a for c in self.tb.find("dovi_tool", "extract-rpu")
+                            for a in c.argv), "el RPU no sale del HEVC extraído")

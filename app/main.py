@@ -789,10 +789,20 @@ def _scan_orphans() -> list[dict]:
 
     # 4. .mkv.tmp del remux (Fase G)
     output_base = paths.OUTPUT_DIR_MKV
+    # El `.mkv.tmp` de un proyecto CMv4.0 vivo NO es un huérfano: es su remux
+    # esperando a la Fase H. Pasada una hora el panel lo marcaba de serie, y
+    # borrarlo obligaba a rehacer la Fase G (auditoría con Codex, 2026-10-17).
+    try:
+        from storage import list_cmv40_sessions_summary
+        de_proyectos = {f"{s.get('output_mkv_name')}.tmp"
+                        for s in list_cmv40_sessions_summary()
+                        if s.get("output_mkv_name") and not s.get("archived")}
+    except Exception:
+        de_proyectos = set()
     if output_base.exists():
         try:
             for tf in output_base.glob("*.mkv.tmp"):
-                if not tf.is_file():
+                if not tf.is_file() or tf.name in de_proyectos:
                     continue
                 try: size = tf.stat().st_size
                 except OSError: continue
@@ -940,7 +950,10 @@ async def cleanup_scan_endpoint():
     """Devuelve la lista de huérfanos detectados (workdirs CMv4.0 sin sesión,
     mount points ISO zombies, lightprof tmps, .mkv.tmp incompletos). Solo
     lectura — para borrar usar POST /api/cleanup/execute."""
-    items = _scan_orphans()
+    # A un thread: recorre /mnt/tmp, /mnt/output y la caché de Tab 2 con
+    # `rglob` (auditoría con Codex del 2026-10-17: el guard del bucle no
+    # miraba los helpers síncronos).
+    items = await asyncio.to_thread(_scan_orphans)
     return {
         "items": items,
         "total_count": len(items),
@@ -969,8 +982,18 @@ async def cleanup_execute_endpoint(body: CleanupExecuteRequest):
     deleted = []
     failed = []
     total_freed = 0
+    # El borrado vuelve a preguntar si cada ruta SIGUE siendo un huérfano. La
+    # validación de arriba solo mira la ubicación, y un preview viejo —o una
+    # petición a mano— podía llevarse el workdir de un proyecto que ya tenía
+    # sesión, o el `.mkv.tmp` de uno a medias (auditoría con Codex del
+    # 2026-10-17). Y el `rmtree`, a un thread: son cientos de GB sobre ZFS.
+    vigentes = {i["path"] for i in await asyncio.to_thread(_scan_orphans)}
     for path in body.paths or []:
-        ok, freed, err = _delete_orphan_path(path)
+        if path not in vigentes:
+            failed.append({"path": path, "error": tr('main.ya_no_es_huerfano')})
+            _logger.warning("[Cleanup] %s ya no figura como huérfano: no se borra", path)
+            continue
+        ok, freed, err = await asyncio.to_thread(_delete_orphan_path, path)
         if ok:
             deleted.append({"path": path, "freed_bytes": freed})
             total_freed += freed
@@ -1098,7 +1121,8 @@ def _resolve_app_version() -> dict:
 
 @app.get("/api/version", summary="Versión actual de la app")
 async def app_version():
-    return _resolve_app_version()
+    # A un thread: la primera vez, sin variables de build, lanza `git describe`.
+    return await asyncio.to_thread(_resolve_app_version)
 
 
 _UPDATE_CHECK_CACHE_PATH = Path(os.environ.get("CONFIG_DIR", "/config")) / "update_check_cache.json"
@@ -1141,7 +1165,7 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
       }
     """
     import time as _time
-    current_info = _resolve_app_version()
+    current_info = await asyncio.to_thread(_resolve_app_version)
     current = current_info["version"]
     simulated = False
     if simulate_current.strip():

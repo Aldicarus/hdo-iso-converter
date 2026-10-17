@@ -132,6 +132,22 @@ def lleva_nuestra_firma(datos: dict) -> bool:
     return str(actual).lower().replace("0x", "") == esperada
 
 
+async def _esperar(proc):
+    """`communicate()` con el tope de `TIMEOUT_S`, y si se agota, el proceso
+    MUERTO y recogido. `wait_for` cancela la espera, no el proceso: un
+    mkvpropedit abandonado podía seguir escribiendo el UID con el pipeline ya
+    en otra cosa (auditoría con Codex del 2026-10-17)."""
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT_S)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await proc.wait()
+        raise
+
+
 async def _identificar(mkv_path: str) -> dict | None:
     """``mkvmerge -J`` sobre el MKV, o None si no se pudo."""
     proc = await asyncio.create_subprocess_exec(
@@ -139,7 +155,7 @@ async def _identificar(mkv_path: str) -> dict | None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
-    salida, _ = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT_S)
+    salida, _ = await _esperar(proc)
     # mkvmerge sale con 1 en avisos (contenedor con rarezas) y aun así emite
     # el JSON; solo el 2 es un fallo de verdad.
     if proc.returncode not in (0, 1) or not salida:
@@ -174,9 +190,11 @@ async def firmar(mkv_path: str) -> bool:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, error = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT_S)
-        # Igual que en Fase E: el 1 de mkvpropedit es un aviso, no un fallo.
-        if proc.returncode >= 2:
+        _, error = await _esperar(proc)
+        # Igual que en Fase E: el 1 de mkvpropedit es un aviso, no un fallo, y
+        # un código NEGATIVO —muerto por una señal— sí lo es: con `>= 2` un
+        # mkvpropedit matado a medias se daba por firmado.
+        if proc.returncode not in (0, 1):
             logger.info(
                 "[firma] mkvpropedit devolvió %s en %s — %s",
                 proc.returncode, mkv_path,

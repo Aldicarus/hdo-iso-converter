@@ -251,7 +251,10 @@ class TestAdmisionDeLaCola(ApiTestCase):
         """El caso del usuario: uno en ejecución y el resto en espera."""
         self.workload.registrar("rip_en_curso", self.workload.TAB_RIP,
                                 "rip de La primera (2024)")
-        ids = [self.crear_sesion_tab1(f"Peli{i}_2024_170000000{i}")
+        # Cada uno con su MKV: dos proyectos que escriben el mismo fichero
+        # son un 409 a propósito (`_otro_proyecto_con_el_mismo_destino`).
+        ids = [self.crear_sesion_tab1(f"Peli{i}_2024_170000000{i}",
+                                      mkv_name=f"Peli {i} (2024).mkv")
                for i in range(3)]
         for sid in ids:
             self.assertEqual(self._ejecutar(sid).status_code, 200)

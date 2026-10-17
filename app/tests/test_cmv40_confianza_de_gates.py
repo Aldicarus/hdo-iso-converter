@@ -141,6 +141,23 @@ class TestTrasElAckElBinNoVaPorDropIn(unittest.TestCase):
         self.assertFalse(plan.drop_in,
                          "el L1 de otro máster se inyectaría sobre este vídeo")
         self.assertTrue(plan.inject.needs_merge)
+        # Y un merge que NO vuelva a traer ese L1: con la lista FEL llegaba
+        # igual, por la otra puerta (decidido con el usuario el 2026-10-17).
+        self.assertTrue(plan.inject.conservar_niveles_del_disco)
+        from phases.cmv40_strategy import niveles_del_merge
+        self.assertNotIn(1, niveles_del_merge("FEL", plan.inject.conservar_niveles_del_disco))
+
+    def test_con_l6_divergente_tambien_conserva_los_del_disco(self):
+        plan = resolve_plan(self._sesion(l6_max_cll=4000))
+        self.assertTrue(plan.inject.conservar_niveles_del_disco)
+
+    def test_un_l5_divergente_no_toca_la_lista(self):
+        """El L5 no está en ninguna de las dos listas: con un L5 que diverge
+        el merge ya conserva el del disco, y la lista FEL sigue siendo la
+        que toca."""
+        plan = resolve_plan(self._sesion(l5_top=320))
+        self.assertTrue(plan.inject.needs_merge)
+        self.assertFalse(plan.inject.conservar_niveles_del_disco)
 
     def test_el_ack_si_salta_la_fase_d(self):
         """Lo que el ACK sigue haciendo: la Fase D no arregla un grading."""

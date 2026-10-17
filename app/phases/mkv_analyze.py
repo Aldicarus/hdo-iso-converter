@@ -394,7 +394,8 @@ async def analyze_mkv(
                 has_fel = True
 
     # ── Capítulos ────────────────────────────────────────────────
-    chapters = _extract_chapters(mkv_path)
+    # A un thread: `mkvextract` en un `subprocess.run` síncrono.
+    chapters = await asyncio.to_thread(_extract_chapters, mkv_path)
 
     # ── Fichero ──────────────────────────────────────────────────
     p = Path(mkv_path)
@@ -1763,11 +1764,21 @@ async def _apply_propedit(mkv_path: str, request: MkvEditRequest) -> str:
         if t.flag_forced is not None:
             cmd += ["--set", f"flag-forced={'1' if t.flag_forced else '0'}"]
 
-    # Capítulos
+    # Capítulos: SOLO si el usuario los tocó (`None` = no tocarlos). El
+    # frontend los mandaba siempre, así que cualquier apply —aunque solo
+    # renombrara una pista— reescribía la estructura entera con una única
+    # edición plana en `spa`, perdiendo ediciones, jerarquía e idiomas; y
+    # sobre un MKV SIN capítulos escribía una `EditionEntry` vacía, que el
+    # mkvpropedit real rechaza con código 2: «Aplicar cambios» fallaba
+    # siempre (comprobado con la v88 del NAS; auditoría con Codex del
+    # 2026-10-17). Una lista vacía es «quitarlos todos»: `--chapters ''`.
     chapters_xml = None
     if request.chapters is not None:
-        chapters_xml = _write_chapters_xml(request.chapters)
-        cmd += ["--chapters", chapters_xml]
+        if request.chapters:
+            chapters_xml = _write_chapters_xml(request.chapters)
+            cmd += ["--chapters", chapters_xml]
+        else:
+            cmd += ["--chapters", ""]
 
     _logger.info("mkvpropedit: %d argumentos sobre %s", len(cmd), Path(mkv_path).name)
 
@@ -1784,7 +1795,10 @@ async def _apply_propedit(mkv_path: str, request: MkvEditRequest) -> str:
     output = (stdout.decode("utf-8", errors="replace") +
               stderr.decode("utf-8", errors="replace")).strip()
 
-    if proc.returncode >= 2:
+    # 0 y 1 (avisos) son éxito; cualquier otro, incluido uno NEGATIVO —el
+    # proceso muerto por una señal, a medio escribir—, no. Con `>= 2` un
+    # SIGKILL pasaba por bueno (es la regla de la Fase E de Tab 1).
+    if proc.returncode not in (0, 1):
         raise RuntimeError(
             tr('mkv_analyze.mkvpropedit_fallo_codigo', returncode=proc.returncode, p2=output[:300])
         )

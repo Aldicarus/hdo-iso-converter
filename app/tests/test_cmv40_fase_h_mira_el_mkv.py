@@ -173,6 +173,27 @@ class TestLaRutaMergeMiraElMkvEntregado(FaseHCase):
         self.assertIn("7", str(ctx.exception))
         self.assertFalse(self.entregado(s))
 
+    async def test_un_mkv_truncado_tampoco_por_merge(self):
+        """El HEVC previo al mux está ENTERO —su RPU da los frames buenos— y el
+        `.mkv.tmp` lleva media película: un remux interrumpido que el
+        forward-roll dio por bueno. La rama merge solo miraba el HEVC; ahora
+        compara el vídeo del MKV con el del origen (auditoría con Codex del
+        2026-10-17)."""
+        s = self.preparar(trust=False, artefactos=("BL.hevc", "DV_dual.hevc"))
+        tmp = self.mkv_de_la_fase_g(s, INJ_FEL, frames=FRAMES // 2)
+        with self.assertRaises(RuntimeError) as ctx:
+            await self.fase_h(s)
+        self.assertIn(str(FRAMES // 2), str(ctx.exception))
+        self.assertFalse(self.entregado(s))
+        self.assertTrue(tmp.exists(), "el .mkv.tmp se conserva para inspeccionarlo")
+
+    async def test_el_merge_completo_se_entrega(self):
+        s = self.preparar(trust=False, artefactos=("BL.hevc", "DV_dual.hevc"))
+        self.mkv_de_la_fase_g(s, INJ_FEL)
+        await self.fase_h(s)
+        self.assertTrue(self.entregado(s))
+        self.assertIn("1000 frames", self.log.text)
+
     async def test_el_single_layer_bien_hecho_se_entrega(self):
         s = self.preparar(workflow="p7_mel", target_type="trusted_p7_mel_final",
                           source=SRC_MEL, target=TGT_MEL,

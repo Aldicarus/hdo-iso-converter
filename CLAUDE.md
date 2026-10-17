@@ -2193,7 +2193,7 @@ Tras `_analyze_target_rpu` en Fase B, el bin se clasifica automáticamente en `s
 | target_type | Detección | Comportamiento |
 |---|---|---|
 | `generic` | P8 sin L8 o P5 | Flujo completo (merge CMv4.0 + revisión visual en Fase D) |
-| `trusted_p8_source` | Profile 8 + CMv4.0 + L8 presente | Rama B spec: skip Fase D si gates OK, Fase F hace merge clásico |
+| `trusted_p8_source` | Profile 8 + CMv4.0 + L8 presente | Skip Fase D si gates OK. Fase F: sobre P7 FEL, merge; sobre salida single-layer (P7 MEL / P8), **inyección directa del bin entero solo con confianza** y merge conservador sin ella |
 | `trusted_p7_fel_final` | Profile 7 FEL + CMv4.0 | Rama C-FEL spec: **drop-in**, skip merge en Fase F + skip Fase D |
 | `trusted_p7_mel_final` | Profile 7 MEL + CMv4.0 | Rama C-MEL spec |
 | `incompatible` | CMv2.9 u otros | No sirve como target (aborta o pide otro bin) |
@@ -2291,10 +2291,38 @@ Campos relacionados en `CMv40Session`: `awaiting_critical_ack`, `critical_gate_f
 calculaba como «todos los gates `critical` pasan», y L6 y L1 llevaban
 `critical: False` siempre, así que un L6 o un L1 que pedían ACK dejaban el bin
 `trusted`: tras el ACK el job podía ir por drop-in y meter el L1 de otro máster
-—el que el ACK reconoce como distinto— sobre este vídeo. Por merge se conserva
-el del disco. `critical` sigue existiendo para el chip de la card de
-validaciones y hoy dice lo mismo que la severidad (L6/L1 son críticos solo
-cuando piden ACK).
+—el que el ACK reconoce como distinto— sobre este vídeo. `critical` sigue
+existiendo para el chip de la card de validaciones y hoy dice lo mismo que la
+severidad (L6/L1 son críticos solo cuando piden ACK).
+
+**Y el merge conserva de verdad el L1 del disco cuando diverge**, decidido con
+el usuario el 2026-10-17 tras la auditoría completa con Codex. Perder la
+confianza mandaba al merge, pero el merge FEL usa la lista de bbeny123
+(`[1,2,3,6,8,9,10,11,254]`), que vuelve a traer el L1, el L2 y el L6 del bin:
+justo lo que el gate acababa de decir que no cuadra, mientras este párrafo
+afirmaba lo contrario. La lista sale hoy de **`cmv40_strategy.niveles_del_merge`**
+—una sola definición para la Fase F y para los textos— y la decide la
+divergencia de niveles, no la confianza a secas:
+
+| origen | bin | Fase F | del disco | del bin |
+|---|---|---|---|---|
+| P7 FEL | FEL de confianza (auto) | drop-in | nada | todo |
+| P7 FEL | cualquiera, L1 y L6 concordando | merge FEL `[1,2,3,6,8,9,10,11,254]` | L5 y la FEL | L1, L2, L6, L3, L8-L11 |
+| P7 FEL | cualquiera, **L1 o L6 con ACK** | merge conservador `[3,8,9,11,254]` | L1, L2, L5, L6 y la FEL | L3, L8, L9, L11 |
+| P7 MEL / P8 | P8 **con** confianza | inyección directa | nada | todo |
+| P7 MEL / P8 | P8 **sin** confianza, P7 o genérico | merge conservador | L1, L2, L5, L6 | L3, L8, L9, L11 |
+
+Un L5 que diverge no cambia la lista: el L5 no está en ninguna de las dos. Y
+lo del bin P8 sin confianza es la segunda mitad de la misma decisión: antes se
+inyectaba entero con o sin confianza (`target_needs_merge` solo miraba el
+tipo), así que un L5 de 5-30 px que mandaba a revisar el sync acababa con el
+L5 del bin en el MKV. «Sin confianza» exige gates EVALUADOS
+(`WorkflowInputs.gates_evaluados`): antes de la Fase B no se sabe, y predecir
+merge ahí diría «merge» durante la Fase A a un job que irá directo — la misma
+razón que `drop_in_posible`. La etiqueta de la recomendación y el `📋 Plan` de
+la Fase F salen del mismo plan: decían «(preserva L2)» también cuando el L2
+venía del bin. Cubierto por `test_cmv40_fase_f_matriz::TestLaPoliticaDeNivelesDelMerge`,
+que mira el RPU inyectado con el editor falso aplicando `rpu_levels`.
 
 **El L5 de 5 a 30 px manda a revisar el sync**, decidido con el usuario el
 2026-10-17. El gate decía `sync_review` con `ok: True`, y `hay_sync_por_revisar`
@@ -3494,6 +3522,60 @@ nadie, y casi siempre por lo mismo: **un fake que ignora una opción**.
   MediaInfoLib en la 21.09, así que un build desde cero —el del CI de cada
   release— instala exactamente las versiones del contrato. Si se sube la
   base de la imagen, eso deja de ser verdad y hay que recapturar.
+
+#### Los fallos de producción que salieron, por zonas
+
+Los cuatro paquetes de código dieron **unos 160 hallazgos**, verificados uno a
+uno contra el código —los graves, reproducidos en una copia— y casi todos
+ciertos. Los que entregaban un MKV equivocado, perdían datos o bloqueaban
+algo, con su test y su mutación:
+
+- **Tab 1.** La ruta con intermedio extraía en la Fase D **el `.mpls` más
+  grande**, no el de la sesión (`source_path=None`, desde el primer commit):
+  otro título con los capítulos y metadatos de este, en verde. Un origen que
+  la sesión conoce y ya no está —su MPLS, o el M2TS de un episodio— **no se
+  sustituye** por otro (`_origen_de_la_sesion`; en una serie de M2TS sueltos
+  `iso_path` es el PRIMER fichero del conjunto). Un fallo de la validación ya
+  no llega al `except` que **borraba el MKV entregado**. Reaplicar reglas a un
+  episodio le ponía **nombre de película** —dos episodios, el mismo MKV— y
+  `execute` rechaza ahora con 409 dos proyectos que escriben el mismo
+  fichero. «Reemplazar» episodios borra cada sesión vieja cuando la nueva ya
+  está guardada, no antes de saber si la cola admite el trabajo.
+- **CMv4.0.** La fase guardaba su copia vieja de la sesión al terminar:
+  **apagar el auto se deshacía** y encadenaba igual, y el pre-flight borraba
+  la ficha de TMDb y el veredicto de la hoja hidratados en paralelo. Los
+  endpoints que cambian campos del usuario los llevan también a la sesión viva
+  (`_cmv40_sesion_viva` / `_cmv40_propagar_a_la_viva`). Un remux cancelado o
+  cortado por un reinicio **borra su `.mkv.tmp`**, el forward-roll exige que el
+  ÚLTIMO remux esté `done` y nada corriendo, y la Fase H por la rama merge
+  **compara el vídeo del MKV con el del origen** (`NUMBER_OF_FRAMES` de los
+  dos): validaba el HEVC previo al mux, entero aunque el mux se cortara. El
+  `source.hevc` se reutiliza solo con la marca **`.source_hevc_done`** (un
+  reinicio al 70 % dejaba uno que pasaba el guard de tamaño) y un RPU P7 que
+  no tiene los frames exactos del MKV tumba la Fase A. Una fase **en cola**
+  cuenta como en curso para limpiar, borrar, renombrar y reintentar el
+  pre-flight, y el runner no corre fases sobre un proyecto archivado.
+- **Tab 2.** «Aplicar cambios» **reescribía los capítulos siempre** —una
+  edición plana en `spa`— y sobre un MKV sin capítulos **fallaba siempre**
+  (`EditionEntry` vacía, código 2 en la v88): ahora solo se mandan si se
+  tocaron, y una lista vacía es `--chapters ''`. La copia desde biblioteca
+  abre el destino ANTES que el origen y anota que es suyo (`dst_creado`): un
+  fallo de lectura o un reinicio ya no borran un fichero ajeno. Un origen que
+  desaparece en la cola **paraba la cola entera** (el registro diferido se
+  quedaba puesto). Una copia ya no hereda el `result` de la anterior. Un
+  `mkvpropedit` muerto por señal es un fallo (`not in (0, 1)`, como en Tab 1).
+- **Servicios y limpieza.** `redactar_claves` (en `settings_store`) tapa
+  `key=`/`api_key=` en lo que se registra: un 429 de Drive dejaba la clave de
+  Google en `docker logs`. La descarga de un bin tiene tope de inactividad y
+  borra lo escrito si se corta. El borrado de huérfanos vuelve a escanear al
+  ejecutar y no ofrece el `.mkv.tmp` de un proyecto CMv4.0 vivo.
+- **El bucle de eventos.** `test_event_loop_limpio` mira ya las fases, `move`,
+  `copyfile`/`copy2` y `subprocess.run`, **y los helpers síncronos pesados que
+  una corrutina llama directamente** —el `rmtree` del borrado de huérfanos
+  vivía en uno—: salieron nueve sitios, todos a un thread.
+- **Tab 3, frontend.** Abrir un proyecto manual **lanzaba la Fase C**: el
+  respaldo «para sesiones anteriores al campo `auto_pipeline`» se aplicaba a
+  todas, porque el modelo lo pone a `False` por defecto (`_cmv40AutoAlAbrir`).
 
 ### CI — `.github/workflows/tests.yml`
 
@@ -4750,7 +4832,7 @@ NÚMERO, tiene que decir la unidad de ese número.
 ├─ NO  → Mantener MKV actual (keep)
 └─ SÍ  → ¿va por drop-in?   ← lo responde cmv40_strategy.va_por_drop_in
          ├─ SÍ → Inyectar RPU CMv4.0 (rápido)       ← drop-in, ~30s
-         └─ NO → Inyectar RPU CMv4.0 (preserva L2)  ← merge selectivo [3,8,9,11,254]
+         └─ NO → Inyectar RPU CMv4.0 (merge o directo) ← lo que diga el plan de la Fase F
 ```
 
 **La ruta la decide la matriz, no esta función.** El árbol de aquí fue durante

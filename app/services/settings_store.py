@@ -451,6 +451,21 @@ def get_tmdb_api_key() -> str:
     return clave_tmdb_de_la_app()
 
 
+_CLAVE_EN_URL = re.compile(r"([?&](?:key|api_key)=)[^&\s'\"]+", re.IGNORECASE)
+
+
+def redactar_claves(texto) -> str:
+    """El texto con el valor de cualquier `key=`/`api_key=` de una URL tapado.
+
+    Las APIs de Google y TMDb llevan la clave como parámetro de la query, y
+    httpx la incrusta en el `str()` de sus excepciones (`HTTPStatusError`
+    escribe la URL completa). Registrar la excepción cruda la dejaba en
+    `docker logs` —que se pega en informes—, y Google desactiva las claves que
+    encuentra publicadas (auditoría con Codex del 2026-10-17: un 429 de Drive
+    bastaba)."""
+    return _CLAVE_EN_URL.sub(r"\1***", str(texto))
+
+
 def get_google_api_key() -> str:
     """Prioridad: settings.json > GOOGLE_API_KEY env > vacío."""
     with _lock:
