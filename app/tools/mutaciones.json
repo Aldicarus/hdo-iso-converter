@@ -815,8 +815,8 @@
  {
   "id": "C-5 L8 vacío sin índices declarados",
   "fichero": "app/tests/cmv40_harness.py",
-  "viejo": "                            indices = [1] if props.get(\"has_l8\") else []",
-  "nuevo": "                            indices = []",
+  "viejo": "    if not props.get(\"l8_declarado\") and not props.get(\"has_l8\"):\n        return []",
+  "nuevo": "    if not props.get(\"l8_declarado\"):\n        return []",
   "modulos": [
    "test_contrato_de_los_fakes"
   ]
