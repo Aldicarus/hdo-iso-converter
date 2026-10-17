@@ -171,6 +171,9 @@ class TestCancelarEntreDosPasos(CancelarCase):
     async def test_durante_el_identify_de_la_ruta_no_arranca_ningun_mux(self):
         s = await self._cancelar_en_el_identify(self._sesion(ruta_directa=True), 1)
         self.assertEqual(self._muxes(), [], "ha arrancado el mux con el rip cancelado")
+        # Ni siquiera la Fase E: el mux lo mataría el registro, pero el rip
+        # tiene que pararse en el primer punto de control, no en el último.
+        self.assertEqual(len(self._identifies()), 1, "ha seguido hasta la Fase E")
         self.assertEqual(s.status, "pending")
         self.assertIsNotNone(s.last_cancelled_at)
 
