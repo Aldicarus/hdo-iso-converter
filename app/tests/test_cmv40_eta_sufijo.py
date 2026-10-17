@@ -139,14 +139,6 @@ class TestSenalDeRutaDesconocida(unittest.TestCase):
         s = CMv40Session(id="x", source_mkv_path="/a.mkv", source_mkv_name="a.mkv")
         self.assertIsNone(s.target_dv_info)
 
-    def test_el_preflight_rellena_ambos_a_la_vez(self):
-        """Si se separan, la señal deja de ser fiable."""
-        src = (APP_DIR / "phases" / "cmv40_pipeline.py").read_text(encoding="utf-8")
-        i = src.find("async def _preflight_validate_bin")
-        j = src.find("\nasync def ", i + 10)
-        cuerpo = src[i:j if j > 0 else len(src)]
-        self.assertIn("session.target_dv_info = dovi_info", cuerpo)
-        self.assertIn("session.target_type = _classify_target_type(dovi_info)", cuerpo)
 
     def test_frontend_no_usa_target_type_como_booleano(self):
         js = js_completo()
@@ -155,12 +147,128 @@ class TestSenalDeRutaDesconocida(unittest.TestCase):
         self.assertNotIn("!s.target_type", codigo)
         self.assertNotIn("!session.target_type", codigo)
 
-    def test_ambos_consumidores_comparten_el_helper(self):
-        """El sufijo y el reparto por share_dropin deben decidir con la misma
-        señal: si divergen, el aviso dice una cosa y el número refleja otra."""
-        js = js_completo()
-        self.assertIn("const rutaDesconocida = !gatesHechos && !_cmv40BinClasificado(s);", js)
-        self.assertIn("const rutaPorSaber = !_cmv40BinClasificado(s)", js)
+
+
+class TestElPreflightRellenaLaSenal(unittest.IsolatedAsyncioTestCase):
+    """`target_dv_info` es la señal de «el bin ya está clasificado», y el
+    pre-flight tiene que dejarla junto a `target_type` —y quitar las dos si
+    el bin no sirve—. Se comprobaba buscando las dos asignaciones en el
+    fuente, y `_preflight_validate_bin` no lo ejecutaba ningún test: aquí
+    corre con el `dovi_tool` falso (revisión de Codex de la suite)."""
+
+    def setUp(self):
+        import tempfile
+        from cmv40_harness import FakeToolbox
+        self.tmp = Path(tempfile.mkdtemp(prefix="pf_senal_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tb = FakeToolbox(self.tmp / "tb").install()
+        self.addCleanup(self.tb.uninstall)
+
+    def _sesion(self):
+        from models import CMv40Session
+        return CMv40Session(id="pf", source_mkv_path="/a.mkv", source_mkv_name="a.mkv")
+
+    async def test_un_bin_valido_deja_las_dos(self):
+        from cmv40_harness import RpuProps, write_artifacts
+        from phases.cmv40_pipeline import _preflight_validate_bin
+        write_artifacts(self.tmp, "RPU_target.bin", props=RpuProps(
+            profile=7, el_type="FEL", cm_version="v4.0", has_l8=True, frames=900))
+        s = self._sesion()
+        self.assertIsNone(s.target_dv_info)
+        await _preflight_validate_bin(s, self.tmp / "RPU_target.bin")
+        self.assertEqual((s.target_dv_info.profile, s.target_dv_info.cm_version), (7, "v4.0"))
+        self.assertEqual(s.target_type, "trusted_p7_fel_final")
+        self.assertEqual(s.target_frame_count, 900)
+
+    async def test_un_bin_sin_cmv40_las_quita_las_dos(self):
+        from cmv40_harness import RpuProps, write_artifacts
+        from phases.cmv40_pipeline import _preflight_validate_bin
+        write_artifacts(self.tmp, "RPU_target.bin", props=RpuProps(
+            profile=7, el_type="FEL", cm_version="v2.9"))
+        s = self._sesion()
+        with self.assertRaises(RuntimeError):
+            await _preflight_validate_bin(s, self.tmp / "RPU_target.bin")
+        self.assertIsNone(s.target_dv_info)
+        self.assertEqual(s.target_type, "")
+        self.assertFalse((self.tmp / "RPU_target.bin").exists(), "el bin inútil se queda")
+
+
+_DRIVER_PLAN = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.env.JS_CONCAT, 'utf8');
+function grab(name) {
+  const i = src.indexOf('function ' + name + '(');
+  if (i < 0) throw new Error('funcion no encontrada: ' + name);
+  let depth = 0, abierto = false;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') { depth++; abierto = true; }
+    else if (src[j] === '}') { depth--; if (abierto && depth === 0) return src.slice(i, j + 1); }
+  }
+  throw new Error('sin cerrar: ' + name);
+}
+function grabConst(marca) {
+  const i = src.indexOf(marca);
+  if (i < 0) throw new Error('constante no encontrada: ' + marca);
+  const abre = src.slice(i).search(/[\[{]/) + i;
+  const cierra = src[abre] === '[' ? ']' : '}';
+  let depth = 0;
+  for (let j = abre; j < src.length; j++) {
+    if (src[j] === src[abre]) depth++;
+    else if (src[j] === cierra) { depth--; if (depth === 0) return src.slice(i, j + 1) + ';'; }
+  }
+  throw new Error('sin cerrar: ' + marca);
+}
+const bundle = [
+  fs.readFileSync(process.env.MOTOR_I18N, 'utf8'),
+  grabConst('const CMV40_PHASES_ORDER'),
+  grabConst('const CMV40_ETA ='),
+  'let CMV40_ETA_MODEL = { share_dropin: 0.5,' +
+  ' dropin: { inject: 0.2, remux: 0.3 }, merge: { inject: 1.5, remux: 1.8 } };',
+  ...['_cmv40Plan', '_cmv40Trust', '_cmv40TargetNeedsMerge', '_cmv40BinClasificado',
+      '_cmv40FallbackAnchor', '_cmv40EstimateSecs', '_cmv40PhaseStartedSecs',
+      '_cmv40RatioFase', '_cmv40PlanAutoSteps', '_cmv40SufijoEta'].map(grab),
+  'return { _cmv40PlanAutoSteps, _cmv40SufijoEta };',
+].join('\n');
+const api = new Function(bundle)();
+const casos = JSON.parse(fs.readFileSync(0, 'utf8'));
+console.log(JSON.stringify(casos.map(s => ({
+  total: api._cmv40PlanAutoSteps(s, null).reduce((a, p) => a + (p.etaSecs || 0), 0),
+  sufijo: api._cmv40SufijoEta(s),
+}))));
+"""
+
+
+@unittest.skipUnless(NODE, "node no disponible")
+class TestLosDosConsumidoresLeenLaMismaSenal(unittest.TestCase):
+    """El aviso «(estimado inicial)» y el reparto por `share_dropin` del total
+    tienen que decidir con la misma señal: si divergen, el aviso dice una cosa
+    y el número otra. Se comprobaba buscando las dos líneas exactas en el
+    fuente; aquí se ejecutan `_cmv40PlanAutoSteps` y `_cmv40SufijoEta` con tres
+    proyectos y se mira lo que dan."""
+
+    BASE = {"phase": "created", "source_workflow": "p7_fel", "trust_override": "auto",
+            "ffmpeg_wall_seconds": 600, "ffmpeg_wall_includes_rpu": True,
+            "source_frame_count": 170000, "error_message": ""}
+
+    def test_el_aviso_sale_si_y_solo_si_el_total_va_mezclado(self):
+        casos = [
+            {**self.BASE, "target_type": "generic", "target_dv_info": None},
+            {**self.BASE, "target_type": "generic", "target_dv_info": {"profile": 8}},
+            {**self.BASE, "target_type": "trusted_p7_fel_final",
+             "target_dv_info": {"profile": 7}},
+        ]
+        proc = subprocess.run(
+            argv_node(_DRIVER_PLAN),
+            env={**os.environ, "JS_CONCAT": js_en_disco(), "MOTOR_I18N": motor_en_disco()},
+            input=json.dumps(casos), capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr[-1500:])
+        sin_clasificar, merge, drop_in = json.loads(proc.stdout)
+        self.assertGreater(merge["total"], drop_in["total"], "las dos rutas tienen que distinguirse")
+        self.assertEqual(sin_clasificar["sufijo"], "(estimado inicial)")
+        self.assertLess(drop_in["total"], sin_clasificar["total"])
+        self.assertLess(sin_clasificar["total"], merge["total"],
+                        "el aviso dice provisional pero el total es el de merge")
+        self.assertEqual((merge["sufijo"], drop_in["sufijo"]), ("(auto)", "(auto)"))
 
 
 class TestRotuloDelTiempoRestante(unittest.TestCase):

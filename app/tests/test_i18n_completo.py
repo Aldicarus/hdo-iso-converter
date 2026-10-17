@@ -70,6 +70,52 @@ FUERA_DEL_CATALOGO_JS: dict[str, str] = {
 }
 
 
+_VACIOS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+           "meta", "source", "track", "wbr"}
+
+
+def _textos_sin_traducir(marcado: str) -> list[tuple[str, int]]:
+    """Los nodos de texto que NO cuelgan de un `data-i18n`/`data-i18n-html`
+    (ni de `<script>`, `<style>` o `<title>`), con su línea."""
+    from html.parser import HTMLParser
+
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.pila, self.fuera = [], []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in _VACIOS:
+                return
+            a = dict(attrs)
+            propio = "data-i18n" in a or "data-i18n-html" in a
+            self.pila.append((tag, propio or bool(self.pila and self.pila[-1][1])))
+
+        def handle_endtag(self, tag):
+            for i in range(len(self.pila) - 1, -1, -1):
+                if self.pila[i][0] == tag:
+                    del self.pila[i:]
+                    break
+
+        def handle_data(self, d):
+            texto = " ".join(d.split())
+            if not texto or (self.pila and self.pila[-1][0] in ("script", "style", "title")):
+                return
+            if not (self.pila and self.pila[-1][1]):
+                self.fuera.append((texto, self.getpos()[0]))
+
+    p = _P()
+    p.feed(marcado)
+    return p.fuera
+
+
+def _palabras_castellanas(texto: str) -> set[str]:
+    """Las palabras de cuatro letras o más que solo usa el catálogo
+    castellano: el criterio de los rótulos cortos que `es_frase` no ve."""
+    return {w.lower() for w in re.findall(r"[A-Za-zÁÉÍÓÚáéíóúñÑüÜ]{4,}", texto)} \
+        & captura.vocabulario_solo_castellano()
+
+
 class TestLasExencionesNoSeQuedanViejas(unittest.TestCase):
     """Una exención que ya no corresponde a código real parece cobertura.
 
@@ -248,11 +294,29 @@ class TestNoQuedaCastellanoSuelto(unittest.TestCase):
         return [t for t in trozos if not cls._ID_O_SELECTOR.fullmatch(t)]
 
     def test_ningun_texto_del_marcado_se_ha_quedado_fuera(self):
-        fuera = [x for x in captura._del_html(html())
-                 if captura.es_frase(x) and " ".join(x.split()) not in self.cat]
+        """Un texto castellano del marcado tiene que COLGAR de un elemento
+        con `data-i18n` o `data-i18n-html`, que es lo que lo sustituye al
+        pintar.
+
+        Antes bastaba con que su texto coincidiera con algún valor del
+        catálogo: el «estar en el catálogo NO es pasar por `tr()`» de los
+        guards del JS, aquí en el HTML. Un `<span>Cancelar</span>` sin
+        atributo salía en castellano con la app en inglés y pasaba en verde
+        porque «Cancelar» es el valor de una clave (lo señaló la revisión de
+        Codex de los guards, 2026-10-17). Hoy no hay ninguno: los 30 textos
+        con letras que quedan fuera son nombres, licencias y las tres citas
+        literales que no se traducen."""
+        fuera = [t for t, ln in _textos_sin_traducir(html())
+                 if captura.es_frase(t) or _palabras_castellanas(t)]
         self.assertEqual(fuera, [], (
             f"\ntexto castellano en `index.html` sin `data-i18n`:\n  · "
             + "\n  · ".join(fuera[:12])))
+
+    def test_el_detector_del_marcado_ve_un_texto_sin_atributo(self):
+        trozo = ('<div data-i18n="x">Cancelar la copia</div>'
+                 '<p>Cancelar la copia</p>'
+                 '<div data-i18n-html="y"><b>Guardar los cambios</b></div>')
+        self.assertEqual([t for t, _ in _textos_sin_traducir(trozo)], ["Cancelar la copia"])
 
     def test_ninguna_linea_del_backend_se_ha_quedado_fuera(self):
         """Un literal capturado es una fuga, **esté o no en el catálogo**.

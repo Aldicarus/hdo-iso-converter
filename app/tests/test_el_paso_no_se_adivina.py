@@ -48,6 +48,50 @@ _COMPARA_PY = re.compile(
 _COMPARA_JS = re.compile(
     r"""\.(?:includes|startsWith|indexOf)\(\s*['"]((?:[^'"\\\n]|\\.)+)['"]""")
 
+# Una expresión regular con la que se PRUEBA una línea: `/…/.test(x)`,
+# `x.match(/…/)`. El guard miraba solo `.includes('…')`, así que
+# `/✗ Fase \w+ FALLÓ/.test(ev.data)` —el cierre de fase que el WS de CMv4.0
+# leía en castellano y solo en castellano— se le escapaba por construcción.
+_REGEX = r"/((?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\[\n])+)/[a-z]*"
+_REGEX_JS = re.compile(
+    r"(?<![\w)\]$])" + _REGEX + r"\s*\.(?:test|exec)\("
+    + r"|\.(?:match|search|replace|split)\(\s*" + _REGEX)
+
+
+def _clase(m: "re.Match") -> str:
+    """Una clase de símbolos (`[✓✗]`) vale su primer símbolo, para que el
+    marcador que forma siga reconociéndose; cualquier otra, nada."""
+    dentro = m.group(0)[1:-1]
+    if dentro and not re.search(r"[\w\\-]", dentro):
+        return dentro[0]
+    return " "
+
+
+def _texto_de_la_regex(rx: str) -> str:
+    r"""Lo que una regex exige LITERALMENTE: fuera los escapes de clase
+    (`\w`, `\s`…), las clases `[…]` y los metacaracteres. Una alternativa
+    detrás de un `\[` es una etiqueta de log (`\[(?:Fase|Pipeline)`) y se
+    deja con su corchete delante de cada opción."""
+    rx = re.sub(r"\\\[\(\?:([^()]*)\)",
+                lambda m: " ".join("[" + o for o in m.group(1).split("|")), rx)
+    rx = re.sub(r"\\[wWsSdDbB]", " ", rx)
+    rx = re.sub(r"(?<!\\)\[(?:\\.|[^\]\\])*\]", _clase, rx)
+    rx = re.sub(r"\\(.)", r"\1", rx)
+    rx = re.sub(r"[()?:*+|^${}]", " ", rx)
+    return " ".join(rx.split())
+
+
+def _regex_con_prosa(rx: str) -> set[str]:
+    r"""Las palabras castellanas que la regex exige, quitados los marcadores,
+    las etiquetas de log (`[Algo`) y los identificadores (`detalle-vacio`)."""
+    texto = _texto_de_la_regex(rx)
+    for m in sorted(MARCADORES, key=len, reverse=True):
+        texto = texto.replace(m, " ")
+    texto = re.sub(r"\[[^\s\]]+", " ", texto)
+    texto = re.sub(r"\w+(?:[-_]\w+)+", " ", texto)
+    palabras = {w.lower() for w in re.findall(r"[A-Za-zÁÉÍÓÚáéíóúñÑüÜ]{4,}", texto)}
+    return palabras & captura.vocabulario_solo_castellano()
+
 
 def _es_prosa(s: str) -> bool:
     """¿Es castellano que el catálogo traduce, y no un marcador?"""
@@ -100,6 +144,36 @@ class TestNadieAdivinaElPasoLeyendoProsa(unittest.TestCase):
         self.assertEqual(malos, [], (
             f"\n{len(malos)} comparación(es) del JS contra prosa traducible:"
             f"\n  · " + "\n  · ".join(malos[:12])))
+
+    def test_ninguna_regex_del_frontend_lee_prosa(self):
+        malos, vistas = [], 0
+        for r in rutas():
+            src = Path(r).read_text(encoding="utf-8")
+            for i, linea in enumerate(src.splitlines(), 1):
+                if linea.lstrip().startswith(("//", "*", "/*")):
+                    continue
+                for m in _REGEX_JS.finditer(linea):
+                    vistas += 1
+                    palabras = _regex_con_prosa(m.group(1) or m.group(2))
+                    if palabras:
+                        malos.append(f"{Path(r).name}:{i}: {sorted(palabras)}")
+        # Trinquete: medido el 2026-10-17, unas ochenta regex de prueba.
+        self.assertGreater(vistas, 40, "el extractor de regex no ve nada")
+        self.assertEqual(malos, [], (
+            f"\n{len(malos)} regex del JS que exigen prosa traducible:"
+            f"\n  · " + "\n  · ".join(malos[:12])))
+
+    def test_el_extractor_de_regex_ve_las_dos_formas(self):
+        linea = ("if (/✗ Fase \\w+ FALLÓ/.test(ev.data) || "
+                 "ev.data.match(/━━━ Inicio fase:\\s*([a-z_]+)/i)) {}")
+        rx = [m.group(1) or m.group(2) for m in _REGEX_JS.finditer(linea)]
+        self.assertEqual(len(rx), 2, rx)
+        self.assertEqual(_regex_con_prosa(rx[0]), {"falló"})
+        self.assertIn("inicio", _regex_con_prosa(rx[1]))
+        self.assertEqual(_regex_con_prosa(r"^\[(?:Fase|Montando|Pipeline)"), set())
+        self.assertEqual(_regex_con_prosa("detalle-vacio"), set())
+        # El marcador solo no es prosa: es lo que SÍ se puede comparar.
+        self.assertEqual(_regex_con_prosa(r"(?:^|\] )[✓✗] Fase \S"), set())
 
 
 if __name__ == "__main__":

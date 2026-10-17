@@ -160,7 +160,6 @@ class TestLaVistaVaALaFaseB(unittest.TestCase):
         # hacer. Se mira el catálogo, que es donde vive el texto.
         cat = json.loads((APP_DIR / "static" / "i18n" / "es.json")
                          .read_text(encoding="utf-8"))
-        self.assertNotIn("tab3.listo_para_escoger_otro_target_abre", cat)
         self.assertNotIn("Fase B", cat["tab3.listo_para_escoger_otro_target"])
 
     @unittest.skipUnless(NODE, "node no disponible")

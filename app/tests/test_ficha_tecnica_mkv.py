@@ -220,21 +220,6 @@ class TestElTercerVeredictoLlegaATabDos(unittest.TestCase):
         self.assertEqual(self._textos("default")["quality_verdict_color"], "red")
         self.assertEqual(self._textos("real")["quality_verdict_color"], "yellow")
 
-    def test_ninguna_rama_de_indeterminate_sigue_viva_en_el_codigo(self):
-        """`classify_l8` sólo devuelve real / tone_mapping / default.
-
-        Una rama por una clasificación que nadie emite parece cobertura y
-        no cubre nada — y mientras estuvo ahí tapó que faltaba la del
-        tercer veredicto.
-        """
-        from phases import rpu_analyze
-        src = Path(rpu_analyze.__file__).read_text(encoding="utf-8")
-        self.assertNotIn('return "indeterminate"', src)
-        vivas = [l for l in Path(MA.__file__).read_text(encoding="utf-8").splitlines()
-                 if 'classification == "indeterminate"' in l]
-        self.assertEqual(vivas, [])
-
-
 class TestLaCacheSeInvalida(unittest.TestCase):
 
     def test_el_analisis_basico_sube_de_version(self):

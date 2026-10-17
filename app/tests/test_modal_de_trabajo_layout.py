@@ -66,6 +66,16 @@ _ACTIVOS = {
         "pct": 63, "pct_medido": True, "segundos": 905, "eta_s": 531,
         "eta_fuente": "medido", "cancelable": True, "detalle": "rip",
     },
+    # Una fase de un proyecto que ya no existe: el GET devuelve null, así que
+    # no hay cartela ni timeline que enseñar a la izquierda.
+    "cmv40_borrado": {
+        "id": "borrado_1", "sobre": "borrado_1", "tab": "cmv40",
+        "tipo": "fase_cmv40", "que": "Fase C de un proyecto borrado",
+        "fase": "extract", "fase_label": "Fase C", "fase_n": 3,
+        "fases_total": 7, "pct": 41, "pct_medido": True, "segundos": 742,
+        "eta_s": 1060, "eta_fuente": "medido", "cancelable": True,
+        "detalle": "cmv40",
+    },
     "analisis_extendido": {
         "id": "aud-7f3", "sobre": "/mnt/output/Dune.mkv", "tab": "mkv",
         "tipo": "analisis_extendido", "que": "análisis extendido de Dune.mkv",
@@ -125,9 +135,15 @@ def _medir(tipo: str) -> dict:
 <pre id="__out"></pre>
 <script>
 (function () {
-  window.apiFetch = async function (url) {
+  window.apiFetch = async function (url, opts) {
     const R = window.__RESP;
     if (url.startsWith('/api/trabajos')) return R.trabajos;
+    // Como el real: el 404 viaja en `estado`, que es lo que separa «el
+    // proyecto ya no existe» de «la red no contestó».
+    if (url.startsWith('/api/cmv40/borrado')) {
+      if (opts && opts.estado) opts.estado.status = 404;
+      return null;
+    }
     if (url.startsWith('/api/cmv40/')) return R.cmv40;
     if (url.startsWith('/api/sessions/')) return R.rip;
     if (url.includes('quality-audit/progress')) return R.audit;
@@ -390,11 +406,17 @@ class TestLaColumnaLateral(unittest.TestCase):
         pasó a contener la cartela y el hueco de la timeline: un elemento con
         hijos no es `:empty`, así que se quedaba ocupando sus 330 px en blanco
         —lo que se veía al abrir una fase de un proyecto ya borrado—. Quien
-        sabe si hay algo que enseñar es el render, y lo dice con la clase."""
-        import json as _j
-        css = (APP_DIR / "static" / "style.css").read_text(encoding="utf-8")
-        self.assertIn(".trabajo-modal-caja.sin-lateral .trabajo-modal-lateral", css)
-        self.assertNotIn(".trabajo-modal-lateral:empty", css)
+        sabe si hay algo que enseñar es el render, y lo dice con la clase.
+
+        Se comprobaba leyendo el CSS; ahora se abre de verdad el caso —una
+        fase cuyo proyecto devuelve null— y se mide (revisión de Codex)."""
+        d = _medir("cmv40_borrado")
+        self.assertEqual(d["errores"], [])
+        self.assertTrue(d["abierto"])
+        self.assertLess((d["lateral"] or {}).get("w", 0), 5,
+                        "la columna izquierda ocupa sitio sin nada que enseñar")
+        con = self.m["cmv40"]
+        self.assertGreater(con["lateral"]["w"], 200, "con proyecto, la columna sí se ve")
 
     def test_los_tres_traen_cartela_con_titulo(self):
         """El póster y el título largo los tenía el overlay de CMv4.0."""

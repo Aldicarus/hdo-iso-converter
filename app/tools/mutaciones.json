@@ -65,8 +65,8 @@
  {
   "id": "P3-2 G toma el vídeo del MKV origen y no el HEVC procesado",
   "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "        str(hevc_for_mkv),\n        \"--no-video\", session.source_mkv_path,",
-  "nuevo": "        \"--no-video\", str(hevc_for_mkv),\n        session.source_mkv_path,",
+  "viejo": "            str(hevc_for_mkv),\n            \"--no-video\", session.source_mkv_path,",
+  "nuevo": "            \"--no-video\", str(hevc_for_mkv),\n            session.source_mkv_path,",
   "modulos": [
    "test_cmv40_fase_h_mira_el_mkv"
   ]
@@ -509,8 +509,8 @@
  {
   "id": "T3 H borra el RPU extraído",
   "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "            # de corresponder al stream.\n            pass\n",
-  "nuevo": "            # de corresponder al stream.\n            full_rpu.unlink(missing_ok=True)\n",
+  "viejo": "                # de corresponder al stream.\n                pass\n",
+  "nuevo": "                # de corresponder al stream.\n                full_rpu.unlink(missing_ok=True)\n",
   "modulos": [
    "test_cmv40_fase_h_mira_el_mkv"
   ]
@@ -518,8 +518,8 @@
  {
   "id": "T3 H con import time local",
   "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "                # reventaba con `UnboundLocalError` cuando esta rama no corría.\n                hb_start",
-  "nuevo": "                # reventaba con `UnboundLocalError` cuando esta rama no corría.\n                import time\n                hb_start",
+  "viejo": "                    # reventaba con `UnboundLocalError` cuando esta rama no corría.\n                    hb_start",
+  "nuevo": "                    # reventaba con `UnboundLocalError` cuando esta rama no corría.\n                    import time\n                    hb_start",
   "modulos": [
    "test_cmv40_fase_h_mira_el_mkv"
   ]
@@ -1053,6 +1053,132 @@
   "nuevo": "",
   "modulos": [
    "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "S-1 el cierre de fase vuelve a leer prosa",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (/(?:^|\\] )[✓✗] Fase \\S/.test(line)) return { fin: true };",
+  "nuevo": "  if (/✓ Fase \\w+ completada en/.test(line) || /✗ Fase \\w+ FALLÓ/.test(line)) return { fin: true };",
+  "modulos": [
+   "test_la_senal_de_fase"
+  ]
+ },
+ {
+  "id": "S-2 el arranque de fase no sale del progreso",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (prog) return (prog.fase && /^[a-z_]+$/.test(prog.fase)) ? { inicio: prog.fase } : null;",
+  "nuevo": "  if (prog) return null;",
+  "modulos": [
+   "test_la_senal_de_fase"
+  ]
+ },
+ {
+  "id": "S-3 el progreso no lleva la fase",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            if session.running_phase and \"fase\" not in payload:",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_la_senal_de_fase"
+  ]
+ },
+ {
+  "id": "S-4 una regex del frontend lee prosa",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (/(?:^|\\] )[✓✗] Fase \\S/.test(line)) return { fin: true };",
+  "nuevo": "  if (/(?:^|\\] )[✓✗] Fase \\S/.test(line) || /✗ Fase \\w+ FALLÓ/.test(line)) return { fin: true };",
+  "modulos": [
+   "test_el_paso_no_se_adivina"
+  ]
+ },
+ {
+  "id": "I-1 un texto del marcado sin data-i18n que está en el catálogo",
+  "fichero": "app/static/index.html",
+  "viejo": "data-i18n=\"ui.proyectos_iso_mkv\"><",
+  "nuevo": ">Proyectos ISO → MKV<",
+  "modulos": [
+   "test_i18n_completo"
+  ]
+ },
+ {
+  "id": "N-1 cartel_de sale a la red al no encontrar la carátula",
+  "fichero": "app/trabajos.py",
+  "viejo": "            from services.tmdb import poster_en_cache\n",
+  "nuevo": "            from services.tmdb import poster_en_cache\n            import socket as _s\n            try:\n                _s.getaddrinfo(\"api.themoviedb.org\", 443)\n            except OSError:\n                pass\n",
+  "modulos": [
+   "test_nombre_de_los_trabajos"
+  ]
+ },
+ {
+  "id": "E-1 el reparto del ETA vuelve a la señal muerta",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  const rutaDesconocida = !gatesHechos && !_cmv40BinClasificado(s);",
+  "nuevo": "  const rutaDesconocida = !gatesHechos && !s.target_type;",
+  "modulos": [
+   "test_cmv40_eta_sufijo"
+  ]
+ },
+ {
+  "id": "E-2 el pre-flight no deja target_dv_info",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    dovi_info = _parse_dovi_summary(summary)\n    session.target_dv_info = dovi_info\n    session.target_frame_count = dovi_info.frame_count\n",
+  "nuevo": "    dovi_info = _parse_dovi_summary(summary)\n    session.target_frame_count = dovi_info.frame_count\n",
+  "modulos": [
+   "test_cmv40_eta_sufijo"
+  ]
+ },
+ {
+  "id": "E-3 un bin sin CMv4.0 deja la señal puesta",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        session.target_dv_info = None\n        session.target_frame_count = 0\n        session.target_rpu_sha256 = \"\"\n",
+  "nuevo": "        session.target_frame_count = 0\n        session.target_rpu_sha256 = \"\"\n",
+  "modulos": [
+   "test_cmv40_eta_sufijo"
+  ]
+ },
+ {
+  "id": "W-1 el modal no esconde la columna vacía",
+  "fichero": "app/static/workbar.js",
+  "viejo": "    ?.classList.toggle('sin-lateral', !lateral && !vista.cartel);",
+  "nuevo": "    ?.classList.toggle('sin-lateral', false);",
+  "modulos": [
+   "test_modal_de_trabajo_layout"
+  ]
+ },
+ {
+  "id": "RX-1 el titular deja de encabezar la radiografía",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      ${blockQuality}\n      ${blockStream}\n",
+  "nuevo": "      ${blockStream}\n      ${blockQuality}\n",
+  "modulos": [
+   "test_radiografia_alcance"
+  ]
+ },
+ {
+  "id": "RX-2 un bloque se queda sin decir su alcance",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    const subLabel = _rgrfAlcance(!z0);\n",
+  "nuevo": "    const subLabel = '';\n",
+  "modulos": [
+   "test_radiografia_alcance"
+  ]
+ },
+ {
+  "id": "H-1 el puntero usa una escala lineal",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      const l = Math.log10(Math.max(v, Math.pow(10, L0)));\n      const t = (l - L0) / (L1 - L0);\n",
+  "nuevo": "      const t = (v - Math.pow(10, L0)) / (Math.pow(10, L1) - Math.pow(10, L0));\n",
+  "modulos": [
+   "test_curva_de_luz"
+  ]
+ },
+ {
+  "id": "H-2 el hover busca la clase vieja",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  document.querySelectorAll('.dv-luz-host').forEach(host => {\n",
+  "nuevo": "  document.querySelectorAll('.dv-sparkline-host').forEach(host => {\n",
+  "modulos": [
+   "test_curva_de_luz"
   ]
  }
 ]

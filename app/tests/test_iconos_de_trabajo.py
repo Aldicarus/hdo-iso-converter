@@ -412,6 +412,9 @@ class TestNoQuedaNingunEmojiSinJustificar(unittest.TestCase):
         #     Cambiarlos aquí sin cambiar el Python rompe el coloreado.
         "line.includes(", "low.includes(", "msg.includes(", "l.includes(",
         "ev.data", ".test(ev.data)",
+        # `_cmv40SenalDeFase(line)`: el prefijo `✓ Fase `/`✗ Fase ` que cierra
+        # una fase, ya fuera del `onmessage` del WS para poder probarlo.
+        ".test(line)",
         # 2 · Texto que se copia al portapapeles: es un informe en Markdown,
         #     no interfaz. Ahí un ✓ es el contenido.
         "- L3: ",

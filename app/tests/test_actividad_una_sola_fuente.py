@@ -492,13 +492,6 @@ class TestNoQuedanLectoresSueltosDeActividad(unittest.TestCase):
                          "UI va por `/api/trabajos`, que es la vista unificada: "
                          f"{apariciones}")
 
-    def test_ya_no_quedan_los_puntos_verdes_de_las_pestanas(self):
-        """Los sustituyó la columna, que dice estrictamente más."""
-        self.assertNotIn("tab-running-dot", JS)
-        self.assertNotIn("tab-running-dot", html())
-        self.assertNotIn("_refreshTabRunningDots", JS)
-
-
 class TestElBackendYaNoRechazaPorAdmision(ApiTestCase):
     """El 409 de admisión existió entre el bloque 2 y el 3, y ya no.
 
@@ -524,21 +517,6 @@ class TestElBackendYaNoRechazaPorAdmision(ApiTestCase):
         workload.registrar("otro", workload.TAB_CMV40, "Fase C de Predator")
         r = self.client.post(f"/api/sessions/{sid}/execute")
         self.assertEqual(r.status_code, 200, r.text)
-
-    def test_no_queda_maquinaria_de_rechazo(self):
-        self.assertFalse(hasattr(workload, "exigir_libre"))
-        self.assertFalse(hasattr(workload, "motivo_409"))
-        self.assertFalse(hasattr(workload, "CABECERA_OCUPADO"))
-        self.assertNotIn("X-Trabajo-En-Curso", js_completo())
-
-
-class TestLosTooltiposDeArranqueNoMienten(unittest.TestCase):
-    """Lo único que sobrevive de los puntos verdes: el HTML no puede afirmar
-    algo que la app ya no hace."""
-
-    def test_no_queda_el_literal_desfasado_de_tab_2(self):
-        self.assertNotIn("Hay una copia/edición en curso", html())
-
 
 if __name__ == "__main__":
     unittest.main()

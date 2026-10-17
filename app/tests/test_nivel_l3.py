@@ -173,14 +173,6 @@ class TestElSummaryNoSirveParaEstosNiveles(unittest.TestCase):
     """Los patrones de L3/L4/L10/L11/L254 se retiraron del parseo del
     summary: no podían casar y hacían creer que algo se comprobaba."""
 
-    def test_el_parseo_del_summary_ya_no_los_busca(self):
-        src = (APP_DIR / "phases" / "phase_a.py").read_text(encoding="utf-8")
-        for patron in ('r"L3\\b|Level 3', 'r"L4\\b|Level 4',
-                       'r"L10\\b|Level 10', 'r"L11\\b|Level 11',
-                       'r"L254\\b|Level 254'):
-            with self.subTest(patron=patron):
-                self.assertNotIn(patron, src)
-
     def test_el_summary_real_solo_trae_cuatro_niveles(self):
         """Copiado de `dovi_tool info --summary` sobre un bin del repo
         DoviTools. Si algún día emitiera más, este test lo dirá."""

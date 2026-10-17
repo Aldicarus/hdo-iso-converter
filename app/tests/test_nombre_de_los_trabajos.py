@@ -169,14 +169,33 @@ class TestLaCaratulaLlegaEnTodosLosTipos(unittest.TestCase):
 
     def test_NUNCA_sale_a_la_red(self):
         """La columna se refresca cada 2 s: una petición por tarjeta y por
-        vuelta. `poster_en_cache` es síncrona a propósito — no puede esperar a
-        nadie."""
-        import inspect
-        self.assertFalse(inspect.iscoroutinefunction(
-            self.tmdb.poster_en_cache))
-        fuente = inspect.getsource(self.tmdb.poster_en_cache)
-        for prohibido in ("httpx", "await", "api_key"):
-            self.assertNotIn(prohibido, fuente)
+        vuelta, así que `cartel_de` no puede salir a la red ni con la caché
+        llena ni con ella vacía.
+
+        Se comprobaba leyendo el fuente de `poster_en_cache` —síncrona y sin
+        `httpx`, `await` ni `api_key`—, y eso no prueba nada: una función
+        síncrona puede salir a la red con otra biblioteca o a través de un
+        helper (revisión de Codex de la suite, 2026-10-17). Aquí se intercepta
+        la red de verdad: resolver un nombre o abrir una conexión falla y se
+        apunta."""
+        import socket
+        from unittest import mock
+        intentos = []
+
+        def _barrera(*a, **k):
+            intentos.append(a[:2])
+            raise OSError("la columna no puede salir a la red")
+
+        with mock.patch.object(socket, "getaddrinfo", _barrera), \
+             mock.patch.object(socket, "create_connection", _barrera), \
+             mock.patch.object(socket.socket, "connect", _barrera), \
+             mock.patch.object(socket.socket, "connect_ex", _barrera):
+            con = trabajos.cartel_de(fichero="Drive.2011.UHD.BluRay [DV FEL].mkv")
+            self.tmdb._cache = {}
+            sin = trabajos.cartel_de(fichero="Nosecual.2030.mkv")
+        self.assertEqual(intentos, [])
+        self.assertTrue(con[1].endswith("/w92/d.jpg"), con)
+        self.assertEqual(sin[1], "")
 
     def test_los_tags_del_nombre_de_salida_no_estropean_la_busqueda(self):
         """Un proyecto CMv4.0 busca por su nombre de SALIDA, que lleva los

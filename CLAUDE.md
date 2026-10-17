@@ -3301,7 +3301,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **117 mutaciones** en
+de entonces seguían en verde. Hoy hay **131 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:
@@ -3370,6 +3370,29 @@ todas. Lo que se aprendió, por orden de cuántas veces se repitió:
     para poder ponerla a cero); las transiciones de la copia se comprobaban
     en memoria y no en disco, que es lo que lee el recovery; y ningún test
     provocaba un error de E/S a mitad de la copia.
+- **Las lápidas se recortaron donde se repetían** (auditoría de la suite,
+  bloque c). Una prohibición de un nombre retirado protege solo ese nombre:
+  el mismo comportamiento con otro identificador vuelve y la lápida sigue en
+  verde. Fuera las que repetían otra comprobación —el 409 de admisión tenía
+  CINCO en tres ficheros y queda una, `test_cola_unica::TestYaNoQuedaNingun409DeAdmision`,
+  junto a los dos tests HTTP que prueban la política— o que ya cubren el
+  golden de rutas (`test_rutas_no_cambian`) o un test de comportamiento. Se
+  quedan las únicas sobre un contrato que puede reaparecer.
+- **Y varios tests de FORMA pasaron a ejecutar el código** (bloque a), cada
+  uno con su mutación: `_preflight_validate_bin`, que ningún test ejecutaba
+  (se buscaban sus dos asignaciones en el fuente); los dos consumidores del
+  ETA, ejecutados en node con tres proyectos en vez de buscar dos líneas;
+  `cartel_de` con una barrera de red real (DNS y sockets interceptados) en
+  vez de buscar `httpx` en el fuente; el modal sin columna lateral, medido en
+  Chrome con el 404 de un proyecto borrado; la radiografía DV+HDR pintada
+  ENTERA en node (titular, alcance, L11 y offsets de L5 sobre el HTML que
+  sale); y el hover de la curva de luz, con el puntero movido de verdad en
+  Chrome sobre tres muestras — el punto tiene que caer en el anclaje que el
+  render dibujó.
+- **El guard del marcado exige el atributo, no el catálogo.** Daba por bueno
+  un texto de `index.html` sin `data-i18n` si su texto era el valor de alguna
+  clave —«estar en el catálogo no es traducirse», en el HTML—. Hoy el texto
+  castellano tiene que colgar de un `data-i18n`/`data-i18n-html`.
   - El recovery de la copia tiene el test que más importa: **un `done` que
     sigue `active`** (el estado se queda así cinco segundos para que el modal
     cierre) con el contenedor reiniciado en esa ventana. Ahí el destino es el
@@ -3939,6 +3962,27 @@ tres idiomas: `[Fase X]`, `━━━`, `📋 Plan`, `🎯 Resultado`, `§§PROGR
 `test_el_paso_no_se_adivina.py` falla si alguien vuelve a comparar contra
 prosa del catálogo, en el servidor o en el JS, y lleva la lista de
 marcadores.
+
+**Y una tercera vez, que el guard no podía ver: una EXPRESIÓN REGULAR.** El
+WS de un proyecto CMv4.0 enciende y apaga el spinner de la timeline sin
+esperar al GET (que con el NAS cargado tarda 30-60 s), y lo hacía con
+`/━━━ Inicio fase:\s*([a-z_]+)/`, `/✓ Fase \w+ completada en/` y
+`/✗ Fase \w+ FALLÓ/`. El cierre solo casaba en castellano, y el arranque en
+NINGÚN idioma desde el 2026-09-23, cuando la cabecera pasó a llevar el
+nombre traducido de la fase. El guard miraba `.includes('…')` y no las regex
+de `.test(`/`.match(`. Hoy:
+
+- el arranque sale del `fase` (id interno) que `_cmv40_augment_progress`
+  pone en el `§§PROGRESS§§`, que viaja solo por WS y no se traduce;
+- el cierre, del prefijo `✓ Fase ` / `✗ Fase `, que se concatena fuera del
+  catálogo en todos los sitios que cierran una fase;
+- la decisión vive en `_cmv40SenalDeFase` (pura), y
+  `test_la_senal_de_fase` la ejecuta en node con las líneas que el servidor
+  manda DE VERDAD por el WS en los tres idiomas;
+- y el guard mira también las regex, quitando antes los marcadores, las
+  etiquetas de log (`\[(?:Fase|Pipeline…)`) y los identificadores con guion.
+  Lo destapó una sospecha de la revisión de Codex: un guard que buscaba la
+  aguja `"FALLÓ: {"`, que ya no existía en el código.
 
 ### Una tabla de rótulos NO se evalúa al importar
 

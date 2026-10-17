@@ -46,20 +46,6 @@ JS = js_completo()
 
 class TestElOverlayNoVuelve(unittest.TestCase):
 
-    def test_no_queda_la_funcion_que_decidia_mostrarlo(self):
-        self.assertNotIn("_cmv40ShouldShowOverlay", JS)
-
-    def test_ni_la_que_lo_pintaba(self):
-        self.assertNotIn("_renderCMv40RunningOverlay", JS)
-
-    def test_ni_las_dos_heuristicas_del_puente_entre_fases(self):
-        """`recentRunning` y `lastRunningPhaseAt` existían SOLO para que el
-        overlay no parpadeara entre una fase y la siguiente. Sin overlay no
-        tienen nada que sostener, y `recentRunning` fue justo la que mantuvo
-        tapado el banner de ACK."""
-        self.assertNotIn("recentRunning", JS)
-        self.assertNotIn("lastRunningPhaseAt", JS)
-
     def test_el_flag_del_auto_pipeline_SI_se_queda(self):
         """`_autoChaining` no era del overlay: distingue «el usuario abrió el
         proyecto» de «la cadena está avanzando», que es lo que impide que abrir

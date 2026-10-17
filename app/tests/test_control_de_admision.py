@@ -76,13 +76,6 @@ class TestElRegistro(unittest.TestCase):
         self.assertIn("Blu-Ray ISO", d, d)
         self.assertIn("rip de Peli (2024)", d)
 
-    def test_ya_no_existe_el_409_de_admision(self):
-        """Lo sustituyó la cola: lo diferido espera turno en vez de que se le
-        diga que no. `exigir_libre` se quedó sin llamadores con el bloque 3."""
-        self.assertFalse(hasattr(workload, "exigir_libre"))
-        self.assertFalse(hasattr(workload, "motivo_409"))
-
-
 class AdmisionApiCase(ApiTestCase):
 
     def setUp(self):
@@ -197,21 +190,6 @@ class TestTab3(AdmisionApiCase):
             r._CMV40_FASES_DIFERIDAS,
             {"analyze_source", "extract", "correct_sync", "inject", "remux",
              "validate", "target_rpu_mkv"})
-
-    def test_ya_no_queda_ningun_409_en_tab_3(self):
-        """Ni siquiera en los pre-flight, que fueron los últimos en caer.
-
-        Se dispara **solo** al crear un proyecto con target, así que
-        rechazarlo dejaba el flujo muerto nada más empezar: el proyecto se
-        creaba, el pre-flight daba 409 y el auto-pipeline no arrancaba nunca
-        — con el poller de seguridad reintentando cada 4 s y un aviso ámbar
-        cada vez. Y encolarlo habría sido peor: 40 minutos de espera por
-        nueve segundos de trabajo (mediana medida sobre 91 pre-flights;
-        p90 49 s, máximo 116 s).
-        """
-        src = (APP_DIR / "routers" / "cmv40.py").read_text(encoding="utf-8")
-        self.assertNotIn("_cmv40_guard_sin_trabajo_pesado", src)
-        self.assertNotIn("workload.exigir_libre", src)
 
     def test_el_pre_flight_no_bloquea_con_un_rip_en_curso(self):
         """El caso concreto: crear un proyecto CMv4.0 mientras rippeas."""

@@ -609,9 +609,6 @@ class TestElArmazonEsElMismoQueEnLasOtrasDos(unittest.TestCase):
         i = HTML.index('id="sidebar-tab-2"')
         return HTML[i:HTML.index('id="sidebar-tab-3"', i)]
 
-    def test_ya_no_está_vacío(self):
-        self.assertNotIn('<div id="sidebar-tab-2" style="display:none"></div>', HTML)
-
     def test_trae_las_mismas_clases_que_tab_1_y_tab_3(self):
         s2 = self._sidebar2()
         for clase in ("sidebar-new-project-area", "sidebar-new-project-btn",

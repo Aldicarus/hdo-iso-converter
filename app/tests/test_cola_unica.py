@@ -377,23 +377,6 @@ class TestTab3PasaPorLaCola(ApiTestCase):
         self.assertEqual(cola._queue, [])
 
 
-class TestUnTrabajoEnColaNoTapaElPanel(unittest.TestCase):
-    """Lo que aquella clase comprobaba, dicho de la forma que hoy aplica.
-
-    Se probaba que `_cmv40ShouldShowOverlay` devolviera `false` con el trabajo
-    en cola. Esa función ya no existe: **el overlay entero se retiró** porque
-    la premisa era mala —abrir un modal bloqueante por su cuenta— y se le
-    fueron añadiendo excepciones sin arreglarlo. Ver
-    `test_cmv40_overlay_bloqueante`.
-    """
-
-    def test_no_queda_nada_que_tape_el_panel_por_su_cuenta(self):
-        from frontend_sources import js_completo
-        js = js_completo()
-        self.assertNotIn("_cmv40ShouldShowOverlay", js)
-        self.assertNotIn("cmv40-running-overlay", js)
-
-
 class TestTab2PasaPorLaCola(ApiTestCase):
     """Los dos trabajos largos de Tab 2, que eran POST síncronos.
 
@@ -595,11 +578,6 @@ class TestTab2PasaPorLaCola(ApiTestCase):
         self.assertEqual(self._encolados(qm.TIPO_COPIA_BIBLIOTECA), [],
                          f"se encoló una edición sin copia: {r.text}")
 
-    def test_ya_no_queda_ningun_409_de_admision_en_tab_2(self):
-        src = (APP_DIR / "routers" / "tab2.py").read_text(encoding="utf-8")
-        self.assertNotIn("workload.exigir_libre", src)
-
-
 class TestLaSerieEnteraPasaPorLaCola(ApiTestCase):
     """`create-series-sessions` era el último POST síncrono largo.
 
@@ -716,12 +694,29 @@ class TestElEndpointDeLaColaLoDiceTodo(ApiTestCase):
 
 
 class TestYaNoQuedaNingun409DeAdmision(unittest.TestCase):
-    """El final del bloque 3: la app pasa de «no puedes» a «cuando toque»."""
+    """El final del bloque 3: la app pasa de «no puedes» a «cuando toque».
+
+    Es la ÚNICA lápida del 409 de admisión. Había cinco en tres ficheros
+    diciendo lo mismo (la auditoría de la suite del 2026-10-17 las recortó);
+    la política de verdad la prueban por HTTP
+    `test_actividad_una_sola_fuente::test_encolar_un_rip_con_otra_pestana_ocupada_funciona`
+    y `test_control_de_admision::test_el_pre_flight_no_bloquea_con_un_rip_en_curso`.
+    """
 
     def test_en_ninguno_de_los_tres_routers(self):
         for f in ("tab1.py", "tab2.py", "cmv40.py"):
             src = (APP_DIR / "routers" / f).read_text(encoding="utf-8")
             self.assertNotIn("exigir_libre", src, f)
+            self.assertNotIn("_cmv40_guard_sin_trabajo_pesado", src, f)
+
+    def test_ni_la_maquinaria_ni_la_cabecera(self):
+        """Un `exigir_libre` nuevo sin la cabecera daría un 409 rojo de
+        «Error:», que es justo lo que el bloque 2 arregló."""
+        from frontend_sources import js_completo
+        self.assertFalse(hasattr(workload, "exigir_libre"))
+        self.assertFalse(hasattr(workload, "motivo_409"))
+        self.assertFalse(hasattr(workload, "CABECERA_OCUPADO"))
+        self.assertNotIn("X-Trabajo-En-Curso", js_completo())
 
     def test_ni_en_main(self):
         self.assertNotIn("exigir_libre",

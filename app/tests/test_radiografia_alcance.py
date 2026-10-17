@@ -128,20 +128,6 @@ class TestElAvisoDeDivergenciaViveEnElTITULAR(EnNode):
             self.assertNotIn("dv-mc-div-low", html)
             self.assertNotIn("dv-mc-div-high", html)
 
-    def test_ni_queda_el_calculo_suelto(self):
-        """Un cálculo que ya no pinta nada es código muerto, y de ese
-        sale el próximo dato que se contradice."""
-        cuerpo = _funcion("_rgrfMasteringChain")
-        self.assertNotIn("divergenceBanner", cuerpo)
-        self.assertNotIn("l1Peak", cuerpo)
-
-    def test_y_el_titular_SI_lo_dice(self):
-        from pathlib import Path as _P
-        src = (APP_DIR / "phases" / "mkv_lectura.py").read_text(encoding="utf-8")
-        self.assertIn("RATIO_CONSERVADOR", src)
-        self.assertIn("RATIO_GENEROSO", src)
-
-
 class TestLaCardEnsenaLoQueAPLICA(EnNode):
 
     CMV29 = {"quality_classification": "real", "quality_verdict_text": "x",
@@ -195,20 +181,6 @@ class TestElAlcanceSeDiceUnaSolaVez(EnNode):
         self.assertIn("30 s", self.evaluar("_rgrfAlcance(true)"))
         self.assertIn("dv-alcance-muestra", self.evaluar("_rgrfAlcance(true)"))
         self.assertIn("dv-alcance-film", self.evaluar("_rgrfAlcance(false)"))
-
-    def test_los_tres_bloques_usan_el_MISMO_helper(self):
-        """L5, L8 y el pico L1 tenían cada uno su redacción. Con tres
-        textos distintos, el cuarto bloque que llegue inventará un
-        cuarto."""
-        cuerpo = JS[JS.index("function _renderMkvDvRadiography("):]
-        cuerpo = cuerpo[:cuerpo.index("\nfunction _rgrfQualityAuditCard")]
-        self.assertGreaterEqual(cuerpo.count("_rgrfAlcance("), 2)
-        for vieja in ("tab2.l5_sample_30s_corre_el_perfil",
-                      "tab2.l5_validado_en_todo_el_film",
-                      "tab2.l8_escala_sample_30s",
-                      "tab2.l8_escala_validado_film_completo"):
-            self.assertNotIn(vieja, JS, f"quedó la redacción suelta {vieja}")
-
 
 # Los dos MKV reales del NAS, con sus valores tal cual se midieron.
 # Pulp Fiction es CMv2.9 con análisis extendido; Backrooms, CMv4.0 con L3
@@ -300,11 +272,6 @@ class TestLaTablaDeNiveles(EnNode):
         self.assertIn("dv-alcance-muestra", l9)
         self.assertIn("1001", l1)
 
-    def test_las_pills_no_vuelven(self):
-        cuerpo = _funcion("_renderMkvDvRadiography")
-        self.assertNotIn("dv-pill-row", cuerpo)
-        self.assertNotIn("blockCmv4", JS)
-
     def test_y_el_CALLER_no_la_condiciona(self):
         """El de arriba llama a la tabla directamente, así que no vería
         un `isV40 ?` en quien la monta — y esa era justamente la avería:
@@ -372,16 +339,6 @@ class TestElTitular(EnNode):
         html = self._titular(None)
         self.assertIn("dv-titular-vacio", html)
 
-    def test_la_card_vieja_ya_no_encabeza_la_radiografia(self):
-        """El guard del caller: el test de arriba llama al titular
-        directamente y no vería que quien monta el bloque volviera a la
-        card — que es de lo que se trata."""
-        cuerpo = _funcion("_renderMkvDvRadiography")
-        linea = [l for l in cuerpo.splitlines() if "blockQuality =" in l]
-        self.assertEqual(len(linea), 1)
-        self.assertIn("_rgrfTitular", linea[0])
-
-
 class TestLosTargetsSeDicenUNAVEZ(EnNode):
     """«DV trim targets» (L2) y «Escala L8» eran la misma pregunta.
 
@@ -414,12 +371,6 @@ class TestLosTargetsSeDicenUNAVEZ(EnNode):
         «100»: dos listas de lo mismo que no coincidían."""
         html = self._tabla(self.CMV40)
         self.assertNotIn("92", html)
-
-    def test_la_fila_duplicada_de_la_cadena_ya_no_existe(self):
-        cadena = _funcion("_rgrfMasteringChain")
-        self.assertNotIn("dv-mc-row-trims", cadena)
-        self.assertNotIn("trimChips", cadena)
-        self.assertNotIn("target_max_pq", cadena)
 
     def test_y_el_grafico_dice_QUE_pinta(self):
         """«Escala L8» no decía nada: son las pantallas de destino."""
@@ -493,19 +444,6 @@ class TestLaRadiografiaSonCINCOBloques(EnNode):
         self.assertIn("${blockActiveArea}", ficha)
         self.assertIn("${filaContenedor}", ficha)
 
-    def test_L11_solo_esta_en_la_tabla(self):
-        """Estaba en la cadena de mastering y en la tabla."""
-        self.assertNotIn("dv-mc-row-l11", JS)
-        self.assertIn("tab2.niv_l11", _funcion("_rgrfTablaDeNiveles"))
-
-    def test_los_offsets_de_L5_solo_estan_en_la_tabla(self):
-        """El bloque de encuadre tenía seis celdas con los mismos
-        números que la fila L5. Se queda con el dibujo y el aspecto."""
-        cuerpo = _funcion("_renderMkvDvRadiography")
-        self.assertNotIn("tab2.offsets_t_b", cuerpo)
-        self.assertNotIn("tab2.offsets_l_r", cuerpo)
-        self.assertIn("_rgrfL5Svg", cuerpo)
-
     def test_y_el_HDR_declarado_solo_en_la_ficha(self):
         self.assertNotIn("dv-mc-row-declarado", _funcion("_rgrfMasteringChain"))
         self.assertIn("_rgrfHdrDeclarado", _funcion("_renderMkvDvRadiography"))
@@ -513,3 +451,88 @@ class TestLaRadiografiaSonCINCOBloques(EnNode):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# La radiografía ENTERA, pintada: lo que varios tests comprobaban leyendo el
+# fuente de `_renderMkvDvRadiography` —qué helper llama, qué variable mete en
+# qué plantilla, qué nombre de bloque ya no aparece— se mira aquí en el HTML
+# que sale. Un test de fuente pasa en verde aunque el render diga otra cosa
+# (revisión de Codex de la suite, 2026-10-17).
+_RADIOGRAFIA = ("_renderMkvDvRadiography", "_fmtDuration", "_rgrfAspectLabel",
+                "_rgrfDistributionSvg", "_rgrfHdrDeclarado", "_rgrfL1StatsCard",
+                "_rgrfL5Svg")
+
+_DV_CMV40 = {"profile": 7, "el_type": "FEL", "cm_version": "v4.0", "rpu_present": True,
+             "has_l1": True, "has_l2": True, "has_l5": True, "has_l6": True, "has_l8": True,
+             "has_l9": True, "has_l11": True, "l11_content_type": 1,
+             "l1_max_cll": 1000, "l1_max_fall": 400, "l2_target_nits": [100, 600],
+             "l5_top": 276, "l5_bottom": 276, "l5_left": 0, "l5_right": 0,
+             "l6_max_cll": 371, "l6_max_fall": 162, "l9_primaries": "DCI-P3 D65",
+             "l8_trim_nits": [100], "scene_count": 2414, "frame_count": 155506}
+_MKV = {"file_name": "Peli.mkv", "file_path": "/mnt/output/Peli.mkv",
+        "file_size_bytes": 6e10, "duration_seconds": 6486,
+        "tracks": [{"id": 0, "type": "video", "codec": "HEVC",
+                    "pixel_dimensions": "3840x2160"}]}
+
+
+class TestLaRadiografiaEnteraPintada(EnNode):
+
+    def _pintar(self, dv):
+        guion = "\n".join([motor_i18n(), DOM, sistema_de_iconos(),
+                           *(_funcion(n) for n in FUNCIONES + _RADIOGRAFIA),
+                           f"const A = {json.dumps(_MKV)}; const DV = {json.dumps(dv)};",
+                           "process.stdout.write(JSON.stringify("
+                           "_renderMkvDvRadiography(A, DV, A.tracks[0], null)));"])
+        r = subprocess.run(argv_node(guion), capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(f"node falló: {r.stderr[-1500:]}")
+        return json.loads(r.stdout)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = None
+
+    def setUp(self):
+        if TestLaRadiografiaEnteraPintada.html is None:
+            TestLaRadiografiaEnteraPintada.html = self._pintar(_DV_CMV40)
+        self.h = TestLaRadiografiaEnteraPintada.html
+        self.p = pintar_en(self.h)
+
+    def test_el_titular_encabeza_y_va_una_sola_vez(self):
+        secciones = re.findall(r'<section class="([^"]+)"', self.h)
+        self.assertGreaterEqual(len(secciones), 4, secciones)
+        self.assertIn("dv-titular", secciones[0])
+        self.assertEqual(sum("dv-titular" in s for s in secciones), 1, secciones)
+
+    def test_el_alcance_se_marca_en_varios_bloques_y_con_el_mismo_helper(self):
+        """Con el sniff de 30 s, todos los bloques dicen «muestra»; ninguno
+        se queda sin marca ni dice «película entera»."""
+        self.assertGreaterEqual(self.h.count("dv-alcance-muestra"), 2)
+        self.assertEqual(self.h.count("dv-alcance-film"), 0)
+
+    def test_el_encuadre_dice_su_alcance(self):
+        """Cada bloque con datos de la muestra lo dice, no solo «alguno»:
+        contar marcas en total no ve que UN bloque se quede sin la suya."""
+        def encuadre(html):
+            i = html.index("dv-ficha-encuadre")
+            return html[i:html.index("</div>", html.index("dv-mc-row-label", i)) + 6]
+        self.assertIn("dv-alcance-muestra", encuadre(self.h))
+        con_zona = self._pintar({**_DV_CMV40, "l1_references": {"l5_zones": [
+            {"top": 276, "bottom": 276, "left": 0, "right": 0,
+             "frames": 155506, "pct": 100.0}]}})
+        self.assertIn("dv-alcance-film", encuadre(con_zona))
+
+    def test_l11_sale_una_sola_vez_y_en_la_tabla(self):
+        self.assertEqual(len(re.findall(r"\bL11\b", self.p)), 1)
+        self.assertEqual(self.p.count('<td class="dv-niv-lvl">L11</td>'), 1)
+
+    def test_los_offsets_de_l5_solo_estan_en_su_fila(self):
+        filas = [f for f in self.p.split("<tr") if "276" in f]
+        self.assertEqual(len(filas), 1, "los offsets se repiten fuera de la tabla")
+        self.assertIn(">L5<", filas[0])
+
+    def test_lo_retirado_no_se_pinta(self):
+        for aguja in ("dv-pill-row", "dv-mc-row-trims", "dv-mc-row-l11",
+                      "dv-mc-div-low", "dv-mc-div-high"):
+            with self.subTest(aguja):
+                self.assertNotIn(aguja, self.h)

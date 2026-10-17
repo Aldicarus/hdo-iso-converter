@@ -1103,23 +1103,6 @@ class TestLaSubPestanaDeColaSeRetiro(unittest.TestCase):
     """Era la asimetría: Tab 2 y Tab 3 no tienen nada equivalente en el centro,
     y además duplicaba lo que ahora dice la columna."""
 
-    def test_no_queda_el_boton_ni_la_cortinilla(self):
-        h = html()
-        self.assertNotIn("subtab-btn-cola", h)
-        self.assertNotIn("cola-expand-tab", h)
-        self.assertNotIn("toggleColaSidebar", JS)
-
-    def test_y_el_panel_con_el(self):
-        """El panel vivía pegado a la sub-pestaña y a su propio poller. Lo que
-        daba —las fases con su círculo y su transcurrido— lo da ahora el
-        lateral del modal, que es el mismo sitio en el que se mira una fase
-        CMv4.0. Sin ids `pc-*` sueltos que nadie actualiza."""
-        h = html()
-        for ident in ('id="panel-cola"', "pc-step-mount", "pc-elapsed-extract",
-                      "pc-eta-extract", "pc-bar-extract"):
-            self.assertNotIn(ident, h, f"{ident} quedó huérfano en el HTML")
-        self.assertNotIn("pc-step-mount", JS)
-
     @unittest.skipIf(NODE is None, "node no está instalado")
     def test_el_lateral_del_rip_da_las_fases_con_su_transcurrido(self):
         """Lo que se perdería si el lateral se quedara vacío: en qué fase va,
@@ -1164,12 +1147,6 @@ console.log(JSON.stringify({{ html: _ripTimelineHTML(a, sesion) }}));
         h = _node(guion)["html"]
         self.assertNotIn("completado · 12 min", h)
         self.assertIn("en curso…", h)
-
-    def test_switch_sub_tab_no_conserva_ramas_muertas(self):
-        src = pieza_de("switchSubTab")[1]
-        self.assertNotIn("'cola'", src,
-                         "quedan condiciones que ya nunca pueden ser ciertas")
-
 
 if __name__ == "__main__":
     unittest.main()

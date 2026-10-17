@@ -2041,13 +2041,13 @@ function _cmv40AssignSession(project, data) {
   // NAS ese GET puede tardar 30s en responder. Mientras tanto:
   //   T=0:    backend save running_phase=null (fin de fase X)
   //   T=0.01: backend dispatch a siguiente fase Y → save running_phase=Y
-  //   T=0.02: WS broadcasta "━━━ Inicio fase: Y ━━━" → optimistic local Y
+  //   T=0.02: llega el primer §§PROGRESS§§ de Y (con `fase`) → optimistic local Y
   //   T=30:   GET de T=0 responde — pero load_cmv40_session leyó el JSON
   //           en la ventana de ~10ms donde running_phase=null y devuelve
   //           ese snapshot obsoleto. Sin este guard, _cmv40AssignSession
   //           pisaba el optimistic Y con un null antiguo → spinner del
   //           timeline desaparecía de la fase nueva hasta el SIGUIENTE
-  //           GET (el del "━━━ Inicio fase: Y" propio).
+  //           GET (el que dispara la cabecera ━━━ de Y).
   // Si el local tiene running_phase reciente y data lo trae null pero la
   // sesión no es terminal, conservamos el local.
   if (project.session && project.session.running_phase
@@ -2382,15 +2382,14 @@ function _connectCMv40WebSocket(project) {
     // spinner correcto al instante. El GET posterior trae datos
     // autoritativos y rectifica si hay discrepancia.
     if (project.session) {
-      const startMatch = ev.data.match(/━━━ Inicio fase:\s*([a-z_]+)\s*━━━/i);
-      if (startMatch) {
-        project.session.running_phase = startMatch[1];
+      const senal = _cmv40SenalDeFase(ev.data);
+      if (senal && senal.inicio && project.session.running_phase !== senal.inicio) {
+        project.session.running_phase = senal.inicio;
         // Timestamp para que _cmv40AssignSession sepa que este valor es
         // reciente y NO debe pisarlo si un GET tardío trae null obsoleto.
         project._optimisticRunningPhaseAt = Date.now();
         _updateCMv40Panel(project);
-      } else if (/✓ Fase \w+ completada en/.test(ev.data) ||
-                 /✗ Fase \w+ FALLÓ/.test(ev.data)) {
+      } else if (senal && senal.fin) {
         // Fase terminó: limpia running_phase localmente para que el
         // spinner desaparezca de la fase anterior mientras llega el GET
         // que dirá la fase nueva (si la hay) o el done definitivo.
@@ -3048,6 +3047,25 @@ function _cmv40ScrollActiveStepIntoView(stepsEl, activeKey, behavior = 'smooth')
   const target = liTop - (containerH / 2) + (liH / 2);
   const max = stepsEl.scrollHeight - containerH;
   stepsEl.scrollTo({ top: Math.max(0, Math.min(max, target)), behavior });
+}
+
+/**
+ * Qué dice una línea del WS sobre el ciclo de vida de la fase, o null.
+ *
+ * Solo mira lo que NO se traduce: el id interno que el servidor pone en el
+ * `§§PROGRESS§§` (`fase`) para el arranque, y el prefijo `✓ Fase ` /
+ * `✗ Fase `, que se concatena en el código fuera del catálogo, para el
+ * cierre. Leía prosa —`━━━ Inicio fase: X ━━━`, «completada en», «FALLÓ»—
+ * y así el arranque no casaba en ningún idioma desde que la cabecera lleva
+ * el nombre traducido de la fase, y el cierre solo en castellano: con la
+ * app en inglés el spinner se quedaba en la fase terminada hasta el GET.
+ */
+function _cmv40SenalDeFase(line) {
+  if (typeof line !== 'string') return null;
+  const prog = _cmv40ParseProgress(line);
+  if (prog) return (prog.fase && /^[a-z_]+$/.test(prog.fase)) ? { inicio: prog.fase } : null;
+  if (/(?:^|\] )[✓✗] Fase \S/.test(line)) return { fin: true };
+  return null;
 }
 
 function _cmv40ParseProgress(line) {

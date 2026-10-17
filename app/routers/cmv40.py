@@ -364,13 +364,26 @@ def _cmv40_job_pct(session: CMv40Session, phase_pct: float) -> float | None:
 
 
 def _cmv40_augment_progress(session: CMv40Session, msg: str) -> tuple[str, str]:
-    """Añade `job_pct` al marcador de progreso. Devuelve (msg, ts_msg)."""
+    """Añade `job_pct` y `fase` al marcador de progreso. Devuelve (msg, ts_msg).
+
+    `fase` es el id INTERNO de la que corre (`analyze_source`, `extract`…),
+    y es lo que el WS usa para encender el spinner de la timeline sin
+    esperar al GET. Lo leía de la cabecera `━━━ Inicio fase: X ━━━`, que es
+    prosa: con el log en inglés decía «Phase start:», y desde el 2026-09-23
+    la cabecera lleva el nombre traducido de la fase, así que no casaba en
+    ningún idioma. El progreso viaja solo por WS y no se traduce."""
     try:
         payload = json.loads(msg[len(_CMV40_PROGRESS_PREFIX):])
         if isinstance(payload, dict):
+            cambiado = False
             job = _cmv40_job_pct(session, float(payload.get("pct") or 0))
             if job is not None:
                 payload["job_pct"] = job
+                cambiado = True
+            if session.running_phase and "fase" not in payload:
+                payload["fase"] = session.running_phase
+                cambiado = True
+            if cambiado:
                 msg = _CMV40_PROGRESS_PREFIX + json.dumps(payload)
     except (ValueError, TypeError):
         pass

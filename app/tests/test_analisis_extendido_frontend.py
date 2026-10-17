@@ -208,46 +208,10 @@ const _mkvAnalisisVistos = new Set({json.dumps(list(vistos))});
 class TestNoQuedanDosCaminos(unittest.TestCase):
     """El segundo pipeline de la UI tiene que haber desaparecido de verdad."""
 
-    def test_no_queda_el_analisis_de_luminancia_aparte(self):
-        for muerto in ("_rgrfAnalyzeLight", "_dvLightSetStep",
-                       "_dvLightSetProgress", "_dvLightSetElapsed",
-                       "_dvLightSession"):
-            # Las menciones en comentarios explican por qué ya no está; lo que
-            # no puede quedar es una llamada o una definición.
-            self.assertNotIn(f"{muerto}(", JS, f"{muerto} sigue invocándose")
-
-    def test_no_queda_el_endpoint_del_perfil(self):
-        """Las URLs muertas son EXACTAMENTE estas dos, no todo lo que empiece
-        por `light-profile`. La comprobación era por subcadena y también
-        prohibía `/api/mkv/light-profile-cached`, que es el comparador A/B —
-        otro endpoint, de sólo lectura y que no lanza ningún análisis. Un guard
-        que caza código legítimo empuja a renombrar para esquivarlo, que es
-        justo lo contrario de lo que se busca."""
-        for muerta in ("'/api/mkv/light-profile'", '"/api/mkv/light-profile"',
-                       "/api/mkv/light-profile?", "/api/mkv/light-profile/progress",
-                       "/api/mkv/light-profile/cancel"):
-            self.assertNotIn(muerta, JS, f"vuelve a llamarse a {muerta}")
-
-    def test_el_modal_del_perfil_ya_no_esta_en_el_html(self):
-        self.assertNotIn('id="dv-light-modal"', HTML)
-        self.assertNotIn('id="dv-light-step-1"', HTML)
-
     def test_los_dos_botones_llaman_al_mismo_analisis(self):
         """El de la card de calidad y el del bloque de luminancia."""
         self.assertGreaterEqual(JS.count("_rgrfAuditQuality(event)"), 3,
                                 "faltan botones apuntando al análisis extendido")
-
-    def test_el_backend_ya_no_expone_el_endpoint(self):
-        # Se miran los dos ficheros: los endpoints de Tab 2 viven ahora en
-        # `routers/tab2.py`, así que buscar solo en `main.py` pasaría en verde
-        # aunque el endpoint volviera.
-        for rel in ("main.py", "routers/tab2.py"):
-            src = (APP_DIR / rel).read_text(encoding="utf-8")
-            # Con la comilla final: `/api/mkv/light-profile-cached` es otro
-            # endpoint (el comparador A/B) y sí puede existir.
-            self.assertNotIn('/api/mkv/light-profile"', src, rel)
-            self.assertNotIn('/api/mkv/light-profile/progress', src, rel)
-            self.assertNotIn("_light_profile_state: dict", src, rel)
 
     def test_el_perfil_esta_en_el_modelo(self):
         """Si `DoviInfo` no lo declara, la re-inyección del cache lo descarta en

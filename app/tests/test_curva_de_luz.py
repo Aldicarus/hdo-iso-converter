@@ -235,20 +235,109 @@ class TestElPunteroLeeLosValores(EnNode):
         self.assertEqual(len(geo), 8)
         self.assertEqual(geo[-2:], ["0", "4"])   # L0=1 nit · L1=10.000
 
-    def test_el_hover_usa_la_MISMA_formula_que_el_render(self):
-        cuerpo = _funcion("_attachSparklineHover")
-        self.assertIn("Math.log10", cuerpo)
-        self.assertIn("dataset.geo", cuerpo)
-
-    def test_y_engancha_con_las_clases_que_se_pintan(self):
-        """Quedó apuntando a `.dv-sparkline-host`, que ya no existe."""
-        cuerpo = _funcion("_attachSparklineHover")
-        self.assertIn("dv-luz-host", cuerpo)
-        self.assertNotIn("dv-sparkline", cuerpo)
-        self.assertNotIn("dv-sparkline", JS)
 
     def test_en_la_serie_plana_no_hay_nada_que_enganchar(self):
         self.assertNotIn("dv-luz-host", self.svg(PLANA))
+
+
+_CHROME = next((c for c in (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    shutil.which("google-chrome") or "", shutil.which("chromium") or "")
+    if c and Path(c).exists()), None)
+
+_HOVER = """
+<pre id="__out"></pre>
+<script>
+setTimeout(() => {
+  const out = {errores: [], casos: []};
+  try {
+    const S = %(serie)s;
+    const host = document.createElement('div');
+    host.style.width = '900px';
+    host.innerHTML = _rgrfSparklineSvg(S, '', 6000,
+      {avgSeries: S.map(() => 9), minSeries: S.map(() => 0)});
+    document.body.appendChild(host);
+    _attachSparklineHover();
+    const svg = host.querySelector('.dv-luz-svg');
+    const [padL, padR, padT, padB, W, H] = svg.dataset.geo.split(',').map(Number);
+    const rect = svg.getBoundingClientRect();
+    // Los anclajes del trazado del pico: el M y el último par de cada C.
+    // El del PICO: de los trazados con curvas, el que más alturas distintas
+    // tiene (el medio y el mínimo son planos en esta serie).
+    const alturas = d => new Set(d.replace(/[MC]/g, ' ').trim().split(/ +/)
+      .map(par => par.split(',')[1])).size;
+    const pico = [...svg.querySelectorAll('path')].map(p => p.getAttribute('d'))
+      .filter(d => d && d.includes('C')).sort((a, b) => alturas(b) - alturas(a))[0];
+    const nums = pico.replace(/[MC]/g, ' ').trim().split(/ +/)
+      .map(par => par.split(',').map(Number));
+    const anclas = [nums[0]];
+    for (let k = 3; k < nums.length; k += 3) anclas.push(nums[k]);
+    for (const i of %(indices)s) {
+      const sx = padL + (i / (S.length - 1)) * (W - padL - padR);
+      svg.dispatchEvent(new MouseEvent('mousemove', {
+        clientX: rect.left + (sx / W) * rect.width, clientY: rect.top + 10, bubbles: true}));
+      const dot = svg.querySelector('.dv-luz-dot');
+      const tip = host.querySelector('.dv-luz-tooltip');
+      out.casos.push({i, ancla: anclas[i], cx: +dot.getAttribute('cx'),
+                      cy: +dot.getAttribute('cy'), visible: dot.style.display !== 'none',
+                      tip: tip.textContent});
+    }
+  } catch (e) { out.errores.push('EXCEPCIÓN: ' + e.message); }
+  document.getElementById('__out').textContent = JSON.stringify(out);
+}, 600);
+</script>
+"""
+
+
+@unittest.skipUnless(_CHROME, "Chrome/Chromium no disponible")
+class TestElPunteroCaeSobreLaCurva(unittest.TestCase):
+    """El hover y el render tienen que usar la MISMA escala: si no, el punto
+    se despega de la curva. Se comprobaba buscando `Math.log10` y las clases
+    en el fuente del hover (revisión de Codex de la suite: el texto puede
+    seguir ahí con la fórmula cambiada). Aquí se pinta la curva de Watchmen
+    en Chrome, se mueve el puntero sobre tres muestras —el pico de 2.354
+    nits incluido— y el punto tiene que caer en el anclaje que el render
+    dibujó para esa muestra."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os, tempfile
+        from frontend_sources import html, stub_catalogo_es
+        cuerpo = _HOVER % {"serie": json.dumps(WATCHMEN), "indices": json.dumps([2, 4, 6])}
+        pagina = html().replace("</head>", stub_catalogo_es() + "</head>")
+        pagina = pagina.replace("</body>", cuerpo + "</body>")
+        pagina = pagina.replace('src="/static/', 'src="').replace('href="/static/', 'href="')
+        f = tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8",
+                                        dir=str(APP_DIR / "static"))
+        f.write(pagina)
+        f.close()
+        try:
+            dom = subprocess.run(
+                [_CHROME, "--headless", "--disable-gpu", "--allow-file-access-from-files",
+                 "--dump-dom", "--window-size=1280,900", "--virtual-time-budget=6000", f.name],
+                capture_output=True, text=True, timeout=180).stdout
+        finally:
+            os.unlink(f.name)
+        m = re.search(r'<pre id="__out">(.*?)</pre>', dom, re.S)
+        if not m or not m.group(1).strip():
+            raise unittest.SkipTest("Chrome no devolvió el volcado")
+        cls.m = json.loads(m.group(1))
+
+    def test_sin_errores(self):
+        self.assertEqual(self.m["errores"], [])
+        self.assertEqual(len(self.m["casos"]), 3)
+
+    def test_el_punto_cae_en_el_anclaje_de_la_curva(self):
+        for c in self.m["casos"]:
+            with self.subTest(muestra=c["i"]):
+                self.assertTrue(c["visible"])
+                self.assertAlmostEqual(c["cx"], c["ancla"][0], delta=0.6)
+                self.assertAlmostEqual(c["cy"], c["ancla"][1], delta=0.6)
+
+    def test_y_el_tooltip_dice_el_valor_de_esa_muestra(self):
+        pico = next(c for c in self.m["casos"] if c["i"] == 2)
+        self.assertIn("354", pico["tip"])        # 2.354 / 2,354 según el locale
 
 
 if __name__ == "__main__":

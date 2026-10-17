@@ -71,14 +71,6 @@ class TestCacheBust(unittest.TestCase):
         self.assertIn("?v=${token", fuente,
                       "el fetch del catálogo no lleva el token")
 
-    def test_no_queda_rastro_del_app_js_monolitico(self):
-        self.assertFalse((STATIC / "app.js").exists(),
-                         "app.js se partió en siete; un fichero suelto con ese "
-                         "nombre es una copia que nadie carga")
-        # Sobre las referencias, no sobre el texto: el HTML menciona el
-        # `app.js` original en el comentario que explica el corte.
-        self.assertNotIn("app.js", {f for f, _ in self.refs})
-
     def test_todas_las_referencias_comparten_el_mismo_token(self):
         tokens = {t for _, t in self.refs}
         self.assertEqual(len(tokens), 1,
