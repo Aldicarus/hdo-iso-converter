@@ -197,7 +197,9 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
 - **Indicadores de ejecución**: spinner animado en tab "Crear MKV", en el proyecto del sidebar, en el subtab del proyecto, y en la sección "En curso" del panel Cola.
 
 ### Paso 3 — Revisar resultados
-- **Validación final del MKV**: al completar, `mkvmerge -J` + `mkvextract` sobre el MKV final. Compara pistas, idiomas, flags y capítulos contra lo esperado. Si hay discrepancias, escribe bloque de diagnóstico detallado en el log.
+- **Validación final del MKV**: al completar, `mkvmerge -J` + `mkvextract` sobre el MKV final. Compara, pista a pista, idioma, tier del codec, **canales, nombre y las marcas «por defecto» y «forzado»**, y los capítulos uno a uno (tiempo y nombre, al milisegundo). Si hay discrepancias, escribe bloque de diagnóstico detallado en el log.
+  - **Hasta el 2026-10-17 los nombres, las marcas y los canales solo se IMPRIMÍAN**, y `test_todo_cuadra` exigía «correcto» con las marcas al revés: un AC-3 2.0 donde tocaba el 5.1 (mismo tier) o un completo con la marca de forzado salían en verde. Los capítulos siguen sin ser fatales —el MKV se reproduce igual— pero ya se dicen, también con cero esperados.
+  - **Una validación que no se pudo hacer cuenta como discrepancia** (`last_validation_warnings ≥ 1`): fichero ausente, mkvmerge que muere, sin vídeo o una excepción. Antes la ficha la pintaba limpia.
 - **Banner contextual**: running/queued → azul con "Ver progreso" + "Cancelar". done/error → en historial.
 - **Tabla de historial de ejecuciones** con tiempos por fase y visor de log con coloreado semántico.
 
@@ -3303,14 +3305,14 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - Estados: `pending` → `queued` → `running` → `done` | `error`
 - **No se persiste si Fase A falla**: la sesión solo se crea tras éxito de A+B.
 - **Timestamps UTC-aware**: `datetime.now(timezone.utc)` siempre.
-- **Cola**: `queue_state.json`. Al arrancar, sesiones zombie → `pending`.
+- **Cola**: `queue_state.json`. Al arrancar, lo que estaba `running` vuelve a `pending` (con su MKV a medias borrado) y lo `queued` que sigue en la cola se queda `queued` y se reanuda (`recuperar_sesiones_interrumpidas` + `reanudar_cola`). Y se borran los `*_intermediate.mkv` del primer nivel de `/mnt/tmp`: al arrancar no corre ningún rip, así que son de uno que murió (la fase limpia cuando mkvmerge falla, no cuando matan al proceso).
 
 ### Docker
 - **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.3.3 + Python 3.10
 - **`privileged: true`**: para loop mount
 - **Puerto**: 8090 → 8080 (configurable)
 - **Healthcheck**: `GET /api/health` cada 30s
-- **Recuperación**: sesiones zombie → `pending` al arrancar
+- **Recuperación**: ver «Persistencia» — `running` → `pending`, `queued` se reanuda, intermedios huérfanos fuera
 
 ### Desarrollo local
 - Python 3.12 en `.venv/`
@@ -3329,7 +3331,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **192 mutaciones** en
+de entonces seguían en verde. Hoy hay **237 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:
@@ -3573,6 +3575,23 @@ algo, con su test y su mutación:
   `copyfile`/`copy2` y `subprocess.run`, **y los helpers síncronos pesados que
   una corrutina llama directamente** —el `rmtree` del borrado de huérfanos
   vivía en uno—: salieron nueve sitios, todos a un thread.
+- **Tab 1, la segunda tanda.** El nombre del MKV llegaba sin validar a la
+  escritura, el rename y la limpieza: `../biblioteca/Peli.mkv` escribía
+  fuera de /mnt/output (`phase_e.ruta_de_salida`, 400 en el PUT). Una
+  sesión sin capítulos heredaba los del disco (`--no-chapters` siempre;
+  `--chapters ''` en propedit). Cancelar durante un `--identify` —que no se
+  registra— dejaba arrancar el mux: hoy un proceso que nace con la
+  cancelación puesta muere al registrarse. Borrar un proyecto en marcha lo
+  RECREABA (409) y uno en cola se ejecutaba igual (sale de la cola). Los
+  topes de MediaInfo, la muestra DV, el `--identify`, mkvpropedit y
+  mount/umount estaban definidos y sin usar (`esperar_con_tope` mata al
+  agotarse), y el montaje y la muestra se llamaban por el pid, que
+  comparten dos análisis del mismo proceso. En series, los conflictos usan
+  la identidad del modal (el MPLS primero), «Saltar todos» publica su
+  resultado y dos episodios en el mismo m2ts no se fusionan si sus tramos
+  no se solapan. En la Fase B, sin conteo PGS las completas sobrantes ya no
+  se ofrecen como forzadas, y «Mantener todas» clasifica como el perfil y
+  solo marca de forzado el idioma principal.
 - **Tab 3, frontend.** Abrir un proyecto manual **lanzaba la Fase C**: el
   respaldo «para sesiones anteriores al campo `auto_pipeline`» se aplicaba a
   todas, porque el modelo lo pone a `False` por defecto (`_cmv40AutoAlAbrir`).

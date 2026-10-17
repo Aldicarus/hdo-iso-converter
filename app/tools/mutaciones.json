@@ -1735,5 +1735,410 @@
   "modulos": [
    "test_contratos_de_cancelar_y_resultados"
   ]
+ },
+ {
+  "id": "T4b-1 la validación no mira los canales",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            if ch_real and ch_esp and ch_real != ch_esp:",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-2 la validación no mira el forzado",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if forz_esp is not None and bool(forz_real) != bool(forz_esp):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-3 la validación no mira el por defecto",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if bool(def_real) != bool(def_esp):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-4 la validación no mira el nombre",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if (nombre_real or \"\") != (nombre_esp or \"\"):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-5 cero capítulos esperados no avisa",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if num_chapters != expected_chapters:\n",
+  "nuevo": "    if num_chapters != expected_chapters and expected_chapters:\n",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-6 los capítulos no se comparan uno a uno",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            if (_ms_de_capitulo(ts) != _ms_de_capitulo(exp_ch.timestamp)\n                    or nombre != exp_ch.name):",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-7 los nanosegundos cuentan como diferencia",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        return ((h * 60 + m) * 60 + s) * 1000 + int((frac + \"000\")[:3])",
+  "nuevo": "        return ((h * 60 + m) * 60 + s) * 1000 + int(frac or 0)",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-9 el MKV ausente no cuenta como aviso",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        await log('[Validación] ' + tr('tab1.el_fichero_mkv_no_existe'))\n        session.last_validation_warnings = 1\n",
+  "nuevo": "        await log('[Validación] ' + tr('tab1.el_fichero_mkv_no_existe'))\n",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-10 sin vídeo no cuenta como aviso",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        await log('[Validación] ' + msg)\n        warnings.append(msg)\n        all_ok = False\n",
+  "nuevo": "        await log('[Validación] ' + msg)\n        all_ok = False\n",
+  "modulos": [
+   "test_validacion_final"
+  ]
+ },
+ {
+  "id": "T4b-11 la ruta directa hereda los capítulos del disco",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    cmd.append(\"--no-chapters\")\n    cmd.append(source_path)",
+  "nuevo": "    if chapters_xml:\n        cmd.append(\"--no-chapters\")\n    cmd.append(source_path)",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T4b-13 el relato vuelve a mirar name_custom",
+  "fichero": "app/phases/tab1_relato.py",
+  "viejo": "    del_disco = not _campo(s, \"chapters_auto_generated\")",
+  "nuevo": "    del_disco = any(c.get(\"name_custom\") if isinstance(c, dict) else getattr(c, \"name_custom\", False) for c in caps)",
+  "modulos": [
+   "test_relato_tab1_tab2"
+  ]
+ },
+ {
+  "id": "T4b-14 arnés: el mux ignora --no-chapters",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "        if \"--no-chapters\" in op:\n            continue\n        propios",
+  "nuevo": "        propios",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T4b-12 propedit no borra los capítulos del intermedio",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    cmd += [\"--chapters\", chapters_xml or \"\"]",
+  "nuevo": "    if chapters_xml:\n        cmd += [\"--chapters\", chapters_xml]",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T4b-15 arnés: propedit pierde los capítulos del escenario al escribir",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "    if props.get(\"chapters\") is None and destino.name in sc.get(\"chapters\", {}):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_los_fakes_respetan_las_opciones"
+  ]
+ },
+ {
+  "id": "T4c-1 tras decidir la ruta no se mira la cancelación",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            do_reorder = await needs_reordering(session, extraction_source, log)\n            _check_cancel()\n",
+  "nuevo": "            do_reorder = await needs_reordering(session, extraction_source, log)\n",
+  "modulos": [
+   "test_cancelar_un_rip"
+  ]
+ },
+ {
+  "id": "T4c-2 un proceso nacido tras cancelar sigue vivo",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        if _cancel_flags.get(session_id) and proc.returncode is None:\n            try:\n                proc.kill()",
+  "nuevo": "        if False:\n            try:\n                proc.kill()",
+  "modulos": [
+   "test_cancelar_un_rip"
+  ]
+ },
+ {
+  "id": "T4d-1 el PUT acepta un nombre que sale de output",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        try:\n            ruta_de_salida(body.mkv_name)\n        except ValueError:",
+  "nuevo": "        try:\n            pass\n        except ValueError:",
+  "modulos": [
+   "test_endpoints_tab1_tab2"
+  ]
+ },
+ {
+  "id": "T4d-2 la Fase E no valida el nombre de salida",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    try:\n        return str(ruta_de_salida(session.mkv_name))\n",
+  "nuevo": "    try:\n        return str(Path(OUTPUT_DIR) / session.mkv_name)\n",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T4e-1 MediaInfo sin tope",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "        stdout, stderr = await esperar_con_tope(proc, MEDIAINFO_TIMEOUT)",
+  "nuevo": "        stdout, stderr = await proc.communicate()",
+  "modulos": [
+   "test_topes_del_analisis"
+  ]
+ },
+ {
+  "id": "T4e-2 el tope no mata al proceso",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "    except asyncio.TimeoutError:\n        try:\n            proc.kill()\n        except ProcessLookupError:\n            pass\n        await proc.wait()\n        raise",
+  "nuevo": "    except asyncio.TimeoutError:\n        raise",
+  "modulos": [
+   "test_topes_del_analisis"
+  ]
+ },
+ {
+  "id": "T4e-3 la muestra DV vuelve a llamarse por el pid",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "    unico = f\"{os.getpid()}_{uuid.uuid4().hex[:8]}\"",
+  "nuevo": "    unico = f\"{os.getpid()}\"",
+  "modulos": [
+   "test_topes_del_analisis"
+  ]
+ },
+ {
+  "id": "T4e-4 ffprobe con el tope fijo de antes",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "        stdout, _stderr = await esperar_con_tope(proc, FFPROBE_DURACION_TIMEOUT)",
+  "nuevo": "        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=30)",
+  "modulos": [
+   "test_topes_del_analisis"
+  ]
+ },
+ {
+  "id": "T4e-5 el identify de la Fase E sin tope",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        stdout, _ = await esperar_con_tope(proc, IDENTIFY_TIMEOUT)",
+  "nuevo": "        stdout, _ = await proc.communicate()",
+  "modulos": [
+   "test_topes_del_analisis"
+  ]
+ },
+ {
+  "id": "T4e-6 el mount sin tope",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "            subprocess.run, cmd, capture_output=True, text=True,\n            timeout=MOUNT_TIMEOUT,\n",
+  "nuevo": "            subprocess.run, cmd, capture_output=True, text=True,\n",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "T4e-7 el punto de montaje vuelve a ser stem_pid",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "    mount_point = Path(tempfile.mkdtemp(prefix=f\"{iso.stem}_{os.getpid()}_\",\n                                        dir=MOUNT_BASE))",
+  "nuevo": "    mount_point = MOUNT_BASE / f\"{iso.stem}_{os.getpid()}\"\n    mount_point.mkdir(parents=True, exist_ok=True)",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "T4f-1 saltar todo no publica el resultado",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        _series_create_progress[\"resultado\"] = resultado_final\n        _guardar_resultado_de_serie(_clave, resultado_final)\n        _series_create_progress[\"running\"] = False\n        workload.liberar(_clave)\n        return resultado_final",
+  "nuevo": "        _series_create_progress[\"running\"] = False\n        workload.liberar(_clave)\n        return resultado_final",
+  "modulos": [
+   "test_contratos_de_cancelar_y_resultados"
+  ]
+ },
+ {
+  "id": "T4f-2 los conflictos vuelven a exigir media_type series",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            if s.season_number and s.episode_number:\n                existing_by_episode",
+  "nuevo": "            if s.media_type == \"series\" and s.season_number and s.episode_number:\n                existing_by_episode",
+  "modulos": [
+   "test_episodios_no_se_pisan"
+  ]
+ },
+ {
+  "id": "T4f-3 los conflictos no miran el MPLS",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "        return (existing_by_mpls.get(Path(ep.mpls_path or \"\").name)\n                if ep.mpls_path else None) \\\n            or existing_by_episode",
+  "nuevo": "        return existing_by_episode",
+  "modulos": [
+   "test_episodios_no_se_pisan"
+  ]
+ },
+ {
+  "id": "T4g-1 las completas sobrantes vuelven a leftover",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "                return forced, complete, [], otras_completas, low[1:]",
+  "nuevo": "                return forced, complete, [], [], low[1:] + otras_completas",
+  "modulos": [
+   "test_subtitle_classification"
+  ]
+ },
+ {
+  "id": "T4g-2 sin forzado las sobrantes vuelven a leftover",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "            return None, lang_tracks[0], [], lang_tracks[1:], []",
+  "nuevo": "            return None, lang_tracks[0], [], [], lang_tracks[1:]",
+  "modulos": [
+   "test_subtitle_classification"
+  ]
+ },
+ {
+  "id": "T4g-3 keep_all marca de forzado a todos",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "            flag_forced = sub_type == \"forced\" and del_principal",
+  "nuevo": "            flag_forced = sub_type == \"forced\"",
+  "modulos": [
+   "test_subtitle_classification"
+  ]
+ },
+ {
+  "id": "T4g-4 keep_all vuelve al umbral de 500",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "            sub_type = _infer_sub_type(lang_norm, t) or \"complete\"",
+  "nuevo": "            sub_type = \"forced\" if 0 < t.packet_count < 500 else \"complete\"",
+  "modulos": [
+   "test_subtitle_classification"
+  ]
+ },
+ {
+  "id": "T4h-1 el dedupe vuelve a fusionar tramos distintos",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "    return any(min(f1, f2) > max(i1, i2) for i1, f1 in a for i2, f2 in b)",
+  "nuevo": "    return True",
+  "modulos": [
+   "test_seleccion_mpls_principal"
+  ]
+ },
+ {
+  "id": "T4h-2 el dedupe nunca fusiona",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "    if a is None or b is None:\n        return True\n    return any(",
+  "nuevo": "    if a is None or b is None:\n        return False\n    return False and any(",
+  "modulos": [
+   "test_seleccion_mpls_principal"
+  ]
+ },
+ {
+  "id": "C3-1 el gate de duración del M2TS no se aplica",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if not m2ts_covers_title(pl_dur, m2ts_dur):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_orquestador_tab1"
+  ]
+ },
+ {
+  "id": "C3-2 el reintento no prefiere el main_m2ts",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    if main_name and mount_point:",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_orquestador_tab1"
+  ]
+ },
+ {
+  "id": "C3-3 el watchdog de inactividad no dispara",
+  "fichero": "app/phases/phase_d.py",
+  "viejo": "            await asyncio.sleep(WATCHDOG_CADA_S)\n            if time.monotonic() - last_line_at > MKVMERGE_INACTIVITY_S:",
+  "nuevo": "            await asyncio.sleep(WATCHDOG_CADA_S)\n            if False:",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "C3-4 un move que falla se da por bueno",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "    except BaseException:\n        _limpiar_parcial(work_path)\n        raise\n",
+  "nuevo": "    except BaseException:\n        _limpiar_parcial(work_path)\n        return output_path\n",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "C3-5 propedit no aplica las marcas de los subtítulos",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "            edits.append((sub_id_map[i], track.label, track.flag_default, track.flag_forced))",
+  "nuevo": "            edits.append((sub_id_map[i], track.label, False, False))",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "C3-6 el mux directo no marca el audio por defecto",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        cmd += [\"--default-track\", f\"{tid}:{'yes' if track.flag_default else 'no'}\"]\n        cmd += [\"--forced-track\",  f\"{tid}:{'yes' if track.flag_forced  else 'no'}\"]\n\n    # Metadatos de subtítulos",
+  "nuevo": "        cmd += [\"--default-track\", f\"{tid}:no\"]\n        cmd += [\"--forced-track\",  f\"{tid}:{'yes' if track.flag_forced  else 'no'}\"]\n\n    # Metadatos de subtítulos",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "C3-7 la STN solo lee los audios",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "        for i in range(n_pv + n_pa):",
+  "nuevo": "        for i in range(n_pa):",
+  "modulos": [
+   "test_pgs_asignacion"
+  ]
+ },
+ {
+  "id": "C3-8 los capítulos simples pierden su tiempo",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "            timestamps[num] = m.group(2)",
+  "nuevo": "            timestamps[num] = \"00:00:00.000\"",
+  "modulos": [
+   "test_mpls_chapters"
+  ]
+ },
+ {
+  "id": "C3-9 ffprobe con el sondeo corto",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "            \"-probesize\", \"100M\",",
+  "nuevo": "            \"-probesize\", \"5M\",",
+  "modulos": [
+   "test_topes_del_analisis"
+  ]
+ },
+ {
+  "id": "C3-10 un m2ts corto elegido a mano se descarta",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "        if dur_min <= 0:",
+  "nuevo": "        if dur_min < EPISODE_MIN_MINUTES:",
+  "modulos": [
+   "test_disc_probe_m2ts"
+  ]
+ },
+ {
+  "id": "C3-11 recalcular el nombre no lo guarda",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    new_name         = _build_mkv_name(title, year, session.has_fel, session.audio_dcp)\n    session.mkv_name = new_name\n    save_session(session)",
+  "nuevo": "    new_name         = _build_mkv_name(title, year, session.has_fel, session.audio_dcp)\n    session.mkv_name = new_name\n    pass",
+  "modulos": [
+   "test_episodios_no_se_pisan"
+  ]
  }
 ]
