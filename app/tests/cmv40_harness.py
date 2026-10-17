@@ -2084,6 +2084,37 @@ def _pistas_del_mux(entradas, sc):
     return pistas, ruta_video
 
 
+def _capitulos_del_mux(entradas, sc):
+    """Los capítulos del MKV de salida, como el mkvmerge real: los del
+    `--chapters` (global) MÁS los de cada entrada que no lleve
+    `--no-chapters` delante. None si no se sabe nada de ninguno —manda
+    entonces el escenario del fichero de salida—, y False si el XML no es
+    válido (el real sale con 2).
+
+    Sin esto el mux no copiaba capítulos a ningún sitio: una sesión que
+    pedía CERO capítulos y heredaba los del disco (porque nadie pasaba
+    `--no-chapters`) salía en verde (auditoría con Codex del 2026-10-17).
+    """
+    xmls = [v for _, op in entradas for v in op.get("--chapters", [])]
+    caps, se_sabe = [], False
+    if xmls:
+        de_xml = _capitulos_de_xml(xmls[-1])
+        if de_xml is None:
+            return False
+        caps, se_sabe = list(de_xml), True
+    for ruta, op in entradas:
+        if "--no-chapters" in op:
+            continue
+        propios = props_in_file(Path(ruta)) or {}
+        heredados = propios.get("chapters")
+        if heredados is None:
+            heredados = sc.get("chapters", {}).get(Path(ruta).name)
+        if heredados is not None:
+            caps += [list(c) for c in heredados]
+            se_sabe = True
+    return caps if se_sabe else None
+
+
 def _capitulos_del_j(ruta, name, del_fichero, sc):
     caps = del_fichero.get("chapters")
     if caps is None:
@@ -2207,6 +2238,13 @@ def mkvmerge(sc):
         pistas, ruta_video = _pistas_del_mux(entradas, sc)
         props = read_props(ruta_video, sc) if ruta_video else dict(DEFAULT_PROPS)
         props["tracks"] = pistas
+        caps = _capitulos_del_mux(entradas, sc)
+        if caps is False:
+            sys.stderr.write("Error: The chapter file could not be parsed.\n")
+            return 2
+        props.pop("chapters", None)
+        if caps is not None:
+            props["chapters"] = caps
         if opt("--title") is not None:
             props["title"] = opt("--title")
         produce(out, props)

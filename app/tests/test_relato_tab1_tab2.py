@@ -86,8 +86,21 @@ class TestElRipCuentaLoQueSeEstablecio(unittest.TestCase):
     def test_los_capitulos_del_disco_se_distinguen_de_los_generados(self):
         del_disco = hechos(tab1_relato.resolver(rip()))["capitulos"]
         generados = hechos(tab1_relato.resolver(
-            rip(chapters=[{"name_custom": False}] * 8)))["capitulos"]
+            rip(chapters_auto_generated=True)))["capitulos"]
         self.assertNotEqual(del_disco["evidencia"], generados["evidencia"])
+        self.assertIn("disco", del_disco["evidencia"])
+
+    def test_la_procedencia_no_la_decide_un_nombre_editado(self):
+        """Un capítulo del disco con nombre genérico (`name_custom=False`)
+        salía «generado», y renombrar uno generado lo hacía «del disco»
+        (auditoría con Codex del 2026-10-17)."""
+        disco_generico = hechos(tab1_relato.resolver(
+            rip(chapters=[{"name_custom": False}] * 8)))["capitulos"]
+        self.assertIn("disco", disco_generico["evidencia"])
+        generado_renombrado = hechos(tab1_relato.resolver(
+            rip(chapters=[{"name_custom": True}] * 8,
+                chapters_auto_generated=True)))["capitulos"]
+        self.assertNotIn("disco", generado_renombrado["evidencia"])
 
     def test_sin_capitulos_avisa(self):
         h = hechos(tab1_relato.resolver(rip(chapters=[])))

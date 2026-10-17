@@ -301,11 +301,30 @@ class TestFaseEDirecta(FaseTestCase):
         self.assertFalse(Path(chapters).exists(),
                          "el XML temporal de capítulos no se ha borrado")
 
-    async def test_sin_capitulos_no_pasa_la_opcion(self):
+    def _capitulos_de(self, mkv):
+        import subprocess
+        r = subprocess.run(["mkvextract", str(mkv), "chapters", "--simple"],
+                           capture_output=True, text=True)
+        lineas = r.stdout.splitlines()
+        return [(lineas[i].split("=", 1)[1], lineas[i + 1].split("=", 1)[1])
+                for i in range(0, len(lineas), 2)]
+
+    async def test_sin_capitulos_en_la_sesion_el_mkv_sale_sin_los_del_disco(self):
+        """El usuario los quitó todos. Sin XML no se pasaba `--no-chapters` y
+        el MKV heredaba los del MPLS (auditoría con Codex del 2026-10-17)."""
+        self.tb.define_chapters(self.mpls.name, [("00:00:00.000", "Chapter 1"),
+                                                 ("00:05:00.000", "Chapter 2")])
         s = self._sesion_completa()
         s.chapters = []
-        await self._correr(session=s)
+        salida = await self._correr(session=s)
         self.assertIsNone(self.tb.find("mkvmerge")[-1].opt("--chapters"))
+        self.assertEqual(self._capitulos_de(salida), [])
+
+    async def test_con_capitulos_salen_los_de_la_sesion_y_no_se_duplican(self):
+        self.tb.define_chapters(self.mpls.name, [("00:00:00.000", "Chapter 1")])
+        salida = await self._correr()
+        self.assertEqual(self._capitulos_de(salida),
+                         [("00:00:00.000", "Capítulo 01"), ("00:10:00.000", "Capítulo 02")])
 
     async def test_el_orden_de_pistas_pone_el_video_primero(self):
         await self._correr()
@@ -475,6 +494,17 @@ class TestFaseEPropedit(FaseTestCase):
         self.tb.fail("mkvpropedit", "*", rc=1, stderr="aviso\n")
         await self._correr()
         self.assertEqual(self._en_output(), ["Peli (2024) [DV FEL].mkv"])
+
+    async def test_sin_capitulos_en_la_sesion_borra_los_del_intermedio(self):
+        """El intermedio trae los capítulos del disco; con la sesión sin
+        ninguno, propedit no recibía orden de borrarlos."""
+        import subprocess
+        self.tb.define_chapters(self.intermedio.name, [("00:00:00.000", "Chapter 1")])
+        self.sesion.chapters = []
+        salida = await self._correr()
+        r = subprocess.run(["mkvextract", salida, "chapters", "--simple"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.stdout, "", "el MKV conserva los capítulos del disco")
 
     async def test_edita_la_pista_por_su_numero_de_mkvpropedit(self):
         """mkvpropedit numera las pistas desde 1 y mkvmerge desde 0: el audio

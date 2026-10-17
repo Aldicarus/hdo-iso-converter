@@ -32,23 +32,23 @@ from models import (  # noqa: E402
 )
 
 
-def _audio(language, codec, label):
+def _audio(language, codec, label, *, default=False, description=""):
     return IncludedAudioTrack(
         position=0,
         raw=RawAudioTrack(codec=codec, language=language, bitrate_kbps=0,
-                          description=""),
+                          description=description),
         language_literal=label.split()[0], codec_literal=label, label=label,
-        flag_default=False, selection_reason="test",
+        flag_default=default, selection_reason="test",
     )
 
 
-def _sub(language, subtitle_type, label):
+def _sub(language, subtitle_type, label, *, default=False, forced=False):
     return IncludedSubtitleTrack(
         position=0,
         raw=RawSubtitleTrack(language=language, bitrate_kbps=30.0,
                              description="", packet_count=0),
         language_literal=label.split()[0], subtitle_type=subtitle_type,
-        label=label, flag_default=False, flag_forced=False,
+        label=label, flag_default=default, flag_forced=forced,
         selection_reason="test",
     )
 
@@ -95,21 +95,85 @@ class ValidacionCase(unittest.IsolatedAsyncioTestCase):
 class TestElCasoCorrecto(ValidacionCase):
 
     async def test_todo_cuadra(self):
+        """Con las marcas, los canales y los nombres IGUALES a los de la
+        sesión. Este test exigía «correcto» con las marcas al revés (la
+        sesión decía no por defecto y no forzado, el MKV lo contrario): fijaba
+        la falsa garantía que encontró la auditoría con Codex del 2026-10-17."""
         self._declarar_mkv([
             self.VIDEO,
-            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa",
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa", "channels": 8,
              "track_name": "Castellano TrueHD Atmos 7.1", "default": True},
             {"type": "subtitles", "codec": "HDMV PGS", "language": "spa",
-             "track_name": "Castellano Forzados (PGS)", "forced": True},
+             "track_name": "Castellano Forzados (PGS)", "forced": True, "default": True},
         ], capitulos=[("00:00:00.000", "Capítulo 01")])
         s = self._sesion(
             audios=[_audio("Spanish", "Dolby TrueHD/Atmos Audio",
-                           "Castellano TrueHD Atmos 7.1")],
-            subs=[_sub("Spanish", "forced", "Castellano Forzados (PGS)")],
+                           "Castellano TrueHD Atmos 7.1", default=True,
+                           description="7.1+11 objects / 48 kHz")],
+            subs=[_sub("Spanish", "forced", "Castellano Forzados (PGS)",
+                       default=True, forced=True)],
             chapters=[Chapter(number=1, timestamp="00:00:00.000", name="Capítulo 01")],
         )
         self.assertTrue(await self._validar(s), self.log.text)
         self.assertTrue(self.log.says("✅ Verificación correcta"), self.log.text)
+        self.assertEqual(s.last_validation_warnings, 0)
+
+
+class TestLoQueSoloSeImprimia(ValidacionCase):
+    """Nombres, marcas y canales se escribían en el log y no se comparaban."""
+
+    def _mkv_bueno(self, **cambios):
+        audio = {"type": "audio", "codec": "AC-3", "language": "spa", "channels": 6,
+                 "track_name": "Castellano DD 5.1", "default": True}
+        sub = {"type": "subtitles", "codec": "HDMV PGS", "language": "spa",
+               "track_name": "Castellano Forzados (PGS)", "forced": True, "default": True}
+        audio.update(cambios.get("audio", {}))
+        sub.update(cambios.get("sub", {}))
+        self._declarar_mkv([self.VIDEO, audio, sub])
+
+    def _sesion_buena(self):
+        return self._sesion(
+            audios=[_audio("Spanish", "Dolby Digital Audio", "Castellano DD 5.1",
+                           default=True, description="5.1 / 48 kHz / 640 kbps")],
+            subs=[_sub("Spanish", "forced", "Castellano Forzados (PGS)",
+                       default=True, forced=True)])
+
+    async def test_el_bueno_pasa(self):
+        self._mkv_bueno()
+        self.assertTrue(await self._validar(self._sesion_buena()), self.log.text)
+
+    async def test_un_dd_2_0_donde_tocaba_el_5_1(self):
+        """El mismo tier: solo los canales los distinguen. Es lo que cruza el
+        matcher con dos AC-3 del mismo idioma."""
+        self._mkv_bueno(audio={"channels": 2})
+        s = self._sesion_buena()
+        self.assertFalse(await self._validar(s), self.log.text)
+        self.assertTrue(self.log.says("2 canales ≠ 6"), self.log.text)
+
+    async def test_un_completo_con_la_marca_de_forzado(self):
+        self._mkv_bueno(sub={"forced": False})
+        self.assertFalse(await self._validar(self._sesion_buena()), self.log.text)
+        self.assertTrue(self.log.says("forzado no ≠ sí"), self.log.text)
+
+    async def test_la_marca_por_defecto_en_la_pista_que_no_es(self):
+        self._mkv_bueno(audio={"default": False})
+        self.assertFalse(await self._validar(self._sesion_buena()), self.log.text)
+        self.assertTrue(self.log.says("Audio #1: por defecto no ≠ sí"), self.log.text)
+
+    async def test_el_default_del_subtitulo_tambien(self):
+        self._mkv_bueno(sub={"default": False})
+        self.assertFalse(await self._validar(self._sesion_buena()), self.log.text)
+        self.assertTrue(self.log.says("Subtítulo #1: por defecto no ≠ sí"), self.log.text)
+
+    async def test_un_nombre_distinto(self):
+        self._mkv_bueno(sub={"track_name": "Castellano Completos (PGS)"})
+        self.assertFalse(await self._validar(self._sesion_buena()), self.log.text)
+        self.assertTrue(self.log.says("nombre «Castellano Completos (PGS)»"), self.log.text)
+
+    async def test_el_nombre_del_audio_tambien(self):
+        self._mkv_bueno(audio={"track_name": "Castellano DD 2.0"})
+        self.assertFalse(await self._validar(self._sesion_buena()), self.log.text)
+        self.assertTrue(self.log.says("Audio #1: nombre «Castellano DD 2.0»"), self.log.text)
 
 
 class TestElTierDelCodec(ValidacionCase):
@@ -275,12 +339,30 @@ class TestDiscrepancias(ValidacionCase):
 
     async def test_el_fichero_que_no_existe(self):
         self.mkv.unlink()
-        self.assertFalse(await self._validar(self._sesion()))
+        s = self._sesion()
+        self.assertFalse(await self._validar(s))
         self.assertTrue(self.log.says("no existe"), self.log.text)
+        self.assertEqual(s.last_validation_warnings, 1,
+                         "la ficha la pintaría como validación limpia")
 
     async def test_si_mkvmerge_no_puede_leerlo(self):
         self.tb.fail("mkvmerge", "*", rc=2, stderr="no es un MKV\n")
-        self.assertFalse(await self._validar(self._sesion()))
+        s = self._sesion()
+        self.assertFalse(await self._validar(s))
+        self.assertEqual(s.last_validation_warnings, 1)
+
+    async def test_si_mkvmerge_muere_por_una_senal(self):
+        import signal
+        self.tb.fail("mkvmerge", "*", senal=signal.SIGTERM)
+        s = self._sesion()
+        self.assertFalse(await self._validar(s))
+        self.assertEqual(s.last_validation_warnings, 1)
+
+    async def test_sin_video_cuenta_como_aviso(self):
+        self._declarar_mkv([])
+        s = self._sesion()
+        self.assertFalse(await self._validar(s))
+        self.assertEqual(s.last_validation_warnings, 1)
 
     async def test_el_recuento_queda_en_la_sesion(self):
         """«Terminado» y «terminado con avisos» eran la misma tarjeta: el
@@ -364,6 +446,34 @@ class TestCapitulos(ValidacionCase):
             Chapter(number=2, timestamp="00:10:00.000", name="Capítulo 02")])
         self.assertTrue(await self._validar(s), "un desajuste de capítulos no invalida")
         self.assertTrue(self.log.says("1 en el MKV vs 2 esperados"), self.log.text)
+
+    async def test_sin_capitulos_en_la_sesion_y_con_capitulos_en_el_mkv(self):
+        """El usuario los quitó todos y el MKV salió con los del disco: con
+        cero esperados la validación callaba."""
+        self._declarar_mkv([self.VIDEO], capitulos=[("00:00:00.000", "Chapter 1")])
+        s = self._sesion(chapters=[])
+        self.assertTrue(await self._validar(s), "sigue sin ser fatal")
+        self.assertTrue(self.log.says("1 en el MKV y la sesión no tiene ninguno"),
+                        self.log.text)
+        self.assertEqual(s.last_validation_warnings, 1)
+
+    async def test_mismo_numero_con_otro_tiempo_o_nombre(self):
+        self._declarar_mkv([self.VIDEO], capitulos=[
+            ("00:00:00.000", "Capítulo 01"), ("00:12:00.000", "Capítulo 02")])
+        s = self._sesion(chapters=[
+            Chapter(number=1, timestamp="00:00:00.000", name="Capítulo 01"),
+            Chapter(number=2, timestamp="00:10:00.000", name="El final")])
+        self.assertTrue(await self._validar(s))
+        self.assertTrue(self.log.says("Capítulo #2: «Capítulo 02» en 00:12:00.000"),
+                        self.log.text)
+        self.assertEqual(s.last_validation_warnings, 1)
+
+    async def test_los_nanosegundos_de_la_sesion_no_son_una_diferencia(self):
+        self._declarar_mkv([self.VIDEO], capitulos=[("00:10:00.123", "Uno")])
+        s = self._sesion(chapters=[
+            Chapter(number=1, timestamp="00:10:00.123456789", name="Uno")])
+        self.assertTrue(await self._validar(s))
+        self.assertEqual(s.last_validation_warnings, 0, self.log.text)
 
 
 if __name__ == "__main__":

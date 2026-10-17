@@ -146,10 +146,11 @@ def _hechos(s, situacion: str) -> list[dict]:
     audio = sum(1 for t in incluidas if _tipo(t) == "audio")
     subs = sum(1 for t in incluidas if _tipo(t) == "subtitle")
     caps = _campo(s, "chapters") or []
-    def _auto(c):
-        return not (c.get("name_custom") if isinstance(c, dict)
-                    else getattr(c, "name_custom", False))
-    del_disco = any(not _auto(c) for c in caps)
+    # La procedencia la dice `chapters_auto_generated`, no si alguien editó un
+    # nombre: un capítulo del disco con nombre genérico salía «generado», y
+    # renombrar uno generado lo hacía «del disco» (auditoría con Codex del
+    # 2026-10-17).
+    del_disco = not _campo(s, "chapters_auto_generated")
 
     estado_dv, evidencia_dv = _dv(s)
     hechos = [

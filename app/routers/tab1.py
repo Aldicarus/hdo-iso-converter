@@ -68,7 +68,8 @@ from phases.phase_d import (
 )
 from phases import tab1_relato
 import firma
-from phases.phase_e import needs_reordering, run_phase_e_direct, run_phase_e_propedit
+from phases.phase_e import (_parse_channels, needs_reordering, run_phase_e_direct,
+                            run_phase_e_propedit)
 from queue_manager import queue_manager
 from storage import (
     compute_iso_fingerprint,
@@ -3156,6 +3157,8 @@ async def _run_pipeline(session_id: str) -> None:
             _logger.exception("La validación final no se pudo ejecutar")
             await log('[Validación] ' + tr('tab1.validacion_no_se_pudo_ejecutar', e=e))
             validation_ok = False
+            # Una comprobación que no se pudo hacer no es una limpia.
+            session.last_validation_warnings = max(session.last_validation_warnings or 0, 1)
 
         # `done` en los dos casos, y a propósito: el MKV existe y se puede
         # reproducir, así que marcarlo `error` sería mentir en la otra
@@ -3253,13 +3256,63 @@ async def _run_pipeline(session_id: str) -> None:
             asyncio.create_task(_send_ws_with_timeout(_ws_connections, session_id, ws, sig))
 
 
+def _discrepancias_de_metadatos(n, tipo, nombre_real, nombre_esp, def_real, def_esp,
+                                forz_real=None, forz_esp=None) -> list[str]:
+    """Los avisos de nombre y marcas de una pista. `tipo` es «audio» o «sub»."""
+    si_no = lambda b: tr('tab1.val_si') if b else tr('tab1.val_no')  # noqa: E731
+    out = []
+    if (nombre_real or "") != (nombre_esp or ""):
+        out.append(tr(f'tab1.val_aviso_nombre_{tipo}', n=n, real=nombre_real,
+                      esperado=nombre_esp))
+    if bool(def_real) != bool(def_esp):
+        out.append(tr(f'tab1.val_aviso_default_{tipo}', n=n, real=si_no(def_real),
+                      esperado=si_no(def_esp)))
+    if forz_esp is not None and bool(forz_real) != bool(forz_esp):
+        out.append(tr('tab1.val_aviso_forzado_sub', n=n, real=si_no(forz_real),
+                      esperado=si_no(forz_esp)))
+    return out
+
+
+def _capitulos_simples(texto: str) -> list[tuple[str, str]]:
+    """`CHAPTER01=00:00:00.000` / `CHAPTER01NAME=…` → `[(inicio, nombre)]`."""
+    inicios: dict[str, str] = {}
+    nombres: dict[str, str] = {}
+    for linea in texto.splitlines():
+        clave, _, valor = linea.partition("=")
+        if not clave.startswith("CHAPTER"):
+            continue
+        if clave.endswith("NAME"):
+            nombres[clave[:-4]] = valor
+        else:
+            inicios[clave] = valor
+    return [(inicios[k], nombres.get(k, "")) for k in sorted(inicios)]
+
+
+def _ms_de_capitulo(ts: str) -> int | None:
+    """`HH:MM:SS.fff…` en milisegundos (las fracciones más finas se truncan:
+    el XML de la sesión puede llevar nanosegundos y `--simple` da tres)."""
+    try:
+        hms, _, frac = (ts or "").strip().partition(".")
+        h, m, s = (int(x) for x in hms.split(":"))
+        return ((h * 60 + m) * 60 + s) * 1000 + int((frac + "000")[:3])
+    except ValueError:
+        return None
+
+
 async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
     """
     Valida el MKV final contra lo esperado por la sesión.
 
-    Comprueba: existencia del fichero, número y tipo de pistas,
-    coincidencia de idiomas de audio y subtítulos, presencia de capítulos.
-    Escribe un informe detallado en el log para diagnóstico.
+    Comprueba: existencia del fichero, número y tipo de pistas, y por pista
+    el idioma, el tier del codec, los canales, el nombre y las marcas
+    «por defecto» y «forzado»; y los capítulos, uno a uno. Escribe un
+    informe detallado en el log para diagnóstico.
+
+    Hasta el 2026-10-17 los nombres, las marcas y los canales solo se
+    IMPRIMÍAN: un AC-3 2.0 donde tocaba el 5.1, o un subtítulo completo con
+    la marca de forzado, salían «✅ Verificación correcta» (auditoría con
+    Codex). Una validación que no se puede hacer cuenta como discrepancia
+    en `last_validation_warnings`: si no, la ficha la pintaba limpia.
 
     Returns:
         True si todo es correcto, False si hay discrepancias.
@@ -3268,6 +3321,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
 
     if not Path(mkv_path).exists():
         await log('[Validación] ' + tr('tab1.el_fichero_mkv_no_existe'))
+        session.last_validation_warnings = 1
         return False
 
     # ── Leer pistas del MKV final con mkvmerge -J ────────────────
@@ -3277,14 +3331,16 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, _ = await proc.communicate()
-    if proc.returncode >= 2:
+    if proc.returncode not in (0, 1):
         await log('[Validación] ' + tr('tab1.mkvmerge_no_pudo_leer_el_mkv', returncode=proc.returncode))
+        session.last_validation_warnings = 1
         return False
 
     try:
         data = json.loads(stdout.decode("utf-8", errors="replace"))
     except json.JSONDecodeError:
         await log('[Validación] ' + tr('tab1.mkvmerge_devolvio_un_json_invalido'))
+        session.last_validation_warnings = 1
         return False
 
     actual_tracks = data.get("tracks", [])
@@ -3309,7 +3365,9 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
 
     # ── Validar vídeo ────────────────────────────────────────────
     if not actual_video:
-        await log('[Validación] ' + tr('tab1.el_mkv_no_tiene_pistas_de'))
+        msg = tr('tab1.el_mkv_no_tiene_pistas_de')
+        await log('[Validación] ' + msg)
+        warnings.append(msg)
         all_ok = False
     else:
         for v in actual_video:
@@ -3357,6 +3415,7 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
 
         status = "✅"
         detail = ""
+        fallos: list[str] = []
         if i < len(expected_audio):
             exp = expected_audio[i]
             exp_lang = exp.raw.language.lower()
@@ -3387,12 +3446,29 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                     tr('tab1.audio_p1_la_etiqueta_dice_nom_esp', p1=i+1, nom_esp=nom_esp, nom_real=nom_real, codec=codec)
                 )
                 all_ok = False
+
+            # Canales: el tier no los distingue (un AC-3 2.0 y uno 5.1 son
+            # el mismo tier) y es justo lo que cruza el matcher cuando hay dos
+            # pistas del mismo idioma y codec.
+            ch_real = props.get("audio_channels") or 0
+            ch_esp = _parse_channels(exp.raw.description)
+            if ch_real and ch_esp and ch_real != ch_esp:
+                fallos.append(tr('tab1.val_aviso_canales', n=i + 1,
+                                 real=ch_real, esperado=ch_esp))
+            fallos += _discrepancias_de_metadatos(
+                i + 1, "audio", name, exp.label, is_default, exp.flag_default)
+            if fallos:
+                status = "❌"
+                warnings.extend(fallos)
+                all_ok = False
         else:
             status = "⚠️"
             detail = tr('tab1.val_pista_extra_no_esperada')
 
         flag_str = " [DEFAULT]" if is_default else ""
         await log('[Validación]   ' + tr('tab1.audio', p1=i+1, codec=codec, lang_iso=lang_iso, flag_str=flag_str, p5=name, detail=detail, status=status))
+        for m in fallos:
+            await log('[Validación]     ❌ ' + m)
 
     # Pistas esperadas que no están en el MKV
     for i in range(len(actual_audio), len(expected_audio)):
@@ -3432,7 +3508,15 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
                     'tab1.subtitulo_p1_idioma_lang_name_exp_lang',
                     p1=i + 1, lang_name=lang_name, exp_lang=exp_lang))
                 all_ok = False
+            fallos = _discrepancias_de_metadatos(
+                i + 1, "sub", name, exp.label, is_default, exp.flag_default,
+                is_forced, exp.flag_forced)
+            if fallos:
+                status = "❌"
+                warnings.extend(fallos)
+                all_ok = False
         else:
+            fallos = []
             status = "⚠️"
             detail = tr('tab1.val_pista_extra')
 
@@ -3441,6 +3525,8 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
         if is_forced: flags.append("FRC")
         flag_str = f" [{','.join(flags)}]" if flags else ""
         await log('[Validación]   ' + tr('tab1.sub', p1=i+1, lang_iso=lang_iso, flag_str=flag_str, p4=name, detail=detail, status=status))
+        for m in fallos:
+            await log('[Validación]     ❌ ' + m)
 
     for i in range(len(actual_subs), len(expected_subs)):
         exp = expected_subs[i]
@@ -3458,16 +3544,34 @@ async def _validate_final_mkv(session: Session, mkv_path: str, log) -> bool:
             _sp.run, ["mkvextract", mkv_path, "chapters", "--simple"],
             capture_output=True, text=True, timeout=10,
         )
-        num_chapters = sum(1 for l in _ch_result.stdout.splitlines() if l.startswith("CHAPTER") and "NAME" not in l)
+        capitulos_reales = _capitulos_simples(_ch_result.stdout)
     except Exception:
-        num_chapters = 0
+        capitulos_reales = []
+    num_chapters = len(capitulos_reales)
     expected_chapters = len(session.chapters)
-    if num_chapters != expected_chapters and expected_chapters > 0:
-        msg = tr('tab1.val_capitulos_cuenta', real=num_chapters,
-                  esperados=expected_chapters)
-        await log(f"[Validación] {msg}")
-        warnings.append(msg)
+    # No fatales, como siempre (el MKV se reproduce igual), pero ahora se
+    # dicen: con cero esperados y capítulos dentro —los del disco, que el
+    # usuario quitó— callaba, y con el mismo número no miraba ni tiempos ni
+    # nombres.
+    avisos_cap: list[str] = []
+    if num_chapters != expected_chapters:
+        avisos_cap.append(
+            tr('tab1.val_capitulos_cuenta', real=num_chapters,
+               esperados=expected_chapters) if expected_chapters
+            else tr('tab1.val_capitulos_sobran', real=num_chapters))
     else:
+        for n, (exp_ch, (ts, nombre)) in enumerate(
+                zip(session.chapters, capitulos_reales), start=1):
+            if (_ms_de_capitulo(ts) != _ms_de_capitulo(exp_ch.timestamp)
+                    or nombre != exp_ch.name):
+                avisos_cap.append(tr(
+                    'tab1.val_capitulo_distinto', n=n, real_nombre=nombre,
+                    real_ts=ts, esperado_nombre=exp_ch.name,
+                    esperado_ts=exp_ch.timestamp))
+    for msg in avisos_cap:
+        await log(f"[Validación] {msg}")
+    warnings.extend(avisos_cap)
+    if not avisos_cap:
         await log('[Validación]   ' + tr('tab1.capitulos', num_chapters=num_chapters))
 
     # ── Resumen ──────────────────────────────────────────────────

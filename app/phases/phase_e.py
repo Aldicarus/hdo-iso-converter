@@ -322,9 +322,12 @@ async def run_phase_e_propedit(
     container_title = session.mkv_name.removesuffix(".mkv")
     cmd += ["--edit", "info", "--set", f"title={container_title}"]
 
-    # Capítulos
-    if chapters_xml:
-        cmd += ["--chapters", chapters_xml]
+    # Capítulos. Sin ninguno en la sesión, se BORRAN: el intermedio trae los
+    # del disco (la Fase D no los quita) y una sesión con la lista vacía es
+    # que el usuario los quitó todos. Callar aquí los dejaba dentro
+    # (auditoría con Codex del 2026-10-17). `--chapters ''` es como
+    # mkvpropedit borra los capítulos.
+    cmd += ["--chapters", chapters_xml or ""]
 
     # Metadatos de pistas: mapeo POR CONTENIDO (idioma+codec+canales), igual
     # que la ruta directa. Antes era posicional (`mkv_audio_ids[i]`) y cruzaba
@@ -989,10 +992,11 @@ def _build_mkvmerge_cmd(
         cmd += ["--default-track", f"{tid}:{'yes' if track.flag_default else 'no'}"]
         cmd += ["--forced-track",  f"{tid}:{'yes' if track.flag_forced  else 'no'}"]
 
-    # Suprimir capítulos del source (MPLS) para que no se dupliquen
-    # con los que pasamos via --chapters
-    if chapters_xml:
-        cmd.append("--no-chapters")
+    # Los capítulos del source (MPLS) nunca: o se duplicarían con los de
+    # `--chapters`, o —con la sesión sin capítulos— el MKV heredaría los del
+    # disco que el usuario quitó. Solo se pasaba con XML (auditoría con Codex
+    # del 2026-10-17).
+    cmd.append("--no-chapters")
     cmd.append(source_path)
     return cmd
 
