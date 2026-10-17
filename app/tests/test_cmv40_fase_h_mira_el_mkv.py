@@ -359,17 +359,122 @@ class TestLaCopiaEntreSistemasDeFicheros(FaseHCase):
         s = self.preparar(trust=False, artefactos=("BL.hevc", "DV_dual.hevc"))
         self.mkv_de_la_fase_g(s, INJ_FEL)
         write_artifacts(self.wd, "_validate_full_rpu.bin", props=INJ_FEL)
-        from phases import cmv40_pipeline
-        rename = cmv40_pipeline.os.rename
+        with self._entre_dispositivos():
+            await self.fase_h(s)
+        self.assertTrue(self.entregado(s))
+        self.assertTrue(self.copiado, "el escenario no ha pasado por la copia")
+        self.assertEqual(list(self.output_dir.glob("*.part")), [])
 
-        def _entre_dispositivos(origen, destino):
-            if str(destino).startswith(str(self.output_dir)) and str(origen).endswith(".mkv.tmp"):
+    def _entre_dispositivos(self):
+        """`os.rename` y `os.link` del `.mkv.tmp` hacia /mnt/output fallan
+        con EXDEV, como entre dos filesystems."""
+        import contextlib
+        import errno
+        from phases import cmv40_pipeline
+        rename, link = cmv40_pipeline.os.rename, cmv40_pipeline.os.link
+        self.copiado = False
+
+        def _cruzado(origen, destino):
+            return (str(destino).startswith(str(self.output_dir))
+                    and str(origen).endswith(".mkv.tmp"))
+
+        def _rename(origen, destino):
+            if _cruzado(origen, destino):
                 raise OSError(errno.EXDEV, "Invalid cross-device link")
             return rename(origen, destino)
 
-        with mock.patch.object(cmv40_pipeline.os, "rename", _entre_dispositivos):
-            await self.fase_h(s)
-        self.assertTrue(self.entregado(s))
+        def _link(origen, destino):
+            if _cruzado(origen, destino):
+                self.copiado = True
+                raise OSError(errno.EXDEV, "Invalid cross-device link")
+            return link(origen, destino)
+
+        pila = contextlib.ExitStack()
+        pila.enter_context(mock.patch.object(cmv40_pipeline.os, "rename", _rename))
+        pila.enter_context(mock.patch.object(cmv40_pipeline.os, "link", _link))
+        return pila
+
+    async def test_cancelar_a_mitad_no_deja_nada_con_el_nombre_final(self):
+        """`shutil.move` daba al destino su nombre DEFINITIVO desde el primer
+        byte, y su hilo seguía copiando —y borraba el origen— con la fase ya
+        cancelada (auditoría con Codex del 2026-10-17)."""
+        import asyncio
+        import builtins
+        import time as _time
+        s = self.preparar(trust=False, artefactos=("BL.hevc", "DV_dual.hevc"))
+        tmp = self.mkv_de_la_fase_g(s, INJ_FEL)
+        write_artifacts(self.wd, "_validate_full_rpu.bin", props=INJ_FEL)
+        from phases import cmv40_pipeline
+        abrir = builtins.open
+
+        class _Lento:
+            def __init__(self, f):
+                self._f = f
+
+            def read(self, n=-1):
+                _time.sleep(0.2)
+                return self._f.read(n)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self._f.close()
+
+        def _open(ruta, modo="r", *a, **k):
+            f = abrir(ruta, modo, *a, **k)
+            return _Lento(f) if str(ruta) == str(tmp) and "r" in modo else f
+
+        with self._entre_dispositivos(), \
+                mock.patch.object(cmv40_pipeline, "_TROZO_COPIA", 1024), \
+                mock.patch.object(cmv40_pipeline, "open", _open, create=True):
+            tarea = asyncio.create_task(self.fase_h(s))
+            parcial = self.output_dir / f"{s.output_mkv_name}.part"
+            for _ in range(200):
+                if parcial.exists():
+                    break
+                await asyncio.sleep(0.02)
+            self.assertTrue(parcial.exists(), "la copia no ha empezado")
+            tarea.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await tarea
+            for _ in range(50):
+                if not parcial.exists():
+                    break
+                await asyncio.sleep(0.05)
+        self.assertFalse(self.entregado(s), "un MKV a medias con el nombre final")
+        self.assertFalse(parcial.exists(), "la copia siguió tras cancelar")
+        self.assertTrue(tmp.exists(), "se borró el origen con la fase cancelada")
+
+
+class TestLaPublicacionNoPisaNada(FaseHCase):
+    """`os.rename` sustituye el destino. Entre la comprobación «no existe» y
+    el rename, un fichero que apareciera —otra copia del NAS— se perdía sin
+    un error (auditoría con Codex del 2026-10-17)."""
+
+    async def test_un_fichero_que_aparece_en_el_ultimo_momento(self):
+        s = self.preparar(trust=False, artefactos=("BL.hevc", "DV_dual.hevc"))
+        self.mkv_de_la_fase_g(s, INJ_FEL)
+        write_artifacts(self.wd, "_validate_full_rpu.bin", props=INJ_FEL)
+        final = self.output_dir / s.output_mkv_name
+        from phases import cmv40_pipeline
+        link, rename = cmv40_pipeline.os.link, cmv40_pipeline.os.rename
+
+        def _aparece(origen, destino):
+            if str(destino) == str(final) and not final.exists():
+                final.write_bytes(b"de otro")
+            return link(origen, destino)
+
+        def _aparece_r(origen, destino):
+            if str(destino) == str(final) and not final.exists():
+                final.write_bytes(b"de otro")
+            return rename(origen, destino)
+
+        with mock.patch.object(cmv40_pipeline.os, "link", _aparece), \
+                mock.patch.object(cmv40_pipeline.os, "rename", _aparece_r):
+            with self.assertRaises(RuntimeError):
+                await self.fase_h(s)
+        self.assertEqual(final.read_bytes(), b"de otro", "la Fase H pisó un fichero ajeno")
 
 
 class TestFaseANoDejaElHevcAMedias(PhaseTestCase):

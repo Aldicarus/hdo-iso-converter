@@ -437,7 +437,7 @@ output.mkv             ← MKV final (se mueve a /mnt/output al validar)
 
 Cada fase produce artefactos reutilizables y tiene endpoint independiente. El usuario controla cada transición explícitamente — sin cascadas automáticas.
 
-1. **Fase A — Analizar MKV origen**: `ffmpeg -map 0:v:0 -c:v copy ... source.hevc` + `dovi_tool extract-rpu` + `dovi_tool info --summary`. Captura `source_fps`, `source_frame_count`, profile y CM version originales.
+1. **Fase A — Analizar MKV origen**: `ffmpeg -map 0:v:0 -c:v copy ... source.hevc` + `dovi_tool extract-rpu` + `dovi_tool info --summary`. Captura `source_frame_count`, profile y CM version originales, y **mide `source_fps`** (frames / duración del contenedor, ajustado a la cadencia estándar más cercana si cae a menos de un 1 %; si no, se queda el 23,976 por defecto). Hasta el 2026-10-17 nada lo escribía: el umbral en segundos del tramo L5 de la Fase B y los tiempos del gráfico de sync contaban un máster de 60 fps como cine.
 2. **Fase B — Proporcionar RPU target**: dos opciones UX (tabs):
    - **Desde carpeta NAS** (`/mnt/cmv40_rpus/*.bin`)
    - **Extraer de otro MKV** que ya tenga CMv4.0 (ffmpeg + extract-rpu)
@@ -461,7 +461,7 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **`sync_verified` YA es «pasada la fase».** El corte de solo-lectura del formulario es `phaseIdx >= dDoneIdx`, no `>`: `mark-synced` escribe exactamente esa fase, así que con el `>` los campos de frames, «Aplicar corrección», «Volver al original» y «Confirmar» seguían vivos mientras corría la Fase F — pulsables cuando el RPU ya se está inyectando. Reportado el 2026-09-23. Dentro de la Fase D la sesión está en `extracted`, así que la edición sigue donde tiene que estar.
    - **Al terminar la Fase E se invalida `project.syncData`.** La fase regenera `per_frame_data.json` y de ese volcado salen el Δ, la confianza y el `sync_gate` que habilita «Confirmar sync». Se invalidaba solo al PULSAR «Aplicar» —cuando la fase aún no había corrido— así que seguía siendo el de antes hasta que algo más lo tirara: medido por el usuario, **más de 20 s** desde que el job queda en «necesita decisión» hasta que el botón se enciende. Hoy se tira en el flanco de bajada (`running_phase` era `correct_sync` y ya no), y solo en ese: hacerlo con cualquier fase pediría 24 MB de volcado tras cada una.
 6. **Fase F — Inyectar RPU**: `dovi_tool inject-rpu -i EL.hevc --rpu-in RPU_final.bin`.
-   - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, se avisa y se inyecta el RPU original — el vídeo es correcto igualmente. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
+   - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, **la Fase F para antes de inyectar** (desde el 2026-10-17): seguía con el RPU original «porque el vídeo es correcto», pero la Fase H comprueba el perfil del MKV entregado y rechaza un Profile 7 en una salida single-layer, así que inyectar y remuxar (~20 min en UHD) era gastar para llegar a un rechazo seguro. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
 8. **Fase H — Validación**: dos rutas según el modo:
    - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Verifica el frame count —**falla** con más de ±2 frames cuando el recuento es exacto; si es una estimación por duración, solo lo registra—, el Dolby Vision del propio MKV (ver abajo) y `mkvmerge -J`. ~segundos. Hasta el 2026-10-17 el frame count solo se registraba y el resultado era un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito a mano: un MKV truncado se entregaba.
@@ -469,7 +469,7 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
    - **Revalidar es idempotente también por la rama merge.** Un segundo disparo llega con el MKV ya entregado y los HEVC previos al mux BORRADOS por el primero: con el RPU extraído (que ya sobrevive) se revalida igual, y sin él se comprueba el propio MKV y se dice. Antes lanzaba «No se encontró el HEVC pre-mux» sobre un proyecto terminado y correcto.
    - **Las dos rutas miran el MKV que se entrega** (`_dv_del_mkv_entregado` y `_comprobar_pistas_del_origen`): un muestreo de 30 s (`ffmpeg -t 30` + `extract-rpu --limit 720`, el mismo del pre-flight) comprueba el perfil (8 si la salida es single-layer, 7 si no), la capa y CM v4.0 del RPU que lleva **el fichero**, y `mkvmerge -J` que conserve el audio y los subtítulos del MKV origen. La rama merge valida el HEVC PREVIO al mux, así que un remux que tomara el vídeo del origen —la mutación P3-2, que sobrevivía a la suite entera— o que dejara fuera su audio salía en verde. El muestreo lleva `--limit` a propósito: es la marca de «esto no es el `extract-rpu` completo» que ya usaban los tests del precache. Cubierto por `test_cmv40_fase_h_mira_el_mkv.py`, con la Fase G y la H en cadena.
-   Si OK, mueve el MKV a `/mnt/output/` (rename atómico .tmp → .mkv).
+   Si OK, mueve el MKV a `/mnt/output/` **sin pisar nada** (`_publicar_sin_pisar`: `os.link` exclusivo + `unlink`, porque `os.rename` sustituye un destino que aparezca entre la comprobación y el rename). Entre filesystems (proyectos con el MKV en el workdir) copia a un `{nombre}.part` que para entre trozos si cancelan la tarea, y solo entonces publica: `shutil.move` daba al destino su nombre definitivo desde el primer byte. El HEVC pre-mux que valida la rama merge es el que la G multiplexó **según el plan** (`plan.remux.hevc_for_mkv`), no el primero de una lista: un `source_injected.hevc` de un drop-in anterior ganaba al `DV_dual.hevc` del merge rehecho.
 
    **El nombre y el texto de la fase SALEN DE LA RUTA** (`plan.validate.fast_path`,
    que es lo que la fase ramifica — no `plan.drop_in`, aunque hoy coincidan).
@@ -674,10 +674,16 @@ de la Fase B no comprueban la fase del proyecto. El reset de la interfaz
 («Cambiar target») sí borraba la corrección, pero un bin nuevo provisto por la
 API sin pasar por él recibía los frames quitados y duplicados del de antes.
 `_descartar_correccion_de_otro_target` borra `RPU_synced*` y
-`editor_config.json` y vacía `sync_config` en los seis sitios que escriben un
-`RPU_target.bin` nuevo (tres del pre-flight, tres de la Fase B); la Fase B que
+`editor_config.json` y vacía `sync_config` en cada sitio que escribe un
+`RPU_target.bin` nuevo (los tres pre-flight y las tres Fase B); la Fase B que
 vuelve a analizar el bin que ya bajó el pre-flight no cambia de bin y no toca
-nada. `test_cmv40_bin_nuevo.py`.
+nada. En el pre-flight desde otro MKV va **antes del pipe**: estaba solo en el
+camino en dos pasos, y por el pipe —el normal— la Fase F inyectaba después el
+`RPU_synced.bin` del bin anterior (auditoría con Codex del 2026-10-17).
+«Cambiar target» olvida además lo que se midió y se decidió sobre el bin
+anterior (`_CMV40_CAMPOS_DEL_TARGET`): conservaba la respuesta a mantener o
+inyectar, y con el bin nuevo pidiendo decidir el proyecto se quedaba sin
+botones. `test_cmv40_bin_nuevo.py`, `test_cmv40_estado_coherente.py`.
 
 ### Abortar antes de gastar, no después
 
@@ -961,7 +967,8 @@ La app está diseñada para que el frontend pueda cerrarse (cierre de pestaña, 
 2. **Auto-resume del overlay Tab 3** — al entrar al Tab 3 con un proyecto en `running_phase != null` y sin proyectos abiertos, la app abre automáticamente el proyecto con su modal de ejecución y log en vivo. Toast informativo "🤖 Reanudando seguimiento". 1-shot por entrada al tab (`_cmv40AutoResumeAttempted`). Mismo mecanismo aplicado a Tab 2 con `_mkvCheckActiveApply` cuando hay copia desde Library en curso.
 3. **Atomicidad de escritura** — `_atomic_write_json` en `storage.py` (escribe a `.tmp` + `os.replace`) usado por `save_session`, `save_cmv40_session`, `_persist_mkv_apply_state` y `queue_state`. Sobrevive a kill -9 mid-write sin dejar JSON corrupto.
 4. **El log de un proyecto CMv4.0 vive en un FICHERO, no en el JSON** — `/config/cmv40/{id}.log`, al que se **añade**: escribir una línea es O(1). Antes iba dentro de `session.output_log`, así que persistir una línea reescribía la sesión entera; medido sobre el `/config` real del NAS, **el proyecto más grande son 3,89 MB con 2.068 líneas de log y 2.251 combos L8**, y con el throttle a 5 s eso son ~850 saves por job. El coste era **cuadrático en la longitud del log**: el throttle acotaba la frecuencia, no el tamaño de cada escritura.
-   - Las líneas pasan por un buffer que se vuelca cada segundo o cada 100 líneas — no por ahorrar syscalls (añadir es barato) sino para no hacer una escritura por línea cuando `_run_streaming` entrega una ráfaga. Pérdida máxima ante `kill -9`: 1 s.
+   - Las líneas pasan por un buffer que se vuelca cada segundo o cada 100 líneas — no por ahorrar syscalls (añadir es barato) sino para no hacer una escritura por línea cuando `_run_streaming` entrega una ráfaga. Pérdida máxima ante `kill -9`: 1 s — y desde el 2026-10-17 es verdad también con una línea seguida de silencio: un volcado diferido (`_cmv40_log_programar_volcado`) la lleva al fichero aunque no llegue otra, y el pre-flight vuelca al terminar.
+   - **Un lote sale del buffer DESPUÉS de llegar al fichero**, y los dos lados lo hacen bajo `_cmv40_log_io_lock` (un cerrojo de hilos: escritura y lectura corren en threads). Se sacaba antes de escribir, y un `GET` en ese hueco no lo veía ni en el buffer ni en el fichero.
    - **`last_progress` va a su propio sidecar** (`{id}.progress`). Al quitar el log, ESTE se convirtió en el coste dominante: ~50 bytes reescritos con 0,86 MB cada 20 s durante todo el job.
    - **La extensión es `.progress`, no `.progress.json`**: el listado de sesiones hace `glob("*.json")` sobre ese directorio y el sidecar se colaba como si fuera una sesión. El listado tiene ya el guard de "sin `id` no es una sesión" que `list_sessions` de Tab 1 sí tenía.
    - **El contrato con el frontend no cambia**: `GET /api/cmv40/{id}` sigue devolviendo `output_log`, compuesto al servirlo como *prefijo del JSON + fichero + buffer*. Así el watermark de la UI funciona igual y una línea recién emitida nunca falta de la hidratación.
@@ -1075,7 +1082,7 @@ Cada pestaña serializaba lo suyo y ninguna sabía de las otras: Tab 1 con su co
 
 Lo evidente es que todo va más lento. Lo que no se ve es peor: **`_adaptive_timeout` y el modelo de ETA se anclan en `ffmpeg_wall_seconds`**, así que una medición tomada con contención envenena en silencio las dos calibraciones de las que depende todo el progreso medido, y un timeout calculado a partir de ella puede quedarse corto en el job siguiente.
 
-`workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). Política: **409 diciendo qué bloquea, en qué pestaña y desde cuándo**. Frentes cubiertos: `POST /api/sessions/{id}/execute` (antes de encolar), el análisis extendido y la copia desde Library de Tab 2, los nueve endpoints de fase de Tab 3 y los dos pre-flight. `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
+`workload.py` es un registro **en memoria** de lo que está corriendo (este proceso es el único que arranca trabajo, igual que con `_cmv40_activas`). La política nació como **409 diciendo qué bloquea, en qué pestaña y desde cuándo**; hoy lo diferido **espera turno en la cola única** y ese 409 ya no existe (ver «El 409 de admisión ya no existe»). `GET /api/activity` lo expone para que la UI diga *qué* bloquea.
 
 ### La columna de trabajo, y un contrato de progreso para los cinco tipos
 
@@ -1597,14 +1604,14 @@ y se consulta con `actividadDeTab(tabId)`. Lo guarda
 - **Tab 1 no sale de ahí**, y es a propósito: su punto se enciende también con
   trabajos *encolados*, y el registro de `workload` solo conoce lo que corre.
 
-**El 409 de admisión no es un error, es «ahora no».** La app usa el 409 para
-otras cinco cosas (el MKV de salida ya existe, hay una fase en curso, el gate de
-sync no pasa…), así que el código de estado por sí solo no lo distingue y
-`apiFetch` lo pintaba todo en rojo como «Error:». `exigir_libre` añade la
-cabecera **`X-Trabajo-En-Curso`** —no toca el cuerpo, que es lo que leen los
-tests y el resto de la UI— y el frontend lo muestra como aviso ámbar, sin
-prefijo y **9 s en pantalla**: el texto ya es una frase con qué bloquea, en qué
-pestaña y desde cuándo, y 3,5 s es una duración pensada para «Guardado».
+**El 409 de admisión ya no existe** (ver «El 409 de admisión ya no existe»,
+más arriba): `exigir_libre` y su cabecera `X-Trabajo-En-Curso` se borraron
+cuando la cola única los dejó sin llamadores. La lección que dejaron sigue
+valiendo: la app usa el 409 para otras cosas (el MKV de salida ya existe, hay
+una fase en curso, el gate de sync no pasa…), así que el código de estado por
+sí solo no distingue un «ahora no» de un error, y una marca que haya que
+distinguir va en una cabecera y no en el texto traducido — como
+`X-Fase-Ya-En-Curso` del duplicado de fase.
 
 ### El timeout del frontend sale de la clase del trabajo
 
@@ -1705,7 +1712,7 @@ que el grep no devolvía nada.
 Tres matices que son el contrato:
 
 - **Nadie se bloquea a sí mismo.** El hueco se ocupa con la clave de la sesión, así que un proyecto de Tab 3 que avanza a su fase siguiente pasa — es el mismo job. Sin eso el auto-pipeline se detendría solo tras la primera fase.
-- **Un rip NO bloquea a otro rip.** El 409 de `execute` mira solo el trabajo de OTRAS pestañas (`ignorar_tab=TAB_RIP`): quien serializa Tab 1 es su cola FIFO, no este registro. Sin esa excepción, encolar tres ISOs seguidos —uno corriendo y el resto esperando, que es el flujo normal— daba **409 en el segundo**, o sea que no podías usar la cola mientras la cola trabajaba. Por lo mismo, el bucle de espera de `QueueManager._process` también ignora `TAB_RIP`: contándolo, la cola se tomaba su propio rip por un bloqueo ajeno y se esperaba a sí misma.
+- **Un rip NO bloquea a otro rip.** El bucle de espera de `QueueManager._process` ignora `TAB_RIP` (`ignorar_tab`): contándolo, la cola se tomaba su propio rip por un bloqueo ajeno y se esperaba a sí misma. (El 409 de `execute` que tenía la misma excepción se borró con el resto del 409 de admisión.)
 - **La cola de Tab 1 espera, no falla.** Ante trabajo de otra pestaña queda una ventana estrecha (el trabajo N libera el hueco, el usuario lanza algo en Tab 2, la cola va a arrancar el N+1). Ahí la cola **espera** en vez de fallar: cargarse un trabajo ya encolado por algo que el usuario hizo después sería gratuito, y la cola es justo donde esperar es lo natural.
 - **Abrir un MKV en Tab 2 NO se bloquea** (`/api/mkv/analyze`). Es cómo se navega, está acotado, y bloquearlo dejaría la pestaña inservible mientras corre un rip. Igual con `mkvpropedit`, que es O(1).
 
@@ -1808,6 +1815,7 @@ WS     /ws/cmv40/{id}                       (streaming de log)
 **El recorte de la ventana usa un origen COMÚN a las dos series.** `detect_sync_offset` buscaba el primer frame con brillo *en cada serie por separado* — y el desfase típico es un logo de estudio al principio del BD que la versión de streaming no trae. Un logo es oscuro, así que el recorte alineaba las dos ventanas antes de correlacionarlas y devolvía **offset 0 con 100 % de confianza**: la señal más tranquilizadora posible justo cuando se equivoca. El contraste A/B lo delata y es el test de referencia: logo oscuro de 72 frames → 0; el MISMO desfase con logo brillante → −72. El algoritmo estaba bien; fallaba el recorte.
 
 Dos trampas más de la misma función, ambas con test:
+- **La ventana arranca donde las DOS series tienen datos** (`base = max(0, -offset)`). Anclada al frame 0 del origen, un offset negativo —al origen le sobran frames al principio, el caso del logo— perdía las primeras `-offset` comparaciones: a -150 quedaban 50, por debajo del solape mínimo, y el rango real era -100..+200, no ±200.
 - **Solape mínimo.** Con `max_offset` y la ventana de comparación ambos a 200, en el extremo del barrido quedaba UNA comparación, así que una coincidencia por casualidad ganaba con RMS 0 y confianza 100 %. Reproducible: 300 muestras de dos pelis distintas con `tgt[0] = src[149]` → `offset=-149, 100 %`.
 - **Varianza cero.** Con una serie plana todos los offsets empatan y gana el primero. `compute_sync_confidence` ya trataba ese caso aparte (`no_variance`); aquí faltaba, y con `None` en el MaxCLL además reventaba con TypeError.
 
@@ -1831,8 +1839,8 @@ Medido: 24,1 MB → **0,38 MB** la película entera y 0,07 MB un zoom; la primer
 - Cada transición de fase es explícita (click del usuario) — no hay cascadas automáticas
 - Los artefactos de fases anteriores se preservan para permitir reentrar tras crash/reinicio
 - Cleanup es destructivo e irreversible → archived=true → proyecto en modo solo lectura. `cleanup` y `delete?clean_artifacts=true` devuelven **409 con una fase en curso** (`_cmv40_guard_not_running`): hacían `rmtree` del workdir por debajo del `dovi_tool` que lo estaba escribiendo, y lo que veía el usuario era un fallo incomprensible en el log. `cleanup-bulk` ya saltaba los proyectos en ejecución
-- **Y una tarea cancelada no deja su proceso vivo.** `_run` y `_run_streaming` matan su subproceso cuando les cancelan la TAREA: el `CancelledError` salía del `await` y el proceso —lanzado con `start_new_session`, fuera del grupo del padre— seguía corriendo. Lo destapó el `extract-rpu` que la Fase G adelanta para la H: solo se cancelaba si mkvmerge salía con error, y si el mux LANZABA (cancelar, un timeout) seguía leyendo el HEVC completo minutos después, con el hueco de trabajo ya liberado y fuera del alcance del botón Cancelar (no se registra en los procesos activos). Hoy la Fase G lo cancela y lo ESPERA en cualquier salida que no sea un éxito. `test_cmv40_cancelar_no_deja_procesos.py`.
-- **Cancelar es cooperativo, no solo un SIGTERM.** `raise_if_cancelled()` se llama **antes de cada subproceso** (`_run`, `_run_streaming`), que es el punto natural: entre un comando y el siguiente es donde una fase puede parar sin dejar un artefacto a medias. Antes la cancelación dependía solo de matar el proceso en curso, así que cancelar **entre** dos pasos no tenía efecto y la fase seguía adelante con el comando siguiente. El predicado lo instala el orquestador en un **ContextVar** (`set_cancel_check`) y no como parámetro: las nueve `run_phase_*` reciben `(session, log_callback, proc_callback)` y un cuarto argumento obligaría a tocar las firmas, sus catorce call-sites y todos los tests; las tasks de asyncio heredan el contexto, así que llega solo a las corrutinas hijas. Lanza `CMv40Cancelled`, que **no es un error del pipeline**: se registra la fase como `cancelled`, sin manchar `error_message`
+- **Y una tarea cancelada no deja su proceso vivo.** `_run` y `_run_streaming` matan su subproceso cuando les cancelan la TAREA: el `CancelledError` salía del `await` y el proceso —lanzado con `start_new_session`, fuera del grupo del padre— seguía corriendo. Lo destapó el `extract-rpu` que la Fase G adelanta para la H: solo se cancelaba si mkvmerge salía con error, y si el mux LANZABA (cancelar, un timeout) seguía leyendo el HEVC completo minutos después, con el hueco de trabajo ya liberado y fuera del alcance del botón Cancelar (no se registra en los procesos activos). Hoy la Fase G lo cancela y lo ESPERA en cualquier salida que no sea un éxito. Los otros tres runners —el pipe ffmpeg|extract-rpu de la Fase A (los DOS extremos), `_run_with_time_estimate` (el demux) y el `_run_export` de `rpu_analyze`— hacen lo mismo desde el 2026-10-17, y el ticker de `_run_streaming` se para en cualquier salida (era un bucle sin fin emitiendo el progreso de una fase ya terminada). `test_cmv40_cancelar_no_deja_procesos.py`, `test_cmv40_cancelar_y_parar.py`.
+- **Cancelar es cooperativo, no solo un SIGTERM.** `raise_if_cancelled()` se llama **antes de cada subproceso** (`_run`, `_run_streaming`, `_run_with_time_estimate`, el pipe de la Fase A) **y después de un rc de señal** —el SIGTERM de Cancelar es -15, y sin esa segunda consulta el demux acababa como «FALLÓ» con el 409 del error pendiente—. El pre-flight instala su propio predicado (es su task, fuera del wrapper de fase) y con un Cancelar no encadena la Fase A aunque el trabajo pendiente acabe bien. Y una parada ordenada (`CancelledError`, que no es un `Exception`) deja la fase en error con el motivo del reinicio, como el recovery; antes el registro se quedaba en `running` y el historial anotaba «esperando». Antes de cada subproceso es el punto natural: entre un comando y el siguiente es donde una fase puede parar sin dejar un artefacto a medias. Antes la cancelación dependía solo de matar el proceso en curso, así que cancelar **entre** dos pasos no tenía efecto y la fase seguía adelante con el comando siguiente. El predicado lo instala el orquestador en un **ContextVar** (`set_cancel_check`) y no como parámetro: las nueve `run_phase_*` reciben `(session, log_callback, proc_callback)` y un cuarto argumento obligaría a tocar las firmas, sus catorce call-sites y todos los tests; las tasks de asyncio heredan el contexto, así que llega solo a las corrutinas hijas. Lanza `CMv40Cancelled`, que **no es un error del pipeline**: se registra la fase como `cancelled`, sin manchar `error_message`
 - Errores NO bloquean el proyecto: mantienen la fase previa, solo escriben `error_message` descartable
 - Validación de CM version target = v4.0 (aviso, no bloqueante)
 
@@ -3335,7 +3343,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **352 mutaciones** en
+de entonces seguían en verde. Hoy hay **407 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:
@@ -3656,6 +3664,28 @@ algo, con su test y su mutación:
   su línea en el historial. La clave de una serie se repite al volver a crear
   la misma temporada, así que mientras corre no se sirve el resultado viejo
   de su propia clave; un `audit_id` no se repite y no hace falta filtrarlo.
+- **CMv4.0, lo que quedaba** (tanda 4). **El `.mkv.tmp` es de quien lo
+  escribió** (`_cmv40_otro_dueno_del_tmp`): dos proyectos vivos con el mismo
+  nombre de salida compartían la ruta, y la G de uno —o limpiar, borrar,
+  renombrar o el forward-roll del otro— se llevaba el remux ajeno; hoy la G y
+  la H no arrancan y los demás no lo tocan. **Rutas**: crear valida el nombre
+  como renombrar, un JSON con ruta se normaliza al cargar, y solo se borra en
+  `{CMV40_WORK_BASE}/{id}` (`_cmv40_workdir_propio`). **Cancelar es
+  cancelar**: el demux, el pipe de la Fase A y el `export` matan su proceso
+  si cancelan la tarea y un rc de señal tras Cancelar no es un FALLO; el
+  pre-flight instala el predicado y no encadena la A tras Cancelar; una
+  parada ordenada (`CancelledError`) deja la fase como la dejaría el
+  recovery; y los guards destructivos cuentan la fase que todavía termina
+  tras Cancelar (`_cmv40_fase_en_vuelo`: el lock y la copia viva).
+  «Cambiar target» olvida la decisión y el análisis del bin viejo
+  (`_CMV40_CAMPOS_DEL_TARGET`). «Restaurar el sync» lee el original antes de
+  borrar. La limpieza masiva comparte el helper de la individual
+  (`_cmv40_limpiar_artefactos`). Ids únicos en el mismo segundo; un doble
+  clic devuelve el proyecto recién creado. Lo que **no** se arregló:
+  el parser del volcado completo que pierde el L3 y el muestreo que renumera
+  frames son reservas para dovi_tool < 2.3.3, inalcanzables con la versión
+  fijada (y el contrato de los fakes falla si cambia); arreglarlas exige un
+  volcado real con el que modelar el fake.
 
 #### El frontend (tanda 3)
 

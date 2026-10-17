@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import shutil as _cmv40_shutil
+import threading
 import time as _time
 import re
 from datetime import datetime, time, timedelta, timezone
@@ -72,7 +73,6 @@ from phases.cmv40_pipeline import (
     detect_sync_offset, compute_sync_confidence, sheet_sync_hint,
     evaluate_sync_gate,
     validate_artifacts as _validate_cmv40_artifacts,
-    cleanup_orphan_tmp as _cmv40_cleanup_orphan_tmp,
     CMV40_WORK_BASE,
 )
 
@@ -224,7 +224,7 @@ def recuperar_sesiones_interrumpidas() -> None:
                 # Un remux cortado por el reinicio deja su `.mkv.tmp` a medias
                 # con el nombre que la Fase H va a validar.
                 if getattr(last, "phase", "") == "remux":
-                    _cmv40_cleanup_orphan_tmp(s)
+                    _cmv40_borrar_tmp_del_remux(s)
         save_cmv40_session(s)
         count += 1
     if count:
@@ -376,10 +376,13 @@ def _cmv40_job_pct(session: CMv40Session, phase_pct: float) -> float | None:
     running = session.running_phase
     if not running or running not in _CMV40_PHASE_RUN_ORDER:
         return None
-    dropin = bool(session.target_type == "trusted_p7_fel_final"
-                  and session.target_trust_ok
-                  and (session.source_workflow or "p7_fel") == "p7_fel")
-    pesos = _CMV40_PHASE_WEIGHTS_DROPIN if dropin else _CMV40_PHASE_WEIGHTS_MERGE
+    # La ruta la dice `cmv40_strategy`, no una tercera copia de la regla: la
+    # que había aquí no miraba `force_interactive`, así que un FEL trusted
+    # con revisión manual —que va por merge— sumaba con los pesos del
+    # drop-in (auditoría con Codex del 2026-10-17).
+    from phases.cmv40_strategy import va_por_drop_in
+    pesos = (_CMV40_PHASE_WEIGHTS_DROPIN if va_por_drop_in(session)
+             else _CMV40_PHASE_WEIGHTS_MERGE)
     total = sum(pesos.values()) or 1.0
     idx = _CMV40_PHASE_RUN_ORDER.index(running)
     # Fases ya pasadas: cuentan enteras solo si de verdad se ejecutaron.
@@ -470,6 +473,16 @@ _cmv40_log_buffer: dict[str, list[str]] = {}
 _cmv40_log_buffer_ts: dict[str, float] = {}
 _CMV40_LOG_FLUSH_S = 1.0
 _CMV40_LOG_FLUSH_LINES = 100
+# Escribir un lote y sacarlo del buffer es UNA operación para quien lee. Se
+# sacaba antes de escribir, así que un GET en ese hueco —el thread todavía
+# escribiendo— no encontraba el lote ni en el buffer ni en el fichero; y si
+# la escritura fallaba, se perdía (auditoría con Codex del 2026-10-17). Es un
+# cerrojo de hilos y no de asyncio porque los dos lados corren en threads.
+_cmv40_log_io_lock = threading.Lock()
+# Sesiones con un volcado diferido ya programado: el segundo de la
+# durabilidad no era un temporizador —solo se miraba al llegar otra línea—,
+# así que una línea seguida de minutos de silencio vivía solo en RAM.
+_cmv40_log_volcado_programado: set[str] = set()
 
 
 def _cmv40_log_completo(session: CMv40Session) -> list[str]:
@@ -481,9 +494,12 @@ def _cmv40_log_completo(session: CMv40Session) -> list[str]:
     concatenación no vale la pena.
     """
     from storage import read_cmv40_log
-    return ((session.output_log or [])
-            + read_cmv40_log(session.id)
-            + list(_cmv40_log_buffer.get(session.id) or []))
+    # Bajo el mismo cerrojo que el volcado: el fichero y el buffer se leen
+    # como UNA foto, sin un lote a medio camino entre los dos.
+    with _cmv40_log_io_lock:
+        return ((session.output_log or [])
+                + read_cmv40_log(session.id)
+                + list(_cmv40_log_buffer.get(session.id) or []))
 
 
 def recortar_log_por_tiempo(lineas: list[str], desde: str, hasta: str) -> list[str]:
@@ -558,12 +574,40 @@ async def _cmv40_log_volcar(session_id: str, forzar: bool = False) -> None:
     if not forzar:
         transcurrido = _t.monotonic() - _cmv40_log_buffer_ts.get(session_id, 0.0)
         if transcurrido < _CMV40_LOG_FLUSH_S and len(buf) < _CMV40_LOG_FLUSH_LINES:
+            _cmv40_log_programar_volcado(session_id)
             return
-    # Se saca el lote ANTES de escribir: si llegan líneas mientras el thread
-    # escribe, van al lote siguiente y no se duplican ni se pierden.
-    lote, _cmv40_log_buffer[session_id] = buf, []
     _cmv40_log_buffer_ts[session_id] = _t.monotonic()
-    await asyncio.to_thread(append_cmv40_log, session_id, lote)
+
+    def _escribir():
+        # Lo que haya en ESE momento, escrito y sacado del buffer bajo el
+        # cerrojo: las líneas que lleguen mientras tanto se añaden al final
+        # de la lista y van al lote siguiente; dos volcados a la vez escriben
+        # lotes disjuntos.
+        with _cmv40_log_io_lock:
+            n = len(buf)
+            if n:
+                append_cmv40_log(session_id, buf[:n])
+                del buf[:n]
+    await asyncio.to_thread(_escribir)
+
+
+def _cmv40_log_programar_volcado(session_id: str) -> None:
+    """Asegura que lo que queda en el buffer llega al fichero en ~1 s aunque
+    no llegue ninguna línea más."""
+    if session_id in _cmv40_log_volcado_programado:
+        return
+    _cmv40_log_volcado_programado.add(session_id)
+
+    async def _luego():
+        try:
+            await asyncio.sleep(_CMV40_LOG_FLUSH_S)
+            await _cmv40_log_volcar(session_id, forzar=True)
+        finally:
+            _cmv40_log_volcado_programado.discard(session_id)
+    try:
+        asyncio.get_running_loop().create_task(_luego())
+    except RuntimeError:            # sin bucle (no debería pasar aquí)
+        _cmv40_log_volcado_programado.discard(session_id)
 
 
 async def _cmv40_log(session: CMv40Session, msg: str) -> None:
@@ -913,8 +957,16 @@ async def _run_cmv40_phase_locked(
         # el 2026-09-04 (Predator Badlands: «⏭ Fase inject ignorada — ya hay
         # otra fase (extract) en curso», y ese inject soltó el hueco).
         # Dentro del lock la ocupación y el trabajo real son lo mismo.
+        #
+        # Con la clase de la FASE: las dos Fase B rápidas (2-3 s) son
+        # interactivas en `CLASE_POR_RUTA` y no pasan por la cola, pero aquí
+        # se registraban con el default diferido y `bloqueado_por` las tomaba
+        # por un bloqueo (auditoría con Codex del 2026-10-17).
         workload.registrar(session.id, workload.TAB_CMV40,
-                           f"{phase_name} de {session.output_mkv_name or session.id}")
+                           f"{phase_name} de {session.output_mkv_name or session.id}",
+                           workload.CLASE_DIFERIDO
+                           if phase_name in _CMV40_FASES_DIFERIDAS
+                           else workload.CLASE_INTERACTIVO)
         # Este save está FUERA del try de la fase, así que una excepción aquí
         # no se registra como fallo de fase: sube hasta el `except: pass` del
         # lanzador y el job muere en silencio con `running_phase` pegado en
@@ -995,16 +1047,36 @@ async def _run_cmv40_phase_locked(
             # validaba y, por la rama merge, se entregaba truncado (auditoría
             # con Codex del 2026-10-17).
             if phase_name == "remux":
-                _cmv40_cleanup_orphan_tmp(session)
+                _cmv40_borrar_tmp_del_remux(session)
             await _cmv40_log(
                 session,
                 '🛑 Cancelado: ' + tr(
                     'cmv40.cancelado_fase_detenida_a_peticion',
                     fase=phase_name,
                     segundos=format(record.elapsed_seconds, '.1f')))
+        except asyncio.CancelledError:
+            # Cancelan la TAREA —una parada ordenada del contenedor—, no el
+            # usuario. `CancelledError` no es un `Exception`, así que no
+            # entraba en ninguna rama: el `finally` soltaba `running_phase`,
+            # el registro se quedaba en `running` para siempre y el historial
+            # anotaba «esperando». El recovery del arranque tampoco lo veía,
+            # porque ya no había `running_phase` que limpiar (auditoría con
+            # Codex del 2026-10-17). Se deja exactamente como lo dejaría el
+            # recovery: la fase en error con el motivo del reinicio.
+            msg = tr('cmv40.sesion_interrumpida_por_reinicio')
+            record.status = "error"
+            record.finished_at = datetime.now(timezone.utc)
+            record.elapsed_seconds = (record.finished_at - started).total_seconds()
+            record.error_message = msg
+            session.phase = previous_phase
+            session.error_message = msg
+            if phase_name == "remux":
+                _cmv40_borrar_tmp_del_remux(session)
+            raise
         except Exception as e:
             record.status = "error"
             record.finished_at = datetime.now(timezone.utc)
+            record.elapsed_seconds = (record.finished_at - started).total_seconds()
             record.error_message = str(e)
             session.phase = previous_phase
             session.error_message = str(e)
@@ -1015,7 +1087,7 @@ async def _run_cmv40_phase_locked(
             # check. Preservamos el .mkv.tmp para que el usuario pueda
             # inspeccionarlo o renombrarlo manualmente sin perder 40+ GB.
             if phase_name == "remux":
-                freed = _cmv40_cleanup_orphan_tmp(session)
+                freed = _cmv40_borrar_tmp_del_remux(session)
                 if freed > 0:
                     await _cmv40_log(
                         session,
@@ -1317,6 +1389,16 @@ def _cmv40_construir_fase(session: CMv40Session, fase: str, datos: dict):
         runner = getattr(pipeline, runner_name)
 
         async def _coro(log_cb, proc_cb):
+            # La G borra el `.mkv.tmp` de su nombre al arrancar y la H lo
+            # publica: con otro proyecto vivo del MISMO nombre de salida, ese
+            # temporal es del otro (ver `_cmv40_otro_dueno_del_tmp`).
+            if fase in _CMV40_FASES_QUE_LO_ESCRIBEN:
+                otro = await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session)
+                if otro is not None:
+                    raise RuntimeError(tr(
+                        'cmv40.otro_proyecto_tiene_el_remux',
+                        nombre=session.output_mkv_name,
+                        otro=otro.get("source_mkv_name") or otro.get("id")))
             # El valor de retorno de la fase **no se vuelca al log**. Se hacía,
             # y producía dos líneas sin hora y sin fase —una con una ruta y
             # otra con el `repr` de un diccionario de Python— porque se metían
@@ -1789,6 +1871,7 @@ async def _cmv40_correr_preflight(
 
     from datetime import datetime as _dt, timezone as _tz
     _inicio_pf = _dt.now(_tz.utc)
+    cancelado = False
     async with lock:
         _cmv40_marcar_activa(session, "preflight")
         _titulo_wl, _poster_wl = _cartel_cmv40(session)
@@ -1807,8 +1890,6 @@ async def _cmv40_correr_preflight(
             titulo=_titulo_wl, poster=_poster_wl)
         session.error_message = ""
         session.target_preflight_ok = False
-        save_cmv40_session(session)
-        await _cmv40_log(session, _separador_de_fase("preflight_target"))
 
         async def _log_cb(msg: str):
             await _cmv40_log(session, msg)
@@ -1829,7 +1910,21 @@ async def _cmv40_correr_preflight(
         async def _paso(pct: float, label: str):
             await _emit_progress(_log_cb, pct, label)
 
+        # La cancelación cooperativa, como en las fases: sin el predicado,
+        # cancelar entre dos subprocesos no hacía nada, y cancelar con uno
+        # vivo acababa como un ERROR del pre-flight —el rc -15 del SIGTERM—
+        # con su banner rojo (auditoría con Codex del 2026-10-17). Se
+        # instala dentro de la task, así que no sale de ella.
+        _cmv40_pipeline_mod.set_cancel_check(
+            lambda: bool(_cmv40_cancel_flags.get(session.id)))
+
         try:
+            # El guardado de arranque va DENTRO del try: fuera, un fallo de
+            # escritura (disco lleno) salía con el proyecto apuntado en
+            # `_cmv40_activas` y en `workload` y sin pasar por el `finally`
+            # que los suelta — actividad fantasma hasta reiniciar.
+            await _save_cmv40_session_async(session)
+            await _cmv40_log(session, _separador_de_fase("preflight_target"))
             await _paso(5, tr('cmv40.comprobando_el_dolby_vision_del_mkv_origen'))
             await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
             # El checklist del modal se rellena con lo que hay EN DISCO, y
@@ -1878,6 +1973,12 @@ async def _cmv40_correr_preflight(
                     '✓ Fase ' + tr('cmv40.preflight_completada_origen_y_bin_validos_next', next_hint=next_hint)
                 )
             # Si NO avanzar, la helper ya pobló preflight_decision/message
+        except _cmv40_pipeline_mod.CMv40Cancelled:
+            # No es un fallo: el usuario canceló. Sin `error_message`, como
+            # una fase cancelada — el reintento no choca con el 409.
+            session.target_preflight_ok = False
+            await _cmv40_log(session, '🛑 Cancelado: ' + tr(
+                'cmv40.preflight_cancelado'))
         except Exception as e:
             msg = str(e)
             await _cmv40_log_phase_failed(session, "preflight", msg)
@@ -1885,10 +1986,17 @@ async def _cmv40_correr_preflight(
             session.target_preflight_ok = False
         finally:
             _cmv40_active_procs.pop(session.id, None)
-            cancelado = _cmv40_cancel_flags.pop(session.id, False)
+            cancelado = bool(_cmv40_cancel_flags.pop(session.id, False))
             _cmv40_marcar_libre(session)
             workload.liberar(session.id)
-            await _save_cmv40_session_async(session)
+            try:
+                # El veredicto del pre-flight son sus últimas líneas: al
+                # fichero ya, no cuando llegue la siguiente línea del log.
+                await _cmv40_log_volcar(session.id, forzar=True)
+                await _save_cmv40_session_async(session)
+            except Exception as e:      # noqa: BLE001 — lo de arriba ya se soltó
+                _logger.warning("No se pudo guardar el cierre del pre-flight "
+                                "(sid=%s): %s", session.id, e)
             # El pre-flight no dejaba rastro en ninguna parte: ni al
             # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
             # cuando MÁS falta hace verlo. Al soltar el hueco de workload
@@ -1899,8 +2007,13 @@ async def _cmv40_correr_preflight(
     # notaba porque `_cmv40_dispatch_next_phase` vuelve a mirar
     # `preflight_decision` y se para. Dos copias, dos condiciones distintas
     # para lo mismo: exactamente lo que esta fusión venía a quitar.
+    #
+    # Y nunca tras un Cancelar: si el trabajo pendiente acababa bien después
+    # de pulsarlo, la Fase A arrancaba igual (auditoría con Codex del
+    # 2026-10-17). Cancelar apaga además el auto, pero esa barrera depende de
+    # que la copia viva siga registrada; esta no depende de nada.
     if (session.auto_pipeline and not session.error_message
-            and session.target_preflight_ok):
+            and session.target_preflight_ok and not cancelado):
         asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
 
 
@@ -2118,12 +2231,24 @@ def _cmv40_build_eta_model() -> dict:
         # rápida: desde que corre dentro del remux, los jobs merge también
         # validan en 2 s, y clasificaba como drop-in jobs que habían hecho
         # un demux de 217 s — contaminando la mediana.
-        es_dropin = (
-            data.get("source_workflow") == "p7_fel"
-            and data.get("target_type") == "trusted_p7_fel_final"
-            and bool(data.get("target_trust_ok"))
-            and data.get("trust_override") != "force_interactive"
-        )
+        #
+        # Y antes que ninguna regla, lo que el job HIZO: `output_workflow` lo
+        # escribe el orquestador al terminar. La regla era una copia más de
+        # la del drop-in, escrita a mano fuera de `cmv40_strategy`.
+        hecho = data.get("output_workflow") or ""
+        if hecho in ("restore_dropin", "restore_merge"):
+            es_dropin = hecho == "restore_dropin"
+        else:
+            from types import SimpleNamespace
+            from phases.cmv40_strategy import va_por_drop_in
+            es_dropin = va_por_drop_in(SimpleNamespace(
+                source_workflow=data.get("source_workflow") or "",
+                target_type=data.get("target_type") or "",
+                target_trust_ok=bool(data.get("target_trust_ok")),
+                trust_override=data.get("trust_override") or "auto",
+                user_acknowledged_degradation=bool(
+                    data.get("user_acknowledged_degradation")),
+                target_trust_gates=data.get("target_trust_gates") or {}))
         ruta = "dropin" if es_dropin else "merge"
         if vistos[ruta] >= _ETA_MODEL_WINDOW:
             continue
@@ -2657,10 +2782,24 @@ async def cmv40_create(body: CMv40CreateRequest):
     if not DEV_MODE and not Path(mkv_path).exists():
         raise HTTPException(status_code=400, detail=tr('mkv_analyze.mkv_no_encontrado', mkv_path=mkv_path))
     mkv_name = Path(mkv_path).name
+    # Nombre sugerido: reemplazar [DV FEL] por [DV FEL CMv4.0] o añadirlo.
+    # Validado como en el renombrado: con una ruta dentro, borrar o renombrar
+    # el proyecto actuaba fuera de /mnt/output.
+    default_name = _cmv40_nombre_de_salida(
+        body.output_mkv_name or mkv_name.replace(".mkv", " [CMv4.0].mkv"))
+    # Un doble clic repite la MISMA petición en el mismo segundo: se devuelve
+    # el proyecto que acaba de crearse en vez de un segundo con el mismo
+    # nombre de salida y su propio pipeline. Otro MKV con el mismo título y
+    # año (otra edición) sí es otro proyecto: `make_cmv40_session_id` le da
+    # un id propio en vez de sobrescribir el primero.
+    from storage import cmv40_session_id_base
+    previo = load_cmv40_session(cmv40_session_id_base(mkv_path))
+    if previo is not None and previo.source_mkv_path == mkv_path:
+        return previo.model_dump()
     sid = make_cmv40_session_id(mkv_path)
-    artifacts_dir = CMV40_WORK_BASE / sid
-    # Nombre sugerido: reemplazar [DV FEL] por [DV FEL CMv4.0] o añadirlo
-    default_name = body.output_mkv_name or mkv_name.replace(".mkv", " [CMv4.0].mkv")
+    # `_cmv40_pipeline_mod` y no el alias importado: el arnés de los tests
+    # parchea el módulo, y con el alias el workdir nacía en la base de verdad.
+    artifacts_dir = Path(_cmv40_pipeline_mod.CMV40_WORK_BASE) / sid
 
     # Tamaño del MKV → ETA fallback escalado al tamaño real. Best-effort:
     # si falla (DEV_MODE con rutas fake, permisos) se queda en 0 y el ETA
@@ -2810,6 +2949,51 @@ _CMV40_FAKE_ARTIFACT_SIZES = {
 }
 
 
+def _cmv40_l8_rederivado(session) -> dict:
+    """La clasificación L8 del bin con el criterio de HOY, desde los números
+    persistidos — `{campo: valor}` para superponer a la sesión, o `{}`.
+
+    La usan el relato y `_cmv40_refrescar_textos_derivados`, en ese orden y
+    con el MISMO resultado: el relato se componía con la clasificación
+    guardada y acto seguido el campo se re-derivaba, así que una sesión
+    antigua servía `target_l8_classification="real"` al lado de un relato que
+    explicaba que el bin no traía trabajo de colorista (auditoría con Codex
+    del 2026-10-17).
+
+    Que falle no puede costar la petición: quedarse con lo persistido es un
+    inconveniente, no ver el proyecto no lo es.
+    """
+    if not session.target_l8_combos:
+        return {}
+    try:
+        from phases.rpu_analyze import (
+            analisis_desde_sesion, classify_l8, classify_l8_quality,
+            delta_l8_de)
+        # El rearmado vive en `rpu_analyze`, pegado al criterio. Estaba
+        # aquí, a mano y con siete campos, y cuando el criterio ganó el
+        # tercer veredicto —que mira `l3_*`— nadie volvió por este
+        # endpoint: el listado servía `tone_mapping` y el panel `default`
+        # para el mismo proyecto, a la vez y sin un error.
+        a = analisis_desde_sesion(session)
+        clas, _motivo = classify_l8(a)
+        # `l8_max_delta` puede faltar en sesiones anteriores al campo;
+        # `delta_l8_de` lo deriva de los combos. Servirlo sin esto daba
+        # «maxΔ 0» al lado de un veredicto «real» — incoherente en la
+        # misma tarjeta.
+        derivados = {"target_l8_classification": clas,
+                     "target_l8_max_delta": delta_l8_de(a)}
+        tier, etiqueta, desc = classify_l8_quality(a)
+        if tier:
+            derivados.update(target_l8_quality_tier=tier,
+                             target_l8_quality_label=etiqueta,
+                             target_l8_quality_description=desc)
+        return derivados
+    except Exception as e:
+        _logger.warning("No se pudo re-derivar la clasificación L8 de %s: %s",
+                        session.id, e)
+        return {}
+
+
 def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     """Rehace en el idioma de AHORA el texto que la sesión trae redactado.
 
@@ -2859,32 +3043,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     #
     # Solo se toca la clasificación, no las decisiones del usuario
     # (`preflight_decision`, los ACK): esas son suyas.
-    try:
-        if session.target_l8_combos:
-            from phases.rpu_analyze import (
-                analisis_desde_sesion, classify_l8, classify_l8_quality,
-                delta_l8_de)
-            # El rearmado vive en `rpu_analyze`, pegado al criterio. Estaba
-            # aquí, a mano y con siete campos, y cuando el criterio ganó el
-            # tercer veredicto —que mira `l3_*`— nadie volvió por este
-            # endpoint: el listado servía `tone_mapping` y el panel `default`
-            # para el mismo proyecto, a la vez y sin un error.
-            a = analisis_desde_sesion(session)
-            clas, _motivo = classify_l8(a)
-            data["target_l8_classification"] = clas
-            # `l8_max_delta` puede faltar en sesiones anteriores al campo;
-            # `delta_l8_de` lo deriva de los combos. Servirlo sin esto daba
-            # «maxΔ 0» al lado de un veredicto «real» — incoherente en la
-            # misma tarjeta.
-            data["target_l8_max_delta"] = delta_l8_de(a)
-            tier, etiqueta, desc = classify_l8_quality(a)
-            if tier:
-                data["target_l8_quality_tier"] = tier
-                data["target_l8_quality_label"] = etiqueta
-                data["target_l8_quality_description"] = desc
-    except Exception as e:
-        _logger.warning("No se pudo re-derivar la clasificación L8 de %s: %s",
-                        session.session_id, e)
+    data.update(_cmv40_l8_rederivado(session))
 
     # El L3 del BIN vive en la sesión (`target_l3_*`, lo escribe el
     # pre-flight) y NO en `target_dv_info`, que sale del summary de
@@ -2904,7 +3063,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
             tgt["has_l3"] = session.target_l3_unique_count > 0
     except Exception as e:
         _logger.warning("No se pudo derivar el L3 del bin de %s: %s",
-                        session.session_id, e)
+                        session.id, e)
 
     try:
         from phases.rpu_analyze import recommend_action
@@ -2919,7 +3078,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
             data["recommended_action_reason"] = motivo
     except Exception as e:
         _logger.warning("No se pudo rehacer la recomendación de %s: %s",
-                        session.session_id, e)
+                        session.id, e)
 
     try:
         hoja = data.get("sheet_recommendation")
@@ -2937,7 +3096,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
             }
     except Exception as e:
         _logger.warning("No se pudo rehacer el veredicto de la hoja de %s: %s",
-                        session.session_id, e)
+                        session.id, e)
 
 
 @router.get("/api/cmv40/{session_id}", summary="Obtiene un proyecto CMv4.0")
@@ -3024,7 +3183,11 @@ async def cmv40_get(session_id: str, include_log: bool = True,
         # —a medias— y bastaba con el de ayer para darlo por terminado.
         remuxes = [rec for rec in (session.phase_history or []) if rec.phase == "remux"]
         had_successful_remux = bool(remuxes) and remuxes[-1].status == "done"
-        if tmp_path.exists() and had_successful_remux and not session.running_phase:
+        # Y que no sea de OTRO proyecto con el mismo nombre de salida: con un
+        # remux propio ya rebobinado y el del otro en disco, adelantaba este
+        # a `remuxed` y su Fase H publicaba el MKV del otro.
+        if (tmp_path.exists() and had_successful_remux and not session.running_phase
+                and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):
             _logger.info(
                 "Forward-roll de sesión %s: phase=%s pero .mkv.tmp existe + remux done en historial → remuxed",
                 session.id, session.phase,
@@ -3109,8 +3272,14 @@ async def cmv40_get(session_id: str, include_log: bool = True,
     # «Análisis pendiente» en dos proyectos con estados opuestos y no
     # mencionaba que el usuario había cancelado. Mismo sitio y mismo criterio
     # que `plan`: computado al servir, NO persistido.
+    #
+    # Con la clasificación L8 ya re-derivada: la misma que va a servirse en
+    # `target_l8_classification` — ver `_cmv40_l8_rederivado`.
+    l8_hoy = _cmv40_l8_rederivado(session)
     data["relato"] = relato.resolver(
-        workload.TAB_CMV40, session, en_cola=data.get("cola"), plan=plan)
+        workload.TAB_CMV40,
+        session.model_copy(update=l8_hoy) if l8_hoy else session,
+        en_cola=data.get("cola"), plan=plan)
     # El texto derivado se rehace al servirlo — ver el docstring.
     _cmv40_refrescar_textos_derivados(session, data)
     return data
@@ -3128,9 +3297,9 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
     # huérfano escribiendo en un workdir que ya no tiene dueño; con una fase
     # en cola, el save final de esa fase lo resucitaba. El guard mira las dos.
     _cmv40_guard_not_running(session, tr('cmv40.borrar_el_proyecto'))
-    if clean_artifacts and session.artifacts_dir:
-        wd = Path(session.artifacts_dir)
-        if wd.exists():
+    if clean_artifacts:
+        wd = _cmv40_workdir_propio(session)
+        if wd is not None and wd.exists():
             # A un thread: el workdir de un UHD son cientos de GB y borrarlos
             # sobre ZFS tarda segundos. En el bucle, eso congela la app entera
             # (incluido el healthcheck del contenedor).
@@ -3138,7 +3307,7 @@ async def cmv40_delete(session_id: str, clean_artifacts: bool = False):
         # Y el remux que la Fase G dejó en /mnt/output: es del proyecto, y sin
         # él quedaban decenas de GB huérfanos en el directorio del usuario. La
         # limpieza normal y la masiva ya lo borraban; esta no.
-        _cmv40_borrar_tmp_del_remux(session)
+        await asyncio.to_thread(_cmv40_borrar_tmp_del_remux, session)
     delete_cmv40_session(session_id)
     return {"ok": True}
 
@@ -3147,22 +3316,181 @@ class CMv40RenameRequest(BaseModel):
     output_mkv_name: str
 
 
-def _cmv40_tmp_del_remux(session: CMv40Session) -> Path:
-    """El `.mkv.tmp` que la Fase G deja en /mnt/output para la H."""
+def _cmv40_nombre_de_salida(nombre: str) -> str:
+    """El nombre del MKV de salida, normalizado y validado — o 400.
+
+    Lo usan la creación y el renombrado. Antes solo lo validaba el
+    renombrado, así que crear con `../ajeno.mkv` o con una ruta absoluta
+    dejaba en la sesión un nombre que borrar el proyecto o renombrarlo
+    convertían en una ruta fuera de /mnt/output (auditoría con Codex del
+    2026-10-17, reproducido).
+    """
+    nombre = (nombre or "").strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_vacio'))
+    if not nombre.lower().endswith(".mkv"):
+        nombre += ".mkv"
+    # El nombre acaba en el `os.rename` de la Fase H hacia /mnt/output: con
+    # una ruta dentro, el MKV saldría del directorio de salida.
+    if not _cmv40_nombre_de_salida_es_plano(nombre):
+        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_con_ruta'))
+    return nombre
+
+
+def _cmv40_nombre_de_salida_es_plano(nombre: str) -> bool:
+    """¿Es un nombre de fichero sin ruta, que no puede salir de /mnt/output?"""
+    return bool(nombre) and (Path(nombre).name == nombre and "\\" not in nombre
+                             and not nombre.startswith("."))
+
+
+def _cmv40_tmp_del_remux(session: CMv40Session) -> Path | None:
+    """El `.mkv.tmp` que la Fase G deja en /mnt/output para la H.
+
+    None si el nombre persistido lleva una ruta (una sesión creada antes de
+    validarlo, o un JSON editado a mano): ahí no hay nada que tocar.
+    """
+    if not _cmv40_nombre_de_salida_es_plano(session.output_mkv_name or ""):
+        return None
     return _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
 
 
+# Las fases en las que un proyecto tiene —o está escribiendo— el `.mkv.tmp`
+# de su nombre de salida.
+_CMV40_FASES_CON_TMP = ("remuxed", "validated")
+_CMV40_FASES_QUE_LO_ESCRIBEN = ("remux", "validate")
+
+
+def _cmv40_otro_dueno_del_tmp(session: CMv40Session) -> dict | None:
+    """El OTRO proyecto vivo que tiene el `.mkv.tmp` de este nombre, o None.
+
+    El temporal se llama como el MKV de salida, así que dos proyectos con el
+    mismo nombre comparten ruta: la Fase G de uno borraba el remux del otro
+    al arrancar, y limpiar, borrar o renombrar el proyecto que todavía no
+    había llegado al remux se llevaba el del otro, que sí (auditoría con
+    Codex del 2026-10-17, reproducido). Es del proyecto que lo escribió — el
+    que está en `remuxed`/`validated` o corriendo la G o la H.
+
+    Lee el summary cacheado (un `stat` por sesión): va a un thread desde una
+    corrutina.
+    """
+    nombre = session.output_mkv_name or ""
+    if not nombre:
+        return None
+    from storage import list_cmv40_sessions_summary
+    for s in list_cmv40_sessions_summary():
+        sid = s.get("id")
+        if (not sid or sid == session.id or s.get("output_mkv_name") != nombre
+                or s.get("archived") or s.get("phase") == CMv40Phase.DONE):
+            continue
+        if (s.get("phase") in _CMV40_FASES_CON_TMP
+                or s.get("running_phase") in _CMV40_FASES_QUE_LO_ESCRIBEN
+                or _cmv40_activas.get(sid) in _CMV40_FASES_QUE_LO_ESCRIBEN):
+            return s
+    return None
+
+
+def _cmv40_otro_proyecto_con_el_nombre(session: CMv40Session,
+                                       nombre: str) -> dict | None:
+    """Otro proyecto sin terminar ni archivar que ya usa ese nombre, o None."""
+    from storage import list_cmv40_sessions_summary
+    for s in list_cmv40_sessions_summary():
+        if (s.get("id") and s.get("id") != session.id
+                and s.get("output_mkv_name") == nombre
+                and not s.get("archived") and s.get("phase") != CMv40Phase.DONE):
+            return s
+    return None
+
+
 def _cmv40_borrar_tmp_del_remux(session: CMv40Session) -> int:
-    """Borra el `.mkv.tmp` del proyecto si existe; devuelve los bytes."""
+    """Borra el `.mkv.tmp` del proyecto si existe Y es suyo; devuelve los
+    bytes. Si otro proyecto vivo con el mismo nombre lo tiene, no lo toca."""
     tmp = _cmv40_tmp_del_remux(session)
+    if tmp is None or not tmp.is_file():
+        return 0
+    otro = _cmv40_otro_dueno_del_tmp(session)
+    if otro is not None:
+        _logger.info("%s: el .mkv.tmp «%s» es del proyecto %s — no se toca",
+                     session.id, tmp.name, otro.get("id"))
+        return 0
     try:
-        if tmp.is_file():
-            tam = tmp.stat().st_size
-            tmp.unlink()
-            return tam
+        tam = tmp.stat().st_size
+        tmp.unlink()
+        return tam
     except OSError as e:
         _logger.warning("No se pudo borrar %s: %s", tmp, e)
     return 0
+
+
+def _cmv40_workdir_propio(session: CMv40Session) -> Path | None:
+    """El workdir del proyecto si está donde la app lo crea, o None.
+
+    `artifacts_dir` se persiste y el modelo admite cualquier cadena, así que
+    un JSON importado o editado a mano con `/mnt/output` llegaba tal cual a
+    un `rmtree` (auditoría con Codex del 2026-10-17). Solo se admite el
+    directorio de ESTE proyecto: `{CMV40_WORK_BASE}/{id}`, resuelto.
+    """
+    if not session.artifacts_dir:
+        return None
+    try:
+        base = Path(_cmv40_pipeline_mod.CMV40_WORK_BASE).resolve()
+        wd = Path(session.artifacts_dir).resolve()
+        rel = wd.relative_to(base)
+    except (OSError, ValueError):
+        rel = None
+    if rel is None or rel.parts != (session.id,):
+        _logger.warning("%s: artifacts_dir %r no es el workdir del proyecto "
+                        "— no se borra nada ahí", session.id, session.artifacts_dir)
+        return None
+    return wd
+
+
+class _Cmv40NoSeLimpia(Exception):
+    """La limpieza no se ha podido hacer entera; el mensaje es para el usuario."""
+
+
+def _cmv40_limpiar_artefactos(session: CMv40Session) -> int:
+    """Borra el workdir ENTERO del proyecto y su `.mkv.tmp`; devuelve los
+    bytes liberados de verdad. **Síncrono: va a un thread.**
+
+    Lo comparten la limpieza individual y la masiva. La masiva tenía su
+    propia copia, de antes de que la individual aprendiera tres cosas: borra
+    el directorio entero y no una lista de nombres conocidos (un artefacto
+    nuevo del pipeline sobrevivía para siempre — caso real: la conversión a
+    Profile 8.1 dejó 29 MB en "Te van a matar"); no da por liberado lo que
+    no se pudo borrar (la masiva sumaba ANTES del `unlink`); y no archiva un
+    proyecto cuya limpieza falló (auditoría con Codex del 2026-10-17).
+
+    Lanza `_Cmv40NoSeLimpia` si el workdir no es el del proyecto o si no se
+    pudo borrar: archivar es solo lectura, y un proyecto archivado con los
+    artefactos dentro ya no se puede volver a limpiar desde la interfaz.
+    """
+    freed = 0
+    if session.artifacts_dir:
+        wd = _cmv40_workdir_propio(session)
+        if wd is None:
+            raise _Cmv40NoSeLimpia(tr('cmv40.workdir_fuera_de_sitio',
+                                      ruta=session.artifacts_dir))
+        if wd.exists():
+            # El recuento antes del borrado, pero solo se devuelve si el
+            # borrado termina: si falla, no se ha liberado lo que se contó.
+            total = 0
+            for f in wd.rglob("*"):
+                if f.is_file():
+                    try:
+                        total += f.stat().st_size
+                    except OSError:
+                        pass
+            try:
+                _cmv40_shutil.rmtree(wd)
+            except OSError as e:
+                _logger.warning("No se pudo borrar el workdir %s: %s", wd, e)
+                raise _Cmv40NoSeLimpia(tr('cmv40.no_se_pudo_borrar_el_workdir',
+                                          error=str(e)))
+            freed += total
+    # Y el `.mkv.tmp` de /mnt/output (la Fase G escribió y la H no terminó),
+    # si es suyo — ver `_cmv40_otro_dueno_del_tmp`.
+    freed += _cmv40_borrar_tmp_del_remux(session)
+    return freed
 
 
 def _cmv40_guard_mutable(session: CMv40Session):
@@ -3171,6 +3499,30 @@ def _cmv40_guard_mutable(session: CMv40Session):
         raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_archivado_solo_lectura'))
     if session.phase == "done":
         raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_completado_usa_rehacer_para_iterar'))
+
+
+def _cmv40_fase_en_vuelo(session: CMv40Session) -> str | None:
+    """La fase que sigue viva en este proceso, o None.
+
+    `running_phase` no basta: `cancel` lo limpia —en disco y en el registro—
+    en cuanto mata los procesos, para que la UI no se quede bloqueada, pero
+    la corrutina de la fase sigue un rato borrando parciales, escribiendo el
+    log y guardando la sesión. En ese hueco un `cleanup` hacía `rmtree` por
+    debajo y el guardado final de la fase devolvía `archived` a False
+    (auditoría con Codex del 2026-10-17). Lo que dice de verdad si la fase
+    terminó es su lock, que solo se suelta al salir del todo; y la copia viva
+    de la sesión todavía lleva su nombre.
+    """
+    viva = _cmv40_sesion_viva.get(session.id)
+    nombre = (session.running_phase or _cmv40_activas.get(session.id)
+              or (viva.running_phase if viva is not None else None))
+    if nombre:
+        return nombre
+    if (session.id in _cmv40_phases_in_flight
+            or _get_cmv40_phase_lock(session.id).locked()):
+        ultimas = session.phase_history or []
+        return (ultimas[-1].phase if ultimas else "") or "preflight"
+    return None
 
 
 def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
@@ -3183,7 +3535,7 @@ def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
     tienen su guard (`_cmv40_guard_no_pending_error`); estos dos no tenían
     ninguno. `reset-sync` sí lo comprueba, con el mismo criterio.
     """
-    en_curso = session.running_phase or _cmv40_activas.get(session.id)
+    en_curso = _cmv40_fase_en_vuelo(session)
     if en_curso:
         raise HTTPException(
             status_code=409,
@@ -3208,22 +3560,26 @@ async def cmv40_rename_output(session_id: str, body: CMv40RenameRequest):
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_mutable(session)
     _cmv40_guard_not_running(session, tr('cmv40.renombrar_el_mkv_de_salida'))
-    new_name = body.output_mkv_name.strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_vacio'))
-    if not new_name.lower().endswith(".mkv"):
-        new_name += ".mkv"
-    # El nombre acaba en el `os.rename` de la Fase H hacia /mnt/output: con
-    # una ruta dentro, el MKV saldría del directorio de salida.
-    if (Path(new_name).name != new_name or "\\" in new_name
-            or new_name.startswith(".")):
-        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_con_ruta'))
+    new_name = _cmv40_nombre_de_salida(body.output_mkv_name)
+    # Otro proyecto vivo con ese nombre compartiría el `.mkv.tmp` de la
+    # Fase G — ver `_cmv40_otro_dueno_del_tmp`. Al renombrar se le puede
+    # decir que no; al crear, el nombre lo propone la app y lo para la G.
+    if new_name != session.output_mkv_name:
+        ocupado = await asyncio.to_thread(
+            _cmv40_otro_proyecto_con_el_nombre, session, new_name)
+        if ocupado is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=tr('cmv40.otro_proyecto_usa_ese_nombre', nombre=new_name))
     # Con el remux ya escrito, el `.mkv.tmp` cambia de nombre con el
     # proyecto. Si no, la Fase H buscaba el nombre nuevo, el auto-rewind
     # mandaba a repetir el remux y el temporal viejo se quedaba huérfano.
+    # Solo si es SUYO: con otro proyecto del mismo nombre, el temporal es
+    # del otro y renombrar este se lo llevaba.
     viejo = _cmv40_tmp_del_remux(session)
     nuevo = _cmv40_pipeline_mod.OUTPUT_DIR / f"{new_name}.tmp"
-    if viejo.is_file() and viejo != nuevo:
+    if (viejo is not None and viejo.is_file() and viejo != nuevo
+            and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):
         if nuevo.exists():
             raise HTTPException(status_code=409,
                                 detail=tr('cmv40.ya_hay_un_remux_con_ese_nombre', nombre=new_name))
@@ -3248,48 +3604,13 @@ async def cmv40_cleanup(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
     _cmv40_guard_not_running(session, tr('cmv40.borrar_los_artefactos'))
-    wd = Path(session.artifacts_dir) if session.artifacts_dir else None
-    freed = 0
-    if wd and wd.exists():
-        # Se borra el workdir ENTERO, no una lista de nombres conocidos. El
-        # directorio es exclusivo de esta sesión (/mnt/tmp/cmv40/{id}) y el
-        # session.json vive en /config, así que no hay nada que preservar.
-        #
-        # Antes se recorría `_CMV40_PHASE_ARTIFACTS`, así que cualquier
-        # artefacto nuevo del pipeline sobrevivía a la limpieza para siempre
-        # y el proyecto quedaba archivado (solo lectura) sin forma de volver
-        # a limpiarlo desde la UI. Caso real: los ficheros de la conversión a
-        # Profile 8.1 dejaron 29 MB huérfanos en "Te van a matar".
-        def _medir_y_borrar(directorio: Path) -> int:
-            # Recuento + borrado en un thread: el workdir de un UHD son
-            # 250-400 GB (source.hevc + BL + EL + EL_injected + output.mkv) y
-            # tanto el `rglob` de stats como el unlink sobre ZFS tardan
-            # segundos. En el bucle congelaban la app entera — el log del job
-            # que estuviera corriendo en otro proyecto incluido.
-            total = 0
-            for f in directorio.rglob("*"):
-                if f.is_file():
-                    try:
-                        total += f.stat().st_size
-                    except OSError:
-                        pass
-            _cmv40_shutil.rmtree(directorio)
-            return total
-
-        try:
-            freed = await asyncio.to_thread(_medir_y_borrar, wd)
-        except Exception as e:
-            _logger.warning("No se pudo borrar el workdir %s: %s", wd, e)
-            freed = 0
-    # También borrar .mkv.tmp orfeno en /mnt/output (si Fase G escribió pero
-    # Fase H no completó)
     try:
-        tmp_path = _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
-        if tmp_path.exists() and tmp_path.is_file():
-            freed += tmp_path.stat().st_size
-            tmp_path.unlink()
-    except Exception as e:
-        _logger.warning("No se pudo borrar .mkv.tmp: %s", e)
+        freed = await asyncio.to_thread(_cmv40_limpiar_artefactos, session)
+    except _Cmv40NoSeLimpia as e:
+        # Sin archivar: archivado es solo lectura, y un proyecto que se
+        # archiva con los artefactos dentro ya no se puede volver a limpiar
+        # desde la interfaz.
+        raise HTTPException(status_code=409, detail=str(e))
     session.archived = True
     save_cmv40_session(session)
     await _cmv40_log(session, tr('cmv40.artefactos_borrados_p1_gb_liberados_proyecto_archivado', p1=format(freed / 1e9, '.2f')))
@@ -3616,41 +3937,24 @@ async def cmv40_cleanup_bulk(body: CMv40CleanupBulkRequest):
             failed.append({"id": sid,
                            "error": tr('cmv40.proyecto_no_encontrado')})
             continue
-        if session.running_phase:
+        # El mismo criterio que la limpieza individual: una fase en marcha,
+        # una que todavía termina tras Cancelar y una que espera en la cola
+        # cuentan igual. Mirando solo `running_phase`, la fase encolada corría
+        # después sobre los artefactos borrados.
+        en_vuelo = _cmv40_fase_en_vuelo(session)
+        en_cola = _cmv40_posicion_en_cola(session.id)
+        if en_vuelo or en_cola:
             skipped.append({
                 "id": sid,
                 "reason": tr('cmv40.limpieza_fase_en_curso_corto',
-                             fase=session.running_phase),
+                             fase=en_vuelo or (en_cola or {}).get("fase") or "?"),
             })
             continue
-        wd = Path(session.artifacts_dir) if session.artifacts_dir else None
-        freed = 0
-        if wd and wd.exists():
-            for arts in _CMV40_PHASE_ARTIFACTS.values():
-                for name in arts:
-                    f = wd / name
-                    if f.exists() and f.is_file():
-                        try:
-                            freed += f.stat().st_size
-                            f.unlink()
-                        except Exception as e:
-                            _logger.warning("[Bulk cleanup] %s: %s", f, e)
-            for extra in ["RPU_synced.bin", "RPU_synced.tmp.bin", "editor_config.json"]:
-                f = wd / extra
-                if f.exists() and f.is_file():
-                    try:
-                        freed += f.stat().st_size
-                        f.unlink()
-                    except Exception:
-                        pass
-        # .mkv.tmp en /mnt/output
         try:
-            tmp_path = _cmv40_pipeline_mod.OUTPUT_DIR / f"{session.output_mkv_name}.tmp"
-            if tmp_path.exists() and tmp_path.is_file():
-                freed += tmp_path.stat().st_size
-                tmp_path.unlink()
-        except Exception as e:
-            _logger.warning("[Bulk cleanup] .mkv.tmp %s: %s", sid, e)
+            freed = await asyncio.to_thread(_cmv40_limpiar_artefactos, session)
+        except _Cmv40NoSeLimpia as e:
+            failed.append({"id": sid, "error": str(e)})
+            continue
         session.archived = True
         save_cmv40_session(session)
         await _cmv40_log(session,
@@ -3680,6 +3984,24 @@ _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
                         "_profile8_mode.json"],
     "remuxed":         ["output.mkv", "DV_dual.hevc"],
 }
+
+
+#: Lo que la sesión sabe DEL BIN TARGET: lo midió el pre-flight o la Fase B,
+#: o lo decidió el usuario a la vista de ese bin. «Cambiar target» lo vuelve
+#: a sus valores por defecto. Un campo nuevo que describa el bin va aquí.
+_CMV40_CAMPOS_DEL_TARGET: tuple[str, ...] = (
+    "target_rpu_sha256", "target_trust_gates", "compat_warning",
+    "sync_offset_detected", "l2_comparison",
+    "preflight_user_choice", "preflight_user_choice_at",
+    "target_l2_combos", "target_l2_unique_count", "target_l2_target_pqs",
+    "target_l3_unique_count", "target_l3_frames",
+    "target_l8_max_delta", "target_l8_combos", "target_l8_unique_count",
+    "target_l8_target_indices", "target_l8_neutral_frames_pct",
+    "target_l8_has_mid_contrast", "target_l8_has_clip_trim",
+    "target_l8_classification", "target_l8_quality_tier",
+    "target_l8_quality_label", "target_l8_quality_description",
+    "target_l8_scene_cuts", "target_frames_analyzed",
+)
 
 
 def _cmv40_artifacts_to_delete(target_phase: str) -> list[str]:
@@ -3733,11 +4055,12 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     # `running_phase`, así que ese hueco quedaba abierto.
     en_cola = queue_manager.buscar(
         f"{queue_manager_mod.TIPO_FASE_CMV40}:{session.id}")
-    if session.running_phase or en_cola:
+    en_vuelo = _cmv40_fase_en_vuelo(session)
+    if en_vuelo or en_cola:
         raise HTTPException(
             status_code=409,
             detail=tr('cmv40.hay_una_fase_en_curso_cancelala_2',
-                      running_phase=session.running_phase
+                      running_phase=en_vuelo
                       or (en_cola.datos or {}).get("fase", "?")),
         )
 
@@ -3765,8 +4088,16 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
         _cmv40_borrar_tmp_del_remux(session)
 
     # Borrar artefactos aguas abajo
-    wd = Path(session.artifacts_dir) if session.artifacts_dir else None
+    wd = _cmv40_workdir_propio(session)
     if wd and wd.exists():
+        # Rebobinar por debajo de la corrección del sync borra el RPU
+        # corregido, pero `per_frame_data.json` es de la Fase C y se quedaba:
+        # la Fase E lo regenera tras cada corrección, así que el gráfico de
+        # la Fase D seguía describiendo el RPU recién borrado. Sin él,
+        # `sync-data` lo regenera bajo demanda desde el target original.
+        if (_clear_from("sync_corrected")
+                and (session.sync_config or (wd / "RPU_synced.bin").exists())):
+            (wd / "per_frame_data.json").unlink(missing_ok=True)
         for name in _cmv40_artifacts_to_delete(target_phase):
             p = wd / name
             if p.exists() and p.is_file():
@@ -3817,6 +4148,20 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
         session.pending_target_file_id = ""
         session.pending_target_file_name = ""
         session.pending_target_source_mkv_path = ""
+        # Y todo lo que se MIDIÓ o se DECIDIÓ sobre el bin anterior. Quedaban
+        # la respuesta del usuario a la pregunta mantener/inyectar y el
+        # análisis L2/L3/L8: con el bin nuevo pidiendo decidir, el relato
+        # decía «decisión tomada» con la respuesta dada para el viejo y el
+        # proyecto se quedaba sin botones; y el GET re-derivaba la
+        # clasificación con los combos del viejo (auditoría con Codex del
+        # 2026-10-17, reproducido).
+        for campo in _CMV40_CAMPOS_DEL_TARGET:
+            setattr(session, campo, CMv40Session.model_fields[campo]
+                    .get_default(call_default_factory=True))
+        # El `[CMv4 CORE]` del nombre de salida es el tier del bin viejo:
+        # vuelve al genérico hasta que el pre-flight mida el nuevo. Un nombre
+        # que el usuario cambió a mano no lleva el patrón y no se toca.
+        _cmv40_apply_quality_label_to_output_name(session, "CMv4.0")
     if _clear_from("sync_corrected"):
         session.sync_config = None
         # Restaurar target_frame_count / sync_delta al valor del RPU original,
@@ -4082,11 +4427,12 @@ class CMv40TargetDriveRequest(BaseModel):
     file_name: str = ""
 
 
+# Sin `Depends(workload.marca(...))` **a propósito**, como los pre-flight:
+# contesta `{started: true}` y la descarga sigue en la fase, que se registra
+# ella misma —interactiva desde el 2026-10-17—. La marca apuntaba un segundo
+# trabajo de milisegundos con otra clave (auditoría con Codex).
 @router.post("/api/cmv40/{session_id}/target-rpu-from-drive",
-          summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive",
-          dependencies=[Depends(workload.marca(
-              lambda: tr('cmv40.wl_descarga_del_rpu'),
-              workload.TAB_CMV40))])
+          summary="Fase B3: RPU target descargado del repositorio REC_9999 en Drive")
 async def cmv40_target_from_drive(session_id: str, body: CMv40TargetDriveRequest):
     session = load_cmv40_session(session_id)
     if not session:
@@ -4374,8 +4720,6 @@ async def cmv40_preflight_source(session_id: str):
                 detalle="preflight", cancelable=True,
                 titulo=_titulo_wl, poster=_poster_wl)
             session.error_message = ""
-            save_cmv40_session(session)
-            await _cmv40_log(session, _separador_de_fase("preflight_source"))
 
             async def _log_cb(msg: str):
                 await _cmv40_log(session, msg)
@@ -4383,13 +4727,23 @@ async def cmv40_preflight_source(session_id: str):
             def _proc_cb(proc):
                 _cmv40_proc_register(session.id, proc)
 
+            # Lo mismo que en `_cmv40_correr_preflight`: cancelación
+            # cooperativa y el guardado de arranque dentro del try.
+            _cmv40_pipeline_mod.set_cancel_check(
+                lambda: bool(_cmv40_cancel_flags.get(session.id)))
             try:
+                await _save_cmv40_session_async(session)
+                await _cmv40_log(session, _separador_de_fase("preflight_source"))
                 from phases.cmv40_pipeline import preflight_source
                 await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
                 await _cmv40_log(
                     session,
                     '✓ Fase ' + tr('cmv40.preflight_source_completada_origen_valido')
                 )
+            except _cmv40_pipeline_mod.CMv40Cancelled:
+                session.source_preflight_ok = False
+                await _cmv40_log(session, '🛑 Cancelado: ' + tr(
+                    'cmv40.preflight_cancelado'))
             except Exception as e:
                 msg = str(e)
                 await _cmv40_log_phase_failed(session, "preflight (source)", msg)
@@ -4400,7 +4754,13 @@ async def cmv40_preflight_source(session_id: str):
                 cancelado = _cmv40_cancel_flags.pop(session.id, False)
                 _cmv40_marcar_libre(session)
                 workload.liberar(session.id)
-                await _save_cmv40_session_async(session)
+                try:
+                    await _cmv40_log_volcar(session.id, forzar=True)
+                    await _save_cmv40_session_async(session)
+                except Exception as e:      # noqa: BLE001
+                    _logger.warning("No se pudo guardar el cierre del "
+                                    "pre-flight del origen (sid=%s): %s",
+                                    session.id, e)
                 # El pre-flight no dejaba rastro en ninguna parte: ni al
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
@@ -4471,7 +4831,11 @@ def _cmv40_pfd_cargar(session_id: str, pf: Path, sync_delta: int | None) -> dict
     from array import array
     st = pf.stat()
     cache = _PFD_CACHE.get(session_id)
-    if cache and cache["mtime_ns"] == st.st_mtime_ns and cache["size"] == st.st_size:
+    # El `sync_gate` lleva el Δ de la sesión dentro, así que el Δ es parte de
+    # la identidad: con el volcado intacto y el Δ cambiado, la caché servía
+    # el criterio de avance calculado con el Δ de antes.
+    if (cache and cache["mtime_ns"] == st.st_mtime_ns and cache["size"] == st.st_size
+            and cache.get("sync_delta") == sync_delta):
         return cache
 
     import json as _json
@@ -4496,7 +4860,7 @@ def _cmv40_pfd_cargar(session_id: str, pf: Path, sync_delta: int | None) -> dict
     suggested = detect_sync_offset(data)
     confidence = compute_sync_confidence(data)
     cache = {
-        "mtime_ns": st.st_mtime_ns, "size": st.st_size,
+        "mtime_ns": st.st_mtime_ns, "size": st.st_size, "sync_delta": sync_delta,
         "frames": frames, "series": series,
         "source_frames": data.get("source_frames") or 0,
         "target_frames": data.get("target_frames") or 0,
@@ -4763,10 +5127,11 @@ async def cmv40_reset_sync(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
-    if session.running_phase:
+    en_vuelo = _cmv40_fase_en_vuelo(session)
+    if en_vuelo:
         raise HTTPException(
             status_code=409,
-            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_3', running_phase=session.running_phase),
+            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_3', running_phase=en_vuelo),
         )
 
     # ⚠️ DEV MODE: restaurar target a valor original simulado (source + 40)
@@ -4779,28 +5144,41 @@ async def cmv40_reset_sync(session_id: str):
         return session.model_dump()
 
     # Prod: re-analizar RPU_target.bin original para obtener su frame count
-    wd = Path(session.artifacts_dir)
+    wd = _cmv40_workdir_propio(session)
+    if wd is None:
+        raise HTTPException(status_code=409, detail=tr(
+            'cmv40.workdir_fuera_de_sitio', ruta=session.artifacts_dir))
     rpu_target = wd / "RPU_target.bin"
     if not rpu_target.exists():
         raise HTTPException(status_code=400, detail=tr('cmv40_pipeline.rpu_target_bin_no_existe'))
 
-    # Borrar RPU_synced.bin + editor_config.json
-    (wd / "RPU_synced.bin").unlink(missing_ok=True)
-    (wd / "RPU_synced.tmp.bin").unlink(missing_ok=True)
-    (wd / "editor_config.json").unlink(missing_ok=True)
-
+    # El análisis del original va ANTES de borrar nada. Iba después: si
+    # `dovi_tool info` fallaba, la corrección ya estaba borrada, el frame
+    # count y el Δ se quedaban los de la corregida y la respuesta decía
+    # «target restaurado» (auditoría con Codex del 2026-10-17).
+    from phases.phase_a import _parse_dovi_summary
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "dovi_tool", "info", "--summary", str(rpu_target),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        from phases.phase_a import _parse_dovi_summary
-        dovi_info = _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
-        session.target_frame_count = dovi_info.frame_count
-        session.sync_delta = dovi_info.frame_count - session.source_frame_count
+        rc, out, err = await _cmv40_pipeline_mod._run(
+            [_cmv40_pipeline_mod.DOVI_TOOL_BIN, "info", "--summary", str(rpu_target)],
+            timeout=300)
+        frames = _parse_dovi_summary(out).frame_count if rc == 0 else 0
     except Exception as e:
         _logger.warning("Re-análisis del RPU target falló: %s", e)
+        frames, err = 0, str(e)
+    if frames <= 0:
+        raise HTTPException(status_code=500, detail=tr(
+            'cmv40.no_se_pudo_leer_el_target_original',
+            error=(err or "").strip()[:200]))
+
+    # Borrar la corrección Y el gráfico que la describe. El gráfico se
+    # quedaba si su regeneración fallaba, así que la Fase D seguía enseñando
+    # la corrección recién borrada; sin él, `sync-data` lo regenera bajo
+    # demanda desde el target original.
+    for nombre in ("RPU_synced.bin", "RPU_synced.tmp.bin", "editor_config.json",
+                   "per_frame_data.json"):
+        (wd / nombre).unlink(missing_ok=True)
+    session.target_frame_count = frames
+    session.sync_delta = frames - session.source_frame_count
 
     session.sync_config = None
     save_cmv40_session(session)

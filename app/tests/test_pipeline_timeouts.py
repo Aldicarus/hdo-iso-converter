@@ -29,6 +29,8 @@ _FILES = [
     _APP / "main.py",
     _APP / "routers" / "tab1.py",
     _APP / "routers" / "tab2.py",
+    _APP / "routers" / "cmv40.py",
+    _APP / "phases" / "rpu_analyze.py",
 ]
 
 # Suelo para timeouts FIJOS sobre operaciones pesadas: 1500s (25 min). Por
@@ -37,7 +39,12 @@ _FILES = [
 FLOOR = 1500
 
 # Tokens que delatan una operación que lee/escribe el vídeo/RPU COMPLETO.
-HEAVY_TOKENS = ('"demux"', '"extract-rpu"', 'all={', '"export"')
+# `"editor"` sobre el RPU de la película entera también escala con ella: la
+# corrección de sync de la Fase E y el merge de la F tenían 120 y 300 s
+# (auditoría con Codex del 2026-10-17). Y `export_levels(` es el export por
+# niveles, que va por parámetro y no lleva la palabra `"export"` delante.
+HEAVY_TOKENS = ('"demux"', '"extract-rpu"', 'all={', '"export"', '"editor"',
+                "export_levels(")
 
 # Marcadores de que el input está ACOTADO (no escala con la peli) → exento.
 BOUNDED_MARKERS = (
@@ -126,6 +133,21 @@ class TestPipelineTimeoutRobustness(unittest.TestCase):
             int(m.group(1)), FLOOR,
             f"export_timeout={m.group(1)} < {FLOOR}: demasiado justo para un "
             "RPU full-movie")
+
+    def test_los_defaults_de_los_exports_son_generosos(self):
+        """Los exports que reciben el timeout por parámetro se llaman muchas
+        veces SIN él, así que el default es el que manda. `analyze_rpu_combos`
+        tenía 60 s y la reserva `-d all` mide ~100 s en un UHD: moría en la
+        Fase A y en el pre-flight (auditoría con Codex del 2026-10-17)."""
+        import inspect
+        import sys
+        sys.path.insert(0, str(_APP))
+        from phases import rpu_analyze
+        for fn, param in ((rpu_analyze.analyze_rpu_combos, "export_timeout"),
+                          (rpu_analyze.export_levels, "timeout"),
+                          (rpu_analyze._run_export_levels, "timeout")):
+            default = inspect.signature(fn).parameters[param].default
+            self.assertGreaterEqual(default, FLOOR, f"{fn.__name__}({param}={default})")
 
     def test_demux_uses_adaptive_timeout_and_reuse_guard(self):
         """Regresión directa del bug: el demux debe usar timeout ADAPTATIVO y

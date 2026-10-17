@@ -331,3 +331,36 @@ class TestUnHevcAMediasNoSeReutiliza(FaseACase):
         self.assertIn("700", str(ctx.exception))
         self.assertFalse((self.wd / "source.hevc").exists())
         self.assertFalse((self.wd / MARCA_SOURCE_HEVC).exists())
+
+
+class TestLaCadenciaSeMide(FaseACase):
+    """`source_fps` nacía a 23,976 y nada lo escribía (auditoría con Codex del
+    2026-10-17): el umbral en segundos del tramo L5 divergente de la Fase B
+    y los tiempos del gráfico de sincronización contaban un máster de 60 fps
+    como si fuera de cine."""
+
+    async def _con(self, frames, duracion):
+        from phases.cmv40_pipeline import run_phase_a_analyze_source
+        session = self.prepare()
+        props = dict(SRC.as_dict(), frames=frames)
+        self.tb.define_rpu("RPU_source.bin", **props)
+        write_artifacts(self.wd, Path(session.source_mkv_path).name,
+                        props=RpuProps(**props))
+        self.tb.define_media(Path(session.source_mkv_path).name,
+                             duration=duracion, frames=frames)
+        await run_phase_a_analyze_source(session, log_callback=self.log)
+        return session
+
+    async def test_un_master_de_60_fps(self):
+        s = await self._con(6000, 100.0)
+        self.assertEqual(s.source_fps, 60.0)
+
+    async def test_el_de_cine_se_ajusta_a_23_976(self):
+        # 24000/1001 exactos, con medio segundo de audio de más en el
+        # contenedor: sigue siendo 23,976, no 23,98 ni 24.
+        s = await self._con(24000, 1001.5)
+        self.assertEqual(s.source_fps, 23.976)
+
+    async def test_un_cociente_sin_sentido_no_se_inventa_una_cadencia(self):
+        s = await self._con(FRAMES, 7200.0)      # 0,14 fps
+        self.assertEqual(s.source_fps, 23.976)   # el valor por defecto

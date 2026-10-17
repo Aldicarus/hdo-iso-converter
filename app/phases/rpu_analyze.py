@@ -209,6 +209,17 @@ async def _run_export(
         try: reader_task.cancel()
         except Exception: pass
         return -1, "timeout"
+    except asyncio.CancelledError:
+        # Si cancelan la tarea, el proceso y su lector mueren con ella: un
+        # `export -d all` sobre un RPU UHD son minutos y seguía corriendo
+        # tras la fase (auditoría con Codex del 2026-10-17).
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        reader_task.cancel()
+        raise
     return proc.returncode, "\n".join(collected)
 
 
@@ -287,7 +298,7 @@ async def export_levels(
     rpu_path: Path,
     levels,
     out_dir: Path | None = None,
-    timeout: int = 300,
+    timeout: int = 1500,
     log_callback=None,
     register_proc=None,
 ) -> dict[str, list] | None:
@@ -358,7 +369,7 @@ async def _run_export_levels(
     rpu_path: Path,
     out_dir: Path,
     stem: str,
-    timeout: int = 60,
+    timeout: int = 1500,
     log_callback=None,
     register_proc=None,
     niveles_extra: tuple[str, ...] = (),
@@ -468,27 +479,34 @@ def _l8_delta_maxima(combos) -> int:
     return peor
 
 
-def _fijar_frames_significativos(analysis, contador) -> None:
+def _combo_l8_significativo(combo) -> bool:
+    """¿Este bloque L8 se aparta del neutro más que el umbral del criterio?"""
+    deltas = [abs((v if v is not None else 2048) - 2048) for v in combo[1:6]]
+    for v in (combo[7], combo[8]):
+        if v is not None:
+            deltas.append(abs(v - 2048))
+    return bool(deltas) and max(deltas) > L8_REAL_MINIMAL_SIGNIFICANT_DELTA
+
+
+def _fijar_frames_significativos(analysis, frames_significativos: set,
+                                 frames_con_l8: set) -> None:
     """Qué parte del metraje lleva trims que se apartan del neutro.
 
     Complementa a `l8_max_delta`: un bin puede tener una desviación grande
     en un puñado de frames sueltos, y no es lo mismo que llevarla en toda
     la película. No decide —decide la magnitud— pero es lo que se enseña
     al lado para que el veredicto se entienda.
+
+    Cuenta FRAMES, no bloques: un frame lleva un bloque L8 por target
+    display, y sumando bloques cien frames con un target trabajado y otro
+    neutro salían al 50 % cuando los cien llevan trim (auditoría con Codex
+    del 2026-10-17).
     """
-    total = sum(contador.values())
-    if not total:
+    if not frames_con_l8:
         analysis.l8_frames_significativos_pct = 0.0
         return
-    sig = 0
-    for combo, n in contador.items():
-        deltas = [abs((v if v is not None else 2048) - 2048) for v in combo[1:6]]
-        for v in (combo[7], combo[8]):
-            if v is not None:
-                deltas.append(abs(v - 2048))
-        if deltas and max(deltas) > L8_REAL_MINIMAL_SIGNIFICANT_DELTA:
-            sig += n
-    analysis.l8_frames_significativos_pct = sig / total
+    analysis.l8_frames_significativos_pct = (
+        len(frames_significativos) / len(frames_con_l8))
 
 
 def cargar_niveles(paths: dict[str, Path]) -> dict[str, list]:
@@ -662,6 +680,7 @@ def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
     # de l8_neutral_pct, igual que `frames_with_cmv40` en el parser del volcado.
     frames_with_l8: set = set()
     frames_worked: set = set()
+    frames_significativos: set = set()
     for r in l8:
         if not isinstance(r, dict):
             continue
@@ -679,6 +698,8 @@ def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
         frames_with_l8.add(frame)
         if not _is_l8_neutral(combo):
             frames_worked.add(frame)
+        if _combo_l8_significativo(combo):
+            frames_significativos.add(frame)
         # Solo cuenta como campo CMv4.0-only usado si NO es neutro (audit #14).
         if combo[7] is not None and combo[7] != 2048:
             analysis.l8_has_mid_contrast = True
@@ -697,7 +718,7 @@ def _parse_export_levels(paths: dict[str, Path]) -> RpuAnalysis:
     else:
         analysis.l8_neutral_pct = 0.0
     analysis.l8_max_delta = _l8_delta_maxima(analysis.l8_combos)
-    _fijar_frames_significativos(analysis, l8_counter)
+    _fijar_frames_significativos(analysis, frames_significativos, frames_with_l8)
     return analysis
 
 
@@ -875,7 +896,7 @@ async def _try_levels_export(
 
 async def analyze_rpu_combos(
     rpu_path: Path,
-    export_timeout: int = 60,
+    export_timeout: int = 1500,
     log_callback=None,
     register_proc=None,
 ) -> RpuAnalysis:
@@ -888,10 +909,12 @@ async def analyze_rpu_combos(
     El JSON intermedio se borra siempre, incluso si la operación falla.
 
     Args:
-        export_timeout: segundos máx para dovi_tool export. Default 60s
-            (suficiente para bins de comunidad pequeños usados por Tab 3).
-            Para RPUs full-movie (Tab 2 quality audit con ~100-200 MB)
-            pasar 900s+ — dovi_tool tarda 5-15 min generando el JSON.
+        export_timeout: segundos máx para dovi_tool export. Default 1500 s,
+            el suelo de la regla de timeouts: el RPU es SIEMPRE de la
+            película entera —un bin de la comunidad también— y la reserva
+            `-d all` mide ~100 s en un UHD. Con los 60 s de antes, esa
+            reserva moría por timeout en la Fase A y en el pre-flight
+            (auditoría con Codex del 2026-10-17).
         log_callback: opcional, recibe cada línea de stdout/stderr de
             dovi_tool en streaming. Sin esto el usuario no ve progreso
             durante los minutos del export.

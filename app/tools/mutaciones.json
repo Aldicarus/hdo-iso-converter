@@ -581,7 +581,7 @@
  {
   "id": "T3 borrar con artefactos deja el remux",
   "fichero": "app/routers/cmv40.py",
-  "viejo": "        # limpieza normal y la masiva ya lo borraban; esta no.\n        _cmv40_borrar_tmp_del_remux(session)",
+  "viejo": "        # limpieza normal y la masiva ya lo borraban; esta no.\n        await asyncio.to_thread(_cmv40_borrar_tmp_del_remux, session)",
   "nuevo": "        # limpieza normal y la masiva ya lo borraban; esta no.\n        pass",
   "modulos": [
    "test_cmv40_el_mkv_tmp_del_remux"
@@ -599,8 +599,8 @@
  {
   "id": "T3 renombrar acepta rutas",
   "fichero": "app/routers/cmv40.py",
-  "viejo": "    if (Path(new_name).name != new_name or",
-  "nuevo": "    if (False and Path(new_name).name != new_name or",
+  "viejo": "    if not _cmv40_nombre_de_salida_es_plano(nombre):\n        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_con_ruta'))",
+  "nuevo": "    if False:\n        raise HTTPException(status_code=400, detail=tr('cmv40.nombre_con_ruta'))",
   "modulos": [
    "test_cmv40_el_mkv_tmp_del_remux"
   ]
@@ -1442,8 +1442,8 @@
  {
   "id": "T2-13 cancelar el remux deja su tmp",
   "fichero": "app/routers/cmv40.py",
-  "viejo": "            if phase_name == \"remux\":\n                _cmv40_cleanup_orphan_tmp(session)\n",
-  "nuevo": "",
+  "viejo": "            # con Codex del 2026-10-17).\n            if phase_name == \"remux\":\n                _cmv40_borrar_tmp_del_remux(session)\n",
+  "nuevo": "            # con Codex del 2026-10-17).\n",
   "modulos": [
    "test_cmv40_la_fase_no_pisa_al_usuario"
   ]
@@ -1460,7 +1460,7 @@
  {
   "id": "T2-15 el recovery deja el tmp del remux cortado",
   "fichero": "app/routers/cmv40.py",
-  "viejo": "                if getattr(last, \"phase\", \"\") == \"remux\":\n                    _cmv40_cleanup_orphan_tmp(s)\n",
+  "viejo": "                if getattr(last, \"phase\", \"\") == \"remux\":\n                    _cmv40_borrar_tmp_del_remux(s)\n",
   "nuevo": "",
   "modulos": [
    "test_cmv40_la_fase_no_pisa_al_usuario"
@@ -3176,6 +3176,501 @@
   "nuevo": "        if False:",
   "modulos": [
    "test_limpieza_solo_lo_huerfano"
+  ]
+ },
+ {
+  "id": "T4/cmv40-1 cancelar el demux vuelve a ser un FALLO",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        # acababa en «Fase extract FALLÓ … código -15», con su banner rojo y\n        # el 409 del error pendiente al reintentar (reproducido en la\n        # auditoría con Codex del 2026-10-17).\n        if proc.returncode not in (0, 1):\n            raise_if_cancelled()\n",
+  "nuevo": "        # acababa en «Fase extract FALLÓ … código -15», con su banner rojo y\n        # el 409 del error pendiente al reintentar (reproducido en la\n        # auditoría con Codex del 2026-10-17).\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-2 _run_with_time_estimate no mata su proceso al cancelar la tarea",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            # el demux de la Fase C, que seguía escribiendo BL/EL mientras la\n            # fase ya había borrado los parciales.\n            _matar_proceso(proc)\n            raise\n",
+  "nuevo": "            # el demux de la Fase C, que seguía escribiendo BL/EL mientras la\n            # fase ya había borrado los parciales.\n            raise\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-3 el pipe de la Fase A deja vivos sus dos extremos al cancelar la tarea",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        fin.set()\n        _matar_proceso(ff)\n        _matar_proceso(dv)\n        raise\n",
+  "nuevo": "        fin.set()\n        raise\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-4 el pipe arranca aunque ya esté cancelado",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    # después de haber arrancado (y matado) este pipeline para nada.\n    raise_if_cancelled()\n",
+  "nuevo": "    # después de haber arrancado (y matado) este pipeline para nada.\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-5 el SIGTERM de cancelar el pipe se toma por un fallo",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        if ff_rc not in (0, 1) or dv_rc not in (0, 1):\n            raise_if_cancelled()\n",
+  "nuevo": "        pass\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-6 el export de rpu_analyze sobrevive a la tarea",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "        if proc.returncode is None:\n            try:\n                proc.kill()\n            except ProcessLookupError:\n                pass\n        reader_task.cancel()\n        raise\n",
+  "nuevo": "        reader_task.cancel()\n        raise\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-7 el ticker de _run_streaming sobrevive a la tarea",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    except BaseException:\n        stop_ticker.set()\n        if tick_task:\n            tick_task.cancel()\n        raise\n",
+  "nuevo": "    except BaseException:\n        raise\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-8 una parada ordenada deja la fase en running",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            msg = tr('cmv40.sesion_interrumpida_por_reinicio')\n            record.status = \"error\"\n            record.finished_at = datetime.now(timezone.utc)\n            record.elapsed_seconds = (record.finished_at - started).total_seconds()\n            record.error_message = msg\n            session.phase = previous_phase\n            session.error_message = msg\n",
+  "nuevo": "            pass\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-9 una fase fallida no apunta lo que duró",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        except Exception as e:\n            record.status = \"error\"\n            record.finished_at = datetime.now(timezone.utc)\n            record.elapsed_seconds = (record.finished_at - started).total_seconds()\n            record.error_message = str(e)\n",
+  "nuevo": "        except Exception as e:\n            record.status = \"error\"\n            record.finished_at = datetime.now(timezone.utc)\n            record.error_message = str(e)\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-10 el except del veredicto de la hoja vuelve a session.session_id",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        _logger.warning(\"No se pudo rehacer el veredicto de la hoja de %s: %s\",\n                        session.id, e)",
+  "nuevo": "        _logger.warning(\"No se pudo rehacer el veredicto de la hoja de %s: %s\",\n                        session.session_id, e)",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-11 el pre-flight no instala el predicado de cancelación",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        # con su banner rojo (auditoría con Codex del 2026-10-17). Se\n        # instala dentro de la task, así que no sale de ella.\n        _cmv40_pipeline_mod.set_cancel_check(\n            lambda: bool(_cmv40_cancel_flags.get(session.id)))\n",
+  "nuevo": "        # con su banner rojo (auditoría con Codex del 2026-10-17). Se\n        # instala dentro de la task, así que no sale de ella.\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-12 el pre-flight encadena la Fase A tras pulsar Cancelar",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            and session.target_preflight_ok and not cancelado):",
+  "nuevo": "            and session.target_preflight_ok):",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-13 el guardado de arranque del pre-flight vuelve a ir fuera del try",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        try:\n            # El guardado de arranque va DENTRO del try: fuera, un fallo de\n            # escritura (disco lleno) salía con el proyecto apuntado en\n            # `_cmv40_activas` y en `workload` y sin pasar por el `finally`\n            # que los suelta — actividad fantasma hasta reiniciar.\n            await _save_cmv40_session_async(session)\n",
+  "nuevo": "        await _save_cmv40_session_async(session)\n        try:\n",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-14 el guard destructivo solo mira running_phase",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    viva = _cmv40_sesion_viva.get(session.id)\n    nombre = (session.running_phase or _cmv40_activas.get(session.id)",
+  "nuevo": "    return session.running_phase or _cmv40_activas.get(session.id)\n    viva = _cmv40_sesion_viva.get(session.id)\n    nombre = (session.running_phase or _cmv40_activas.get(session.id)",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-15 el guard destructivo no mira el lock de la fase",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if (session.id in _cmv40_phases_in_flight\n            or _get_cmv40_phase_lock(session.id).locked()):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_cmv40_cancelar_y_parar"
+  ]
+ },
+ {
+  "id": "T4/cmv40-16 borrar el .mkv.tmp sin mirar si es de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    otro = _cmv40_otro_dueno_del_tmp(session)\n    if otro is not None:\n        _logger.info(",
+  "nuevo": "    otro = None\n    if otro is not None:\n        _logger.info(",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-17 renombrar mueve el .mkv.tmp de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "viejo.is_file() and viejo != nuevo\n            and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):",
+  "nuevo": "viejo.is_file() and viejo != nuevo):",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-18 renombrar a un nombre que usa otro proyecto vivo",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        if ocupado is not None:\n            raise HTTPException(",
+  "nuevo": "        if False:\n            raise HTTPException(",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-19 la Fase G arranca sobre el .mkv.tmp de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            if fase in _CMV40_FASES_QUE_LO_ESCRIBEN:\n                otro = await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session)",
+  "nuevo": "            if False:\n                otro = await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session)",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-20 el forward-roll adopta el .mkv.tmp de otro proyecto",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "not session.running_phase\n                and await asyncio.to_thread(_cmv40_otro_dueno_del_tmp, session) is None):",
+  "nuevo": "not session.running_phase):",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-21 crear acepta un nombre de salida con ruta",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    default_name = _cmv40_nombre_de_salida(\n        body.output_mkv_name or mkv_name.replace(\".mkv\", \" [CMv4.0].mkv\"))",
+  "nuevo": "    default_name = (\n        body.output_mkv_name or mkv_name.replace(\".mkv\", \" [CMv4.0].mkv\"))",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-22 un JSON con un nombre de salida con ruta se carga tal cual",
+  "fichero": "app/models.py",
+  "viejo": "            if plano != nombre:\n                avisa(f\"output_mkv_name con ruta",
+  "nuevo": "            if False:\n                avisa(f\"output_mkv_name con ruta",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-23 artifacts_dir llega a rmtree sin validar",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if rel is None or rel.parts != (session.id,):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-24 la limpieza masiva no mira la cola",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        en_cola = _cmv40_posicion_en_cola(session.id)\n        if en_vuelo or en_cola:",
+  "nuevo": "        en_cola = None\n        if en_vuelo or en_cola:",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-25 una limpieza que falla archiva igual",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "                _logger.warning(\"No se pudo borrar el workdir %s: %s\", wd, e)\n                raise _Cmv40NoSeLimpia(tr('cmv40.no_se_pudo_borrar_el_workdir',\n                                          error=str(e)))\n",
+  "nuevo": "                _logger.warning(\"No se pudo borrar el workdir %s: %s\", wd, e)\n",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-26 dos creaciones en el mismo segundo comparten id",
+  "fichero": "app/storage.py",
+  "viejo": "    while _cmv40_session_path(sid).exists():\n        sid, n = f\"{base}_{n}\", n + 1",
+  "nuevo": "    while False:\n        sid, n = f\"{base}_{n}\", n + 1",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-27 un doble clic crea dos proyectos",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if previo is not None and previo.source_mkv_path == mkv_path:\n        return previo.model_dump()",
+  "nuevo": "    if False:\n        return previo.model_dump()",
+  "modulos": [
+   "test_cmv40_cada_proyecto_lo_suyo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-28 Cambiar target conserva la decisión y el análisis del bin viejo",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        for campo in _CMV40_CAMPOS_DEL_TARGET:\n            setattr(session, campo, CMv40Session.model_fields[campo]\n                    .get_default(call_default_factory=True))",
+  "nuevo": "        pass",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-29 Cambiar target conserva el tier del bin viejo en el nombre",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        _cmv40_apply_quality_label_to_output_name(session, \"CMv4.0\")",
+  "nuevo": "        pass",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-30 restaurar el sync borra sin haber leído el original",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    if frames <= 0:\n        raise HTTPException(status_code=500, detail=tr(\n            'cmv40.no_se_pudo_leer_el_target_original',",
+  "nuevo": "    if False:\n        raise HTTPException(status_code=500, detail=tr(\n            'cmv40.no_se_pudo_leer_el_target_original',",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-31 restaurar el sync deja el gráfico de la corrección",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    for nombre in (\"RPU_synced.bin\", \"RPU_synced.tmp.bin\", \"editor_config.json\",\n                   \"per_frame_data.json\"):",
+  "nuevo": "    for nombre in (\"RPU_synced.bin\", \"RPU_synced.tmp.bin\", \"editor_config.json\"):",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-32 rebobinar bajo la corrección deja su gráfico",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            (wd / \"per_frame_data.json\").unlink(missing_ok=True)\n        for name in _cmv40_artifacts_to_delete(target_phase):",
+  "nuevo": "            pass\n        for name in _cmv40_artifacts_to_delete(target_phase):",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-33 la caché del gráfico ignora el delta",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            and cache.get(\"sync_delta\") == sync_delta):",
+  "nuevo": "            ):",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-34 el lote del log sale del buffer antes de llegar al fichero",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        with _cmv40_log_io_lock:\n            n = len(buf)\n            if n:\n                append_cmv40_log(session_id, buf[:n])\n                del buf[:n]",
+  "nuevo": "        with _cmv40_log_io_lock:\n            n = len(buf)\n            lote = buf[:n]\n            del buf[:n]\n        if n:\n            append_cmv40_log(session_id, lote)",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-35 una línea seguida de silencio se queda en RAM",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "            _cmv40_log_programar_volcado(session_id)\n            return",
+  "nuevo": "            return",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-36 el relato se compone con la clasificación guardada",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        session.model_copy(update=l8_hoy) if l8_hoy else session,",
+  "nuevo": "        session,",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-37 una línea cortada del historial se traga la siguiente",
+  "fichero": "app/historial.py",
+  "viejo": "        previo = \"\" if _acaba_en_salto(f) else \"\\n\"",
+  "nuevo": "        previo = \"\"",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-38 las Fase B rápidas se registran como diferidas",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "                           workload.CLASE_DIFERIDO\n                           if phase_name in _CMV40_FASES_DIFERIDAS\n                           else workload.CLASE_INTERACTIVO)",
+  "nuevo": "                           workload.CLASE_DIFERIDO)",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-39 el porcentaje del job con su propia regla de drop-in",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "    pesos = (_CMV40_PHASE_WEIGHTS_DROPIN if va_por_drop_in(session)\n             else _CMV40_PHASE_WEIGHTS_MERGE)",
+  "nuevo": "    pesos = (_CMV40_PHASE_WEIGHTS_DROPIN if (session.target_type == \"trusted_p7_fel_final\" and session.target_trust_ok)\n             else _CMV40_PHASE_WEIGHTS_MERGE)",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-40 el modelo de ETA ignora lo que el job hizo",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "        if hecho in (\"restore_dropin\", \"restore_merge\"):",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-41 el pre-flight no vuelca su log al terminar",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "                # fichero ya, no cuando llegue la siguiente línea del log.\n                await _cmv40_log_volcar(session.id, forzar=True)\n",
+  "nuevo": "                # fichero ya, no cuando llegue la siguiente línea del log.\n",
+  "modulos": [
+   "test_cmv40_estado_coherente"
+  ]
+ },
+ {
+  "id": "T4/cmv40-42 el pre-flight desde otro MKV por el pipe conserva la corrección del bin anterior",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        # 2026-10-17).\n        _descartar_correccion_de_otro_target(session, wd)\n        # Aquí el HEVC no interesa",
+  "nuevo": "        # 2026-10-17).\n        # Aquí el HEVC no interesa",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-43 la Fase A no mide la cadencia",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if fps:\n        session.source_fps = fps",
+  "nuevo": "    if False:\n        session.source_fps = fps",
+  "modulos": [
+   "test_cmv40_fase_a"
+  ]
+ },
+ {
+  "id": "T4/cmv40-44 el desfase negativo solo se detecta hasta -100",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        base = max(0, -offset)\n        for i in range(base, base + compare_len):",
+  "nuevo": "        base = 0\n        for i in range(base, base + compare_len):",
+  "modulos": [
+   "test_cmv40_sync_offset"
+  ]
+ },
+ {
+  "id": "T4/cmv40-45 la Fase F inyecta un Profile 7 en una salida single-layer",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if inject.needs_profile8 and info_a_inyectar.profile not in (None, 8):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_cmv40_fase_f_matriz"
+  ]
+ },
+ {
+  "id": "T4/cmv40-46 la Fase H valida un HEVC viejo de otra ruta",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        pre_mux_hevc = (del_plan if del_plan.exists()",
+  "nuevo": "        pre_mux_hevc = (del_plan if False",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T4/cmv40-47 el pre-flight rechaza un .BIN en mayúsculas",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    # `Peli.BIN` salía en la lista y el pre-flight y la Fase B lo rechazaban.\n    if not src.is_file() or src.suffix.lower() != \".bin\":",
+  "nuevo": "    # `Peli.BIN` salía en la lista y el pre-flight y la Fase B lo rechazaban.\n    if not src.is_file() or src.suffix != \".bin\":",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-48 la Fase B rechaza un .BIN en mayúsculas",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))\n    if not src.is_file() or src.suffix.lower() != \".bin\":",
+  "nuevo": "        raise RuntimeError(tr('cmv40_pipeline.rpu_no_encontrado', rpu_path=rpu_path))\n    if not src.is_file() or src.suffix != \".bin\":",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "T4/cmv40-49 el porcentaje de frames significativos cuenta bloques",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "    _fijar_frames_significativos(analysis, frames_significativos, frames_with_l8)",
+  "nuevo": "    _fijar_frames_significativos(analysis, frames_significativos, {(r.get(\"frame\"), r.get(\"target_display_index\")) for r in l8 if isinstance(r, dict)})",
+  "modulos": [
+   "test_rpu_analyze"
+  ]
+ },
+ {
+  "id": "T4/cmv40-50 la Fase H publica con un rename que pisa el destino",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        os.link(origen, destino)\n    except FileExistsError:",
+  "nuevo": "        os.rename(origen, destino); return True\n    except FileExistsError:",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T4/cmv40-51 la copia entre filesystems sigue tras cancelar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            # lo que llevaba copiado.\n            parar.set()\n            raise",
+  "nuevo": "            # lo que llevaba copiado.\n            raise",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T4/cmv40-52 la corrección de sync con un timeout fijo de 120 s",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    ], log_callback=log_callback, timeout=1500)\n    if rc != 0:\n        salida_tmp.unlink(missing_ok=True)",
+  "nuevo": "    ], log_callback=log_callback, timeout=120)\n    if rc != 0:\n        salida_tmp.unlink(missing_ok=True)",
+  "modulos": [
+   "test_pipeline_timeouts"
+  ]
+ },
+ {
+  "id": "T4/cmv40-53 analyze_rpu_combos con 60 s por defecto",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "    export_timeout: int = 1500,",
+  "nuevo": "    export_timeout: int = 60,",
+  "modulos": [
+   "test_pipeline_timeouts"
+  ]
+ },
+ {
+  "id": "T4/cmv40-54 un origen sin bloques L5 se toma por un fallo de lectura",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    if src is None or tgt is None or total <= 0:",
+  "nuevo": "    if not src or not tgt or total <= 0:",
+  "modulos": [
+   "test_cmv40_gate_l5"
+  ]
+ },
+ {
+  "id": "T4/cmv40-55 la Fase B desde Drive vuelve a llevar la marca de la petición",
+  "fichero": "app/routers/cmv40.py",
+  "viejo": "@router.post(\"/api/cmv40/{session_id}/target-rpu-from-drive\",\n          summary=\"Fase B3: RPU target descargado del repositorio REC_9999 en Drive\")",
+  "nuevo": "@router.post(\"/api/cmv40/{session_id}/target-rpu-from-drive\",\n          summary=\"Fase B3: RPU target descargado del repositorio REC_9999 en Drive\",\n          dependencies=[Depends(workload.marca(\n              lambda: tr('cmv40.wl_descarga_del_rpu'),\n              workload.TAB_CMV40))])",
+  "modulos": [
+   "test_clasificacion_del_trabajo"
   ]
  }
 ]

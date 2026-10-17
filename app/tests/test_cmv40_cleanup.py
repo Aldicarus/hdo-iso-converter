@@ -37,8 +37,15 @@ def setUpModule():
 class TestCleanupWorkdir(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.wd = Path(self._tmp.name) / "cmv40_peli_2025_1"
+        # El workdir es `{CMV40_WORK_BASE}/{id}`, como lo crea la app: la
+        # limpieza no borra un `artifacts_dir` que no sea el del proyecto.
+        self.wd = Path(self._tmp.name) / "sX"
         self.wd.mkdir(parents=True)
+        from phases import cmv40_pipeline as _pipeline
+        self._orig_base = _pipeline.CMV40_WORK_BASE
+        self._orig_out = _pipeline.OUTPUT_DIR
+        _pipeline.CMV40_WORK_BASE = Path(self._tmp.name)
+        _pipeline.OUTPUT_DIR = Path(self._tmp.name) / "output"
         self.saved = {}
         self._orig_load = cmv40_routes.load_cmv40_session
         self._orig_save = cmv40_routes.save_cmv40_session
@@ -58,6 +65,9 @@ class TestCleanupWorkdir(unittest.IsolatedAsyncioTestCase):
         self.saved["sX"] = s
 
     def tearDown(self):
+        from phases import cmv40_pipeline as _pipeline
+        _pipeline.CMV40_WORK_BASE = self._orig_base
+        _pipeline.OUTPUT_DIR = self._orig_out
         cmv40_routes.load_cmv40_session = self._orig_load
         cmv40_routes.save_cmv40_session = self._orig_save
         cmv40_routes._cmv40_log = self._orig_log

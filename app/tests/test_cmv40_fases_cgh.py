@@ -436,6 +436,20 @@ class TestFaseHValidacion(CmvPhaseCase):
         self.assertIn("DV_dual.hevc", " ".join(extract.argv))
         self.assertEqual(result["cm_version"], "v4.0")
 
+    async def test_un_hevc_viejo_de_otra_ruta_no_gana_al_del_plan(self):
+        """Un `source_injected.hevc` de un drop-in anterior y el `DV_dual.hevc`
+        del merge rehecho: la H valida el que la G multiplexó esta vez
+        (auditoría con Codex del 2026-10-17)."""
+        session = self.prepare(trust_ok=False,
+                               artifacts=("BL.hevc", "DV_dual.hevc",
+                                          "source_injected.hevc"),
+                               injected_props=INJ_FEL_V40)
+        self.stage_output(session)
+        await self.run_h(session)
+        [extract] = self.extract_rpu_completos()
+        self.assertIn("DV_dual.hevc", " ".join(extract.argv),
+                      "validó el RPU de otro stream")
+
     async def test_rama_merge_reutiliza_el_rpu_que_adelanto_fase_g(self):
         session = self.prepare(trust_ok=False,
                                artifacts=("BL.hevc", "DV_dual.hevc"),

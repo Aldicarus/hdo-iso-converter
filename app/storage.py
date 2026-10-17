@@ -803,8 +803,23 @@ def make_cmv40_session_id(source_mkv_path: str) -> str:
     """
     Genera un ID para una sesión CMv4.0 a partir del MKV origen.
 
-    Formato: 'cmv40_{titulo}_{año}_{timestamp_unix}'.
+    Formato: 'cmv40_{titulo}_{año}_{timestamp_unix}', con `_2`, `_3`… si ya
+    hay una sesión con ese id.
     """
+    base = cmv40_session_id_base(source_mkv_path)
+    # El id es el nombre del JSON y del workdir: dos creaciones en el mismo
+    # segundo con el mismo título y año —«Peli (2024) [Edición A]» y
+    # «[Edición B]»— daban el MISMO id y la segunda sobrescribía la primera
+    # (auditoría con Codex del 2026-10-17). El endpoint guarda sin un `await`
+    # de por medio, así que comprobar aquí basta dentro del bucle de eventos.
+    sid, n = base, 2
+    while _cmv40_session_path(sid).exists():
+        sid, n = f"{base}_{n}", n + 1
+    return sid
+
+
+def cmv40_session_id_base(source_mkv_path: str) -> str:
+    """El id SIN desambiguar: 'cmv40_{titulo}_{año}_{timestamp_unix}'."""
     stem = Path(source_mkv_path).stem
     m = re.match(r"^(.+?)\s*\((\d{4})\)", stem)
     if m:

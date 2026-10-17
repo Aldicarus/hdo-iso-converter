@@ -81,6 +81,25 @@ class TestLogoDeEstudio(unittest.TestCase):
         self.assertEqual(r["offset"], 0, r)
 
 
+class TestElRangoEsSimetrico(unittest.TestCase):
+    """`max_offset=200` promete ±200. Con la ventana anclada al frame 0 del
+    origen, un desfase negativo de más de 100 no reunía el solape mínimo y
+    no podía ganar nunca (auditoría con Codex del 2026-10-17). El contenido
+    arranca brillante para que el recorte de origen común no intervenga."""
+
+    def test_al_origen_le_sobran_150(self):
+        contenido = _curva(N, seed=11)
+        src = _curva(150, seed=900) + contenido     # 150 frames de más, con brillo
+        tgt = contenido
+        self.assertEqual(detect_sync_offset(_pfd(src, tgt))["offset"], -150)
+
+    def test_al_target_le_sobran_150(self):
+        contenido = _curva(N, seed=11)
+        src = contenido
+        tgt = _curva(150, seed=900) + contenido
+        self.assertEqual(detect_sync_offset(_pfd(src, tgt))["offset"], 150)
+
+
 class TestRobustez(unittest.TestCase):
 
     def test_un_offset_extremo_no_gana_con_una_sola_muestra(self):
