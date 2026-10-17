@@ -318,6 +318,35 @@ class TestElMotorDelNavegador(unittest.TestCase):
         self.assertIn('"idioma":"en"', r["post"]["body"])
         self.assertTrue(r["recargado"])
 
+    def test_si_el_servidor_no_guarda_el_idioma_no_se_recarga(self):
+        """Auditoría con Codex del 2026-10-17 (F27). Se recargaba siempre: un
+        500 pasaba porque no se miraba `resp.ok`, y la página volvía en el
+        idioma de antes —lo siembra el servidor— sin decir por qué."""
+        r = self.corre("""
+          globalThis.fetch = async () => ({ok: false, status: 500});
+          cambiarIdioma('en').then(v => {
+            console.log(JSON.stringify({v, recargado: !!globalThis.__recargado,
+                                        local: localStorage.getItem('hdo_idioma')}));
+          });
+        """)
+        self.assertFalse(r["recargado"])
+        self.assertIs(r["v"], False)
+        self.assertIsNone(r["local"], "localStorage no puede decir otra cosa que el servidor")
+
+    def test_un_idioma_que_ofrece_el_servidor_se_puede_elegir(self):
+        """F26: ⚙︎ pintaba el botón de un idioma del servidor y
+        `cambiarIdioma` lo rechazaba en silencio por no estar en `IDIOMAS`."""
+        r = self.corre("""
+          let post = null;
+          globalThis.fetch = async (u, o) => { post = o && o.body; return {ok: true}; };
+          fijarIdiomasDisponibles(['es', 'en', 'ca', 'fr']);
+          cambiarIdioma('fr').then(() => {
+            console.log(JSON.stringify({post, recargado: !!globalThis.__recargado}));
+          });
+        """)
+        self.assertIn('"idioma":"fr"', r["post"] or "")
+        self.assertTrue(r["recargado"])
+
     def test_la_siembra_del_servidor_gana_a_localstorage(self):
         """El bug que destapó la detección de idioma, y era anterior a ella.
 

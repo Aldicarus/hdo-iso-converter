@@ -1677,23 +1677,23 @@ function _pararVigilancia() {
  * Al ocultarse la pestaña: si había algo corriendo, vigilar hasta que acabe.
  * Si no había nada, no se pollea — la foto vacía evita el tráfico inútil.
  */
-// Cada vez que la pestaña cambia de visibilidad. La foto que se toma al
-// ocultarse vuelve de la red DESPUÉS, y para entonces la pestaña puede estar
-// otra vez a la vista, o haberse ocultado una segunda vez con otra foto en
-// vuelo: las dos instalaban su intervalo, la segunda pisaba el id de la
+// Cada cambio de visibilidad lleva su turno (`_instalarVigilanciaDeFin.turno`,
+// en la función para que viaje con ella a los arneses). La foto que se toma
+// al ocultarse vuelve de la red DESPUÉS, y para entonces la pestaña puede
+// estar otra vez a la vista, o haberse ocultado una segunda vez con otra foto
+// en vuelo: las dos instalaban su intervalo, la segunda pisaba el id de la
 // primera y al volver solo se cancelaba uno — el otro seguía preguntando
 // para siempre (auditoría con Codex del 2026-10-17).
-let _avisoVisibilidad = 0;
-
 async function _instalarVigilanciaDeFin() {
+  const f = _instalarVigilanciaDeFin;
   document.addEventListener('visibilitychange', async () => {
-    const turno = ++_avisoVisibilidad;
+    const turno = f.turno = (f.turno || 0) + 1;
     if (!document.hidden) { _pararParpadeo(); _pararVigilancia(); return; }
     if (!avisoFinActivado() || _avisoTimer) return;
     try {
       const foto = await _leerTrabajosActivos();
       // Lo que pasó mientras volvía la foto manda sobre ella.
-      if (turno !== _avisoVisibilidad || !document.hidden || _avisoTimer) return;
+      if (turno !== f.turno || !document.hidden || _avisoTimer) return;
       if (!foto || ![1, 2, 3].some(t => foto[t])) return;   // nada que vigilar
       _avisoTrabajosPrevios = foto;
       _avisoTimer = setInterval(_avisoTick, _AVISO_INTERVALO_MS);

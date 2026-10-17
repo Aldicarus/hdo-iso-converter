@@ -37,6 +37,7 @@ FUNCIONES = (
     "setAvisoSonidoActivado", "avisoNotificacionDisponible", "_pitido",
     "_pararParpadeo", "_arrancarParpadeo", "avisarFinDeTrabajo",
     "_leerTrabajosActivos", "_avisoTick", "_pararVigilancia",
+    "_instalarVigilanciaDeFin",
 )
 CONSTANTES = (
     "const _AVISO_INTERVALO_MS", "const _AVISO_PREF", "const _AVISO_SONIDO_PREF",
@@ -196,6 +197,50 @@ class TestLaTransicion(AvisoCase):
           process.stdout.write(JSON.stringify(document.title));
         """, respuestas=self.RESP_LIBRE, prefs={"hdo_avisar_fin_trabajo": "0"})
         self.assertEqual(out, "UHD Blu-ray Toolkit")
+
+
+class TestUnFalloDeRedNoEsTerminado(AvisoCase):
+    """Auditoría con Codex del 2026-10-17 (H14/H15).
+
+    `_leerTrabajosActivos` devolvía la foto con Tab 2 y Tab 3 a falso cuando
+    `/api/trabajos` fallaba, y el tick lo leía como que sus trabajos acababan
+    de terminar: avisaba «terminado» con el job corriendo y dejaba de
+    vigilar. CLAUDE.md lo dice desde hace tiempo —un fallo de red NO es «no
+    hay nada»— y aquí no se cumplía.
+    """
+
+    async def test_una_lectura_fallida_ni_avisa_ni_deja_de_vigilar(self):
+        out = self.correr("""
+          _avisoTrabajosPrevios = {1: false, 2: true, 3: true};
+          _avisoTimer = 1;
+          await _avisoTick();
+          process.stdout.write(JSON.stringify({titulo: document.title,
+            timer: _avisoTimer, previos: _avisoTrabajosPrevios}));
+        """, respuestas={})
+        self.assertNotIn("terminado", out["titulo"])
+        self.assertEqual(out["timer"], 1, "dejaba de vigilar por un fallo de red")
+        self.assertEqual(out["previos"], {"1": False, "2": True, "3": True})
+
+    async def test_la_foto_que_vuelve_con_la_pestana_a_la_vista_no_vigila(self):
+        """Ocultar y volver a mostrar con la foto en vuelo instalaba un
+        intervalo que ya nadie cancelaba."""
+        out = self.correr("""
+          let soltar;
+          globalThis.apiFetch = (url) => { __peticiones.push(url);
+            return new Promise(r => { soltar = () => r(__respuestas[url]); }); };
+          document.addEventListener = (ev, fn) => { if (ev === 'visibilitychange') globalThis.__vis = fn; };
+          window.addEventListener = () => {};
+          await _instalarVigilanciaDeFin();
+          document.hidden = true;
+          const foto = __vis();             // se oculta: foto en vuelo
+          document.hidden = false;
+          await __vis();                    // vuelve a la vista
+          soltar();                         // la foto llega ahora
+          await foto;
+          process.stdout.write(JSON.stringify({timers: __timers, timer: _avisoTimer}));
+        """, respuestas=_actividad('cmv40'))
+        self.assertEqual(out["timers"], 0, "quedaba un intervalo vivo con la pestaña a la vista")
+        self.assertIsNone(out["timer"])
 
 
 class TestElTitulo(AvisoCase):
