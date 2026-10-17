@@ -3663,5 +3663,14 @@
   "modulos": [
    "test_clasificacion_del_trabajo"
   ]
+ },
+ {
+  "id": "T4i-1 Downloaded no ofrece la copia",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (filePath.startsWith('/mnt/isos/')) return 'descargados';\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab2_aplicar_cambios"
+  ]
  }
 ]
