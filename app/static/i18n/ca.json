@@ -1917,5 +1917,6 @@
   "settings.repo_no_se_pudo_consultar": "No s'ha pogut consultar el repositori de DoviTools.",
   "ajustes.idioma_no_se_pudo_guardar": "No s'ha pogut desar l'idioma: el servidor no ha respost. L'aplicació continua en l'idioma d'abans.",
   "cmv40_modals.no_se_pudo_escanear_los_proyectos": "No s'han pogut escanejar els projectes: el servidor no ha respost.",
-  "cmv40_modals.configurada": "configurada"
+  "cmv40_modals.configurada": "configurada",
+  "workbar.ya_no_esta_en_curso": "Ja no està en curs"
 }

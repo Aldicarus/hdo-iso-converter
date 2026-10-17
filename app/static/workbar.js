@@ -1669,7 +1669,11 @@ async function _trabajoModalRefrescar() {
   const base = esElMismo ? act : {
     ..._trabajoModalUltimo,
     pct: null, pct_medido: false, eta_s: null, cancelable: enTransito,
-    paso: enTransito ? tr('workbar.cambiando_de_fase') : tr('workbar.terminado'),
+    // Fuera de la cola y sin estar corriendo, el trabajo acabó — pero CÓMO lo
+    // dice el historial, no el armazón. «Terminado» a secas se leía como
+    // éxito también cuando había fallado (auditoría con Codex del
+    // 2026-10-17); sin su línea en el historial, solo consta que ya no corre.
+    paso: enTransito ? tr('workbar.cambiando_de_fase') : _trabajoModalComoAcabo(),
   };
   try {
     const vista = (await fn(base)) || {};
@@ -1702,6 +1706,14 @@ async function _trabajoModalRefrescar() {
   // Se deja de pollear cuando lleva un rato sin sujeto, pero el contenido se
   // queda: cerrarlo es del usuario.
   if (_trabajoModalSinActivo > 20) _trabajoModalParar();
+}
+
+/** Cómo acabó el trabajo que el modal seguía, según el historial. */
+function _trabajoModalComoAcabo() {
+  const id = _trabajoModalUltimo && _trabajoModalUltimo.id;
+  const r = (workbarEstado.recientes || []).find(x => id && x.id === id);
+  return r ? (_CMV40_FIN[r.estado] || tr('workbar.terminado'))
+           : tr('workbar.ya_no_esta_en_curso');
 }
 
 async function _trabajoModalAbrir(a) {

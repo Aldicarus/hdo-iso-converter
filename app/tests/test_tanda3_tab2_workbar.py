@@ -91,6 +91,24 @@ _GUION = r"""
       return {cancelado, tipos: toasts.map(t => t[0]), ruta: p.filePath};
     });
 
+    // F09 — la cancelación aceptada llega tarde: la copia ya había acabado.
+    await caso('cancelarTarde', async () => {
+      limpiar(); cerrarMkvs();
+      const p = abrirMkv('Her.mkv', '/mnt/library/Her.mkv');
+      let pasos = [{active: true, step: 'copying', pct: 99}];
+      responder = (url) => url === '/api/mkv/apply' ? {ok: true, queued: true}
+        : url === '/api/mkv/apply/cancel' ? {ok: true}
+        : url === '/api/mkv/apply/progress' ? pasos[0]
+        : url === '/api/mkv/analyze' ? analisis('Her.mkv', '/mnt/output/Her.mkv') : null;
+      const flujo = _doApplyMkvEdits(true);
+      await espera(1200);
+      const cancelado = await cancelMkvApply();
+      pasos = [{active: true, step: 'done', result: {ok: true, new_file_path: '/mnt/output/Her.mkv',
+                                                     copied_from_library: true}}];
+      await flujo;
+      return {cancelado, tipos: toasts.map(t => t[0]), ruta: p.filePath};
+    });
+
     // F12 — editar mientras se aplica no se pierde.
     await caso('editarDuranteElApply', async () => {
       limpiar(); cerrarMkvs();
@@ -107,6 +125,49 @@ _GUION = r"""
       apply.resolver({ok: true, new_path: '/mnt/output/Dune.mkv'});
       await flujo;
       return {nombre: p.analysis.tracks[0].name, sucio: !!p.dirty};
+    });
+
+    // F12 — elegir en el browser un MKV abierto con cambios pregunta.
+    await caso('reabrirConCambios', async () => {
+      limpiar(); cerrarMkvs();
+      const p = abrirMkv('Dune.mkv', '/mnt/output/Dune.mkv');
+      p.dirty = true;
+      _mkvAbrirDesdeElBrowser('/mnt/output/Dune.mkv', 'Dune.mkv');
+      await espera(20);
+      const r = {pregunta: document.getElementById('confirm-modal').classList.contains('open'),
+                 analizo: llamadas.some(l => l[0] === '/api/mkv/analyze')};
+      closeModal('confirm-modal');
+      closeModal('mkv-analyze-modal');
+      return r;
+    });
+
+    // F34 — sin FPS ni frames medidos, un guion.
+    await caso('radiografiaSinFps', async () => {
+      const a = analisis('X.mkv', '/mnt/output/X.mkv');
+      const video = JSON.parse(JSON.stringify(window.__MKV.tracks.find(t => t.type === 'video')));
+      delete video.fps; delete video.frame_count;
+      delete a.fps;
+      const html = _renderMkvDvRadiography(a, a.dovi, video, null);
+      const caja = document.createElement('div'); caja.innerHTML = html;
+      const valor = (rotulo) => {
+        const c = [...caja.querySelectorAll('.dv-cell')]
+          .find(x => x.querySelector('.dv-cell-label')?.textContent.trim() === rotulo);
+        return c ? c.querySelector('.dv-cell-value').textContent.trim() : null;
+      };
+      return {fps: valor('FPS'), frames: valor('Frames')};
+    });
+
+    // F19 — un trabajo que acabó dice cómo, según el historial.
+    await caso('modalComoAcabo', async () => {
+      _trabajoModalUltimo = {id: 'K'};
+      workbarEstado = {activo: null, cola: [], interactivo: [],
+                       recientes: [{id: 'K', estado: 'error'}]};
+      const conLinea = _trabajoModalComoAcabo();
+      workbarEstado.recientes = [];
+      const sinLinea = _trabajoModalComoAcabo();
+      _trabajoModalUltimo = null;
+      workbarEstado = {activo: null, cola: [], interactivo: [], recientes: []};
+      return {conLinea, sinLinea};
     });
 
     // F13/F14 — el resultado de un análisis cuyo singleton ya es de otro.
@@ -384,10 +445,34 @@ class TestTab2YColumna(unittest.TestCase):
                          "una copia terminada se anunciaba como cancelada")
         self.assertEqual(c["ruta"], "/mnt/output/Heat.mkv")
 
+    def test_F09_una_cancelacion_que_llega_tarde_no_tapa_la_copia_buena(self):
+        """El servidor aceptó el cancel, pero la copia ya había terminado
+        bien: se anunciaba «cancelada, parcial borrado» y la pestaña no pasaba
+        a la copia."""
+        c = self._caso("cancelarTarde")
+        self.assertTrue(c["cancelado"])
+        self.assertEqual(c["tipos"][-1], "success")
+        self.assertEqual(c["ruta"], "/mnt/output/Her.mkv")
+
     def test_F12_lo_editado_durante_el_apply_se_conserva(self):
         c = self._caso("editarDuranteElApply")
         self.assertEqual(c["nombre"], "Segunda edición")
         self.assertTrue(c["sucio"])
+
+    def test_F12_reabrir_un_mkv_con_cambios_pregunta(self):
+        c = self._caso("reabrirConCambios")
+        self.assertTrue(c["pregunta"])
+        self.assertFalse(c["analizo"], "el re-análisis tiraba los cambios sin preguntar")
+
+    def test_F34_sin_fps_ni_frames_medidos_un_guion(self):
+        c = self._caso("radiografiaSinFps")
+        self.assertEqual(c["fps"], "—", "se suponía 23,976")
+        self.assertEqual(c["frames"], "—", "los 720 frames de la muestra como total")
+
+    def test_F19_un_trabajo_acabado_dice_como(self):
+        c = self._caso("modalComoAcabo")
+        self.assertEqual(c["conLinea"], self.cat["workbar.terminado_con_error"])
+        self.assertEqual(c["sinLinea"], self.cat["workbar.ya_no_esta_en_curso"])
 
     def test_F13_el_resultado_se_recoge_aunque_el_singleton_sea_de_otro(self):
         c = self._caso("analisisDeOtroSingleton")

@@ -375,6 +375,34 @@ _GUION = r"""
                                               && copiado.includes('línea 1299'), trasLimpiar};
     });
 
+    // H18 — el rótulo del auto del asistente no toca el modal de series.
+    await caso('rotuloDelAutoEnSuModal', async () => {
+      const series = document.querySelector('#series-modal .modal-auto-toggle span');
+      series.textContent = 'EL DE SERIES';
+      _cmv40NewUpdateAutoLabel(null);
+      return {series: series.textContent,
+              cmv40: document.querySelector('#cmv40-new-modal .modal-auto-toggle span').textContent};
+    });
+
+    // H20 — a medias y parado no es «en cola».
+    await caso('sidebarAMedias', async () => {
+      const estados = {};
+      const orig = window.tarjetaDeProyecto;
+      window.tarjetaDeProyecto = (o) => { estados[o.titulo] = o.estado; return orig(o); };
+      workbarEstado = {activo: null, interactivo: [], recientes: [],
+                       cola: [{id: 'q2', sobre: 'q2', posicion: 1}]};
+      _cmv40SidebarList = [
+        Object.assign(SES(), {id: 'q1', source_mkv_name: 'Parado (2020).mkv', phase: 'extracted',
+                              running_phase: null, error_message: '', archived: false}),
+        Object.assign(SES(), {id: 'q2', source_mkv_name: 'Esperando (2021).mkv', phase: 'extracted',
+                              running_phase: null, error_message: '', archived: false}),
+      ];
+      _renderCMv40Sidebar();
+      window.tarjetaDeProyecto = orig;
+      workbarEstado = {activo: null, cola: [], interactivo: [], recientes: []};
+      return estados;
+    });
+
     out.errores = window.__errores.slice();
     document.getElementById('__out').textContent = JSON.stringify(out);
   }, 700);
@@ -509,6 +537,16 @@ class TestTab3(unittest.TestCase):
     def test_H4_con_la_revision_forzada_se_pide_el_grafico(self):
         self.assertTrue(self._caso("revisionForzadaCargaElGrafico")["pidio"],
                         "la Fase D salía sin gráfico ni controles")
+
+    def test_H18_el_rotulo_del_auto_es_del_asistente(self):
+        c = self._caso("rotuloDelAutoEnSuModal")
+        self.assertEqual(c["series"], "EL DE SERIES", "se cambiaba el del modal de series")
+        self.assertIn("Auto-pipeline", c["cmv40"])
+
+    def test_H20_a_medias_y_parado_no_es_en_cola(self):
+        c = self._caso("sidebarAMedias")
+        self.assertEqual(c["Parado (2020)"], "listo")
+        self.assertEqual(c["Esperando (2021)"], "en_cola")
 
     def test_H21_el_recorte_se_dice_y_copiar_copia_todo(self):
         c = self._caso("logRecortadoYLimpio")

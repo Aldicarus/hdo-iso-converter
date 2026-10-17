@@ -1917,5 +1917,6 @@
   "settings.repo_no_se_pudo_consultar": "The DoviTools repository could not be queried.",
   "ajustes.idioma_no_se_pudo_guardar": "The language could not be saved: the server did not respond. The app stays in the previous language.",
   "cmv40_modals.no_se_pudo_escanear_los_proyectos": "The projects could not be scanned: the server did not respond.",
-  "cmv40_modals.configurada": "configured"
+  "cmv40_modals.configurada": "configured",
+  "workbar.ya_no_esta_en_curso": "No longer running"
 }
