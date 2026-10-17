@@ -32,9 +32,10 @@ FLUJO DE MONTAJE
 DIRECTORIO DE MONTAJE
 ─────────────────────────────────────────────────────────────────────
 
-  Los ISOs se montan en MOUNT_BASE/{iso_stem}_{pid}/ para evitar
-  colisiones si dos procesos montan el mismo ISO simultáneamente
-  (poco probable en cola FIFO, pero seguro por diseño).
+  Los ISOs se montan en MOUNT_BASE/{iso_stem}_{pid}_XXXXXXXX/ (un
+  `mkdtemp`): el pid solo no basta, porque dos análisis a la vez son dos
+  corrutinas del MISMO proceso, y con dos discos que se llaman igual
+  («DISC1.iso» de dos temporadas) compartían el punto de montaje.
 
   MOUNT_BASE por defecto: /mnt/bd (creado en entrypoint.sh).
 """
@@ -44,11 +45,15 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 MOUNT_BASE = Path(os.environ.get("MOUNT_BASE", "/mnt/bd"))
+# Tope de `mount` y `umount`. Montar un UDF es casi instantáneo; esto es
+# para que uno colgado no se quede esperando para siempre.
+MOUNT_TIMEOUT = 120
 
 
 async def mount_iso(iso_path: str) -> str:
@@ -71,17 +76,25 @@ async def mount_iso(iso_path: str) -> str:
     if iso.suffix.lower() != ".iso":
         raise RuntimeError(tr('iso_mount.fichero_no_es_un_iso', iso_path=iso_path))
 
-    # Crear mount point único
-    mount_name = f"{iso.stem}_{os.getpid()}"
-    mount_point = MOUNT_BASE / mount_name
-    mount_point.mkdir(parents=True, exist_ok=True)
+    # Punto de montaje único por LLAMADA (ver «Directorio de montaje»).
+    MOUNT_BASE.mkdir(parents=True, exist_ok=True)
+    mount_point = Path(tempfile.mkdtemp(prefix=f"{iso.stem}_{os.getpid()}_",
+                                        dir=MOUNT_BASE))
 
     cmd = ["mount", "-t", "udf", "-o", "ro,loop", str(iso), str(mount_point)]
     logger.info("[iso_mount] Montando: %s → %s", iso.name, mount_point)
 
-    result = await asyncio.to_thread(
-        subprocess.run, cmd, capture_output=True, text=True
-    )
+    # Con tope: un `mount` colgado dejaba el análisis —o la cola, si era un
+    # rip— esperando para siempre (auditoría con Codex del 2026-10-17).
+    # `subprocess.run` mata al hijo al agotarse.
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, text=True,
+            timeout=MOUNT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        await unmount_iso(str(mount_point))
+        raise RuntimeError(tr('iso_mount.montaje_no_termino', segundos=MOUNT_TIMEOUT))
 
     if result.returncode != 0:
         # Limpiar directorio si mount falló
@@ -121,7 +134,7 @@ async def unmount_iso(mount_point: str) -> None:
         result = await asyncio.to_thread(
             subprocess.run,
             ["umount", str(mp)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=MOUNT_TIMEOUT,
         )
         if result.returncode != 0:
             logger.warning(
@@ -132,7 +145,7 @@ async def unmount_iso(mount_point: str) -> None:
             await asyncio.to_thread(
                 subprocess.run,
                 ["umount", "-l", str(mp)],
-                capture_output=True, text=True,
+                capture_output=True, text=True, timeout=MOUNT_TIMEOUT,
             )
     except Exception as e:
         logger.warning("[iso_mount] Error en unmount: %s", e)

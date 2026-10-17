@@ -45,7 +45,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from models import Chapter, Session
-from phases.phase_a import ISO639_TO_ENGLISH, _find_subordinate_track_ids
+from phases.phase_a import (ISO639_TO_ENGLISH, _find_subordinate_track_ids,
+                            esperar_con_tope)
 from phases.phase_d import (
     MkvmergePlaylistError, _limpiar_parcial, is_playlist_assertion_line,
 )
@@ -53,6 +54,13 @@ from phases.phase_d import (
 MKVMERGE_BIN    = "mkvmerge"
 MKVPROPEDIT_BIN = "mkvpropedit"
 OUTPUT_DIR      = os.environ.get("OUTPUT_DIR", "/mnt/output")
+# Topes de los dos pasos cortos de la fase: un `--identify` sobre el MPLS y un
+# `mkvpropedit`, que solo toca cabeceras. Generosos a propósito —son para que
+# un proceso colgado no deje el rip esperando para siempre, no un presupuesto—
+# y el `--identify` de un MPLS en un montaje UDF con el pool ocupado puede
+# llevar decenas de segundos.
+IDENTIFY_TIMEOUT = 600
+PROPEDIT_TIMEOUT = 600
 # Watchdog: si mkvmerge (con --gui-mode) pasa MKVMERGE_INACTIVITY_S sin emitir
 # NINGUNA línea de progreso, lo matamos — un cuelgue no debe bloquear la cola
 # FIFO indefinidamente (audit #20). Holgado: un remux activo emite cada pocos s.
@@ -387,7 +395,12 @@ async def run_phase_e_propedit(
     )
     if proc_callback:
         proc_callback(proc)
-    _, stderr = await proc.communicate()
+    try:
+        _, stderr = await esperar_con_tope(proc, PROPEDIT_TIMEOUT)
+    except asyncio.TimeoutError:
+        if chapters_xml:
+            Path(chapters_xml).unlink(missing_ok=True)
+        raise RuntimeError(tr('phase_e.mkvpropedit_no_termino', segundos=PROPEDIT_TIMEOUT))
     # 0 = OK · 1 = avisos no fatales · resto = fallo, INCLUIDOS los negativos
     # de un proceso muerto por señal. El `>= 2` que había los daba por buenos
     # —el mismo bug que ya se arregló en mkvmerge— y el intermedio, con los
@@ -467,7 +480,10 @@ async def _identify_tracks(source_path: str, log_callback=None) -> dict:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, _ = await proc.communicate()
+    try:
+        stdout, _ = await esperar_con_tope(proc, IDENTIFY_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise RuntimeError(tr('phase_e.identify_no_termino', segundos=IDENTIFY_TIMEOUT))
     if proc.returncode not in (0, 1):
         if log_callback:
             await log_callback(

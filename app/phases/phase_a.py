@@ -55,6 +55,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -77,9 +78,15 @@ FFMPEG_BIN = "ffmpeg"
 FFPROBE_BIN = "ffprobe"
 DOVI_TOOL_BIN = "dovi_tool"
 IDENTIFY_TIMEOUT = 30      # segundos — mkvmerge -J es rápido
-MEDIAINFO_TIMEOUT = 60     # MediaInfo sobre m2ts grande
-FFMPEG_EL_TIMEOUT = 60     # Extracción 30s del EL
-DOVI_TOOL_TIMEOUT = 30     # RPU extract + analysis
+# Topes de los pasos opcionales del análisis. Son para que un proceso
+# colgado no deje el análisis esperando para siempre, NO un presupuesto: con
+# un rip leyendo del mismo pool, un MediaInfo sobre un m2ts de 90 GB en un
+# montaje UDF puede tardar, y quedarse sin MediaInfo por un tope justo sería
+# peor que esperar.
+MEDIAINFO_TIMEOUT = 600    # MediaInfo sobre m2ts grande (lee cabecera y cola)
+FFMPEG_EL_TIMEOUT = 600    # Extracción de 30 s de la EL
+DOVI_TOOL_TIMEOUT = 300    # extract-rpu / info sobre esa muestra
+FFPROBE_DURACION_TIMEOUT = 30   # duración de un m2ts suelto (100 MB de sondeo)
 TMP_DIR = os.environ.get("TMP_DIR", "/mnt/tmp")
 
 
@@ -552,6 +559,27 @@ async def _run_mkvmerge_j(mpls_path: str) -> dict | None:
     return data
 
 
+async def esperar_con_tope(proc, segundos: float):
+    """`proc.communicate()` con tope, y al agotarse MATA el proceso y lo
+    espera antes de lanzar `asyncio.TimeoutError`.
+
+    Las constantes de tope de MediaInfo, de la muestra de la EL y de
+    dovi_tool estaban definidas y no las usaba nadie, así que un MediaInfo
+    colgado en una lectura del origen dejaba al análisis —y a la creación de
+    una serie, que pasa por la cola— esperando para siempre; y el `ffprobe`
+    que sí tenía tope devolvía 0.0 dejando el proceso vivo (auditoría con
+    Codex del 2026-10-17)."""
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=segundos)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await proc.wait()
+        raise
+
+
 async def _mkvmerge_j(mpls_path: str,
                       timeout: float | None = None) -> tuple[dict | None, bool]:
     """``mkvmerge -J`` con su JSON y si se agotó el tiempo: ``(data, agotado)``.
@@ -668,7 +696,7 @@ async def _ffprobe_duration_seconds(file_path: str) -> float:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        stdout, _stderr = await esperar_con_tope(proc, FFPROBE_DURACION_TIMEOUT)
         if proc.returncode != 0:
             return 0.0
         out = stdout.decode("utf-8", errors="replace").strip()
@@ -2454,7 +2482,11 @@ async def run_mediainfo(file_path: str) -> MediaInfoResult:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await esperar_con_tope(proc, MEDIAINFO_TIMEOUT)
+    except asyncio.TimeoutError:
+        _logger.warning("mediainfo no terminó en %s s sobre %s", MEDIAINFO_TIMEOUT, file_path)
+        return MediaInfoResult(source_path=file_path)
 
     if proc.returncode != 0:
         _logger.warning("mediainfo falló (%d): %s", proc.returncode, stderr.decode()[:200])
@@ -2688,9 +2720,12 @@ async def run_dovi_analysis(m2ts_path: str, el_pid: int | None = None) -> DoviIn
     segundo vídeo: el PID sale del MediaInfo del mismo fichero, y si no está
     ahí, el segundo vídeo tampoco es de fiar.
     """
-    pid = os.getpid()
-    tmp_el = str(Path(TMP_DIR) / f"_el_sample_{pid}.hevc")
-    tmp_rpu = str(Path(TMP_DIR) / f"_rpu_{pid}.bin")
+    # Un nombre por LLAMADA, no por proceso: dos análisis a la vez (dos
+    # pestañas, o un disc-probe mientras la cola analiza una serie) son dos
+    # corrutinas del MISMO proceso y compartían la muestra y el RPU.
+    unico = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
+    tmp_el = str(Path(TMP_DIR) / f"_el_sample_{unico}.hevc")
+    tmp_rpu = str(Path(TMP_DIR) / f"_rpu_{unico}.bin")
     mapa = f"0:i:{el_pid}" if el_pid is not None else "0:v:1"
 
     try:
@@ -2702,7 +2737,7 @@ async def run_dovi_analysis(m2ts_path: str, el_pid: int | None = None) -> DoviIn
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await proc.communicate()
+        _, stderr = await esperar_con_tope(proc, FFMPEG_EL_TIMEOUT)
         if proc.returncode != 0:
             _logger.info("ffmpeg EL extraction falló (sin EL?): %s", stderr.decode()[:200])
             return None
@@ -2717,7 +2752,7 @@ async def run_dovi_analysis(m2ts_path: str, el_pid: int | None = None) -> DoviIn
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await proc.communicate()
+        _, stderr = await esperar_con_tope(proc, DOVI_TOOL_TIMEOUT)
         if proc.returncode != 0:
             _logger.warning("dovi_tool extract-rpu falló: %s", stderr.decode()[:200])
             return None
@@ -2728,7 +2763,7 @@ async def run_dovi_analysis(m2ts_path: str, el_pid: int | None = None) -> DoviIn
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await esperar_con_tope(proc, DOVI_TOOL_TIMEOUT)
         if proc.returncode != 0:
             _logger.warning("dovi_tool info falló: %s", stderr.decode()[:200])
             return None

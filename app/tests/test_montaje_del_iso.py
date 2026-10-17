@@ -46,6 +46,42 @@ class MontajeCase(unittest.IsolatedAsyncioTestCase):
         return list(self.base.glob("*")) if self.base.exists() else []
 
 
+class TestDosMontajesALaVez(MontajeCase):
+    """El punto era `{stem}_{pid}`: dos análisis a la vez son dos corrutinas
+    del MISMO proceso, y dos discos que se llaman igual («DISC1.iso» de dos
+    temporadas) compartían el punto de montaje (auditoría con Codex del
+    2026-10-17)."""
+
+    async def test_dos_isos_con_el_mismo_nombre_no_comparten_punto(self):
+        otro = self.tmp / "isos2" / self.iso.name
+        otro.parent.mkdir()
+        otro.write_bytes(b"\x00" * 4096)
+        self.tb.define_iso(self.iso.name, mpls={"00800.mpls": 4096})
+        a = await self.im.mount_iso(str(self.iso))
+        b = await self.im.mount_iso(str(otro))
+        try:
+            self.assertNotEqual(a, b)
+        finally:
+            await self.im.unmount_iso(a)
+            await self.im.unmount_iso(b)
+
+
+class TestUnMountColgado(MontajeCase):
+
+    async def test_no_espera_para_siempre_y_no_deja_el_punto(self):
+        import time
+        self.tb.define_iso(self.iso.name, mpls={"00800.mpls": 4096})
+        self.tb.retrasar_cuando_arg("mount", "ro,loop", 10)
+        orig = self.im.MOUNT_TIMEOUT
+        self.im.MOUNT_TIMEOUT = 0.5
+        self.addCleanup(setattr, self.im, "MOUNT_TIMEOUT", orig)
+        t0 = time.monotonic()
+        with self.assertRaises(RuntimeError):
+            await self.im.mount_iso(str(self.iso))
+        self.assertLess(time.monotonic() - t0, 5, "ha esperado al mount colgado")
+        self.assertEqual(self.puntos(), [])
+
+
 class TestMontarYDesmontar(MontajeCase):
 
     async def test_monta_en_solo_lectura_y_desmonta_al_salir(self):
