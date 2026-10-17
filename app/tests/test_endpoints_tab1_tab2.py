@@ -95,6 +95,22 @@ class TestSesiones(ApiTestCase):
         self.assertEqual(s.mkv_name, "Otro nombre.mkv")
         self.assertTrue(s.mkv_name_manual)
 
+    def test_el_nombre_del_mkv_no_sale_de_output(self):
+        """`mkv_name` acaba en la escritura, el rename y la limpieza de un
+        parcial: `..` o una ruta absoluta escribían fuera de /mnt/output
+        (auditoría con Codex del 2026-10-17). Los subdirectorios del modo
+        serie siguen valiendo."""
+        sid = self.crear_sesion_tab1()
+        for malo in ("../biblioteca/Peli.mkv", "/mnt/library/Peli.mkv",
+                     "Serie/../../fuera.mkv", "", "   "):
+            with self.subTest(nombre=malo):
+                r = self.client.put(f"/api/sessions/{sid}", json={"mkv_name": malo})
+                self.assertEqual(r.status_code, 400, r.text)
+                self.assertEqual(self.leer_sesion_tab1(sid).mkv_name, "Peli (2024).mkv")
+        r = self.client.put(f"/api/sessions/{sid}",
+                            json={"mkv_name": "Serie (2024)/Season 01/Serie - S01E01.mkv"})
+        self.assertEqual(r.status_code, 200, r.text)
+
     def test_el_put_NO_acepta_has_fel_ni_audio_dcp(self):
         """Eran toggles de la UI y confundían: no cambiaban el contenido del
         MKV, solo los tags del nombre, así que se podía renombrar un disco MEL

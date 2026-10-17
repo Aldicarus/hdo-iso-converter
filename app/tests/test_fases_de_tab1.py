@@ -278,6 +278,17 @@ class TestFaseEDirecta(FaseTestCase):
         self.assertTrue(Path(salida).exists(), salida)
         self.assertTrue((self.salida / "Serie (2024)" / "Season 01").is_dir())
 
+    async def test_un_nombre_que_sale_de_output_no_escribe_nada(self):
+        """Una sesión guardada antes de validar el nombre (o editada a mano)
+        no puede llevar el mux fuera de /mnt/output."""
+        s = self._sesion_completa()
+        s.mkv_name = "../fuera.mkv"
+        with self.assertRaises(RuntimeError):
+            await self._correr(session=s)
+        self.assertFalse([c for c in self.tb.find("mkvmerge") if "--gui-mode" in c.argv],
+                         "ha lanzado el mux")
+        self.assertFalse((self.tmp / "fuera.mkv").exists())
+
     async def test_el_titulo_del_contenedor_sale_del_nombre_sin_extension(self):
         await self._correr()
         self.assertEqual(self.tb.find("mkvmerge", None)[-1].opt("--title"),

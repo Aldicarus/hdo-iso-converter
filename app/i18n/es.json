@@ -801,6 +801,7 @@
   "phase_e.mkv_parcial_eliminado": "🧹 MKV parcial eliminado: {borrado}",
   "phase_e.mkvmerge_no_genero_el_mkv_final": "mkvmerge no generó el MKV final en {output_path}",
   "phase_e.mkvpropedit_fallo_con_codigo": "mkvpropedit falló con código {returncode}: {err_text}",
+  "phase_e.nombre_de_salida_no_valido": "El nombre del MKV «{nombre}» no es válido: tiene que quedar dentro de /mnt/output (sin «..» ni una ruta absoluta)",
   "phase_e.p1_encaja_con_p2_pistas_del_disco": "«{p1}» encaja con {p2} pistas del disco indistinguibles entre sí [{detalle}] — se usa la primera (id {best_id}). El disco no aporta nombre de pista para elegir; suele pasar con los comentarios del director.",
   "rec999_drive.acceso_denegado_403_el_sheet_debe_ser": "Acceso denegado (403). El sheet debe ser público (compartir con 'cualquiera con el enlace').",
   "rec999_drive.acceso_denegado_403_permisos_del_folder_o": "Acceso denegado (403). Permisos del folder o API key restringida. {p1}",

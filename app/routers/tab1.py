@@ -678,7 +678,14 @@ async def update_session(session_id: str, body: SessionUpdateRequest):
         raise HTTPException(status_code=404, detail=tr('tab1.sesion_no_encontrada'))
 
     # has_fel / audio_dcp NO se aceptan: los fija el análisis del disco.
-    if body.mkv_name          is not None: session.mkv_name          = body.mkv_name
+    if body.mkv_name is not None:
+        from phases.phase_e import ruta_de_salida
+        try:
+            ruta_de_salida(body.mkv_name)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=tr(
+                'phase_e.nombre_de_salida_no_valido', nombre=body.mkv_name))
+        session.mkv_name = body.mkv_name
     if body.mkv_name_manual   is not None: session.mkv_name_manual   = body.mkv_name_manual
     if body.included_tracks   is not None: session.included_tracks   = body.included_tracks
     if body.discarded_tracks  is not None: session.discarded_tracks  = body.discarded_tracks

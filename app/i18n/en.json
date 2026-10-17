@@ -801,6 +801,7 @@
   "phase_e.mkv_parcial_eliminado": "🧹 Partial MKV deleted: {borrado}",
   "phase_e.mkvmerge_no_genero_el_mkv_final": "mkvmerge did not produce the final MKV at {output_path}",
   "phase_e.mkvpropedit_fallo_con_codigo": "mkvpropedit failed with exit code {returncode}: {err_text}",
+  "phase_e.nombre_de_salida_no_valido": "The MKV name “{nombre}” is not valid: it has to stay inside /mnt/output (no “..” and no absolute path)",
   "phase_e.p1_encaja_con_p2_pistas_del_disco": "\"{p1}\" matches {p2} tracks on the disc that cannot be told apart [{detalle}] — the first one is used (id {best_id}). The disc gives no track name to choose by; it usually happens with the director's commentary.",
   "rec999_drive.acceso_denegado_403_el_sheet_debe_ser": "Access denied (403). The sheet has to be public (shared with 'anyone with the link').",
   "rec999_drive.acceso_denegado_403_permisos_del_folder_o": "Access denied (403). Folder permissions, or a restricted API key. {p1}",

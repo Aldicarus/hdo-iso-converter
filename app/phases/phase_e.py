@@ -59,6 +59,35 @@ OUTPUT_DIR      = os.environ.get("OUTPUT_DIR", "/mnt/output")
 MKVMERGE_INACTIVITY_S = 900
 
 
+def ruta_de_salida(mkv_name: str) -> Path:
+    """La ruta del MKV final bajo `OUTPUT_DIR`, o `ValueError` si el nombre
+    sale de ahí.
+
+    `mkv_name` es editable por el usuario y puede llevar subdirectorios (el
+    modo serie: `Serie/Season 01/…mkv`), pero no `..` ni una ruta absoluta:
+    `../biblioteca/Peli.mkv` acababa en la escritura, el rename y la limpieza
+    de un parcial fuera de /mnt/output (auditoría con Codex del 2026-10-17).
+    Regla del proyecto: `resolve()` + `relative_to()`."""
+    nombre = (mkv_name or "").strip()
+    rel = Path(nombre)
+    if not nombre or rel.is_absolute() or ".." in rel.parts:
+        raise ValueError(nombre)
+    base = Path(OUTPUT_DIR).resolve()
+    try:
+        (base / rel).resolve().relative_to(base)
+    except (OSError, RuntimeError) as e:
+        raise ValueError(nombre) from e
+    return Path(OUTPUT_DIR) / rel
+
+
+def _salida_de(session: Session) -> str:
+    try:
+        return str(ruta_de_salida(session.mkv_name))
+    except ValueError:
+        raise RuntimeError(tr('phase_e.nombre_de_salida_no_valido',
+                              nombre=session.mkv_name)) from None
+
+
 def _nombre_de_trabajo(output_path: str) -> str:
     """El nombre con el que se escribe el MKV final hasta que está terminado.
 
@@ -165,7 +194,7 @@ async def run_phase_e_direct(
     Returns:
         Ruta absoluta al MKV final en /mnt/output.
     """
-    output_path  = str(Path(OUTPUT_DIR) / session.mkv_name)
+    output_path  = _salida_de(session)
     # session.mkv_name puede contener subdirectorios (modo serie:
     # "Serie/Season 01/Serie - S01E01.mkv"). Creamos el árbol antes de
     # invocar mkvmerge — sin esto, mkvmerge falla si el directorio padre
@@ -312,7 +341,7 @@ async def run_phase_e_propedit(
     Returns:
         Ruta absoluta al MKV final en /mnt/output.
     """
-    output_path  = str(Path(OUTPUT_DIR) / session.mkv_name)
+    output_path  = _salida_de(session)
     track_map    = await _identify_tracks(intermediate_mkv, log_callback)
     chapters_xml = _write_chapters_xml(session.chapters) if session.chapters else None
 
