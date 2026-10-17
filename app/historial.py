@@ -187,12 +187,30 @@ def anotar(*, id: str, tab: str, tipo: str, que: str,
         f = ruta()
         f.parent.mkdir(parents=True, exist_ok=True)
         _rotar_si_toca(f)
+        # Una línea cortada por un `kill -9` no lleva su salto final, y la
+        # nueva se pegaba detrás: las dos acababan en una sola línea ilegible
+        # y el lector, que salta lo que no es JSON, perdía también la nueva
+        # (auditoría con Codex del 2026-10-17). Se cierra la cortada primero.
+        previo = "" if _acaba_en_salto(f) else "\n"
         with f.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(registro, ensure_ascii=False) + "\n")
+            fh.write(previo + json.dumps(registro, ensure_ascii=False) + "\n")
         _tocado()
     except Exception as e:                      # noqa: BLE001
         # Ver el docstring del módulo: una línea perdida no vale un job.
         logger.warning("[historial] no se pudo anotar %s: %s", id, e)
+
+
+def _acaba_en_salto(f: Path) -> bool:
+    """¿El fichero está vacío, no existe o termina en `\\n`?"""
+    try:
+        with f.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            if fh.tell() == 0:
+                return True
+            fh.seek(-1, os.SEEK_END)
+            return fh.read(1) == b"\n"
+    except OSError:
+        return True
 
 
 def _rotar_si_toca(f: Path) -> None:

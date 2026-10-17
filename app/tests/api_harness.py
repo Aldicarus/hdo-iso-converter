@@ -225,6 +225,18 @@ class ApiTestCase(unittest.TestCase):
         from routers import cmv40 as _r_cmv40
         _r_cmv40._cmv40_log_buffer.clear()
         _r_cmv40._cmv40_log_buffer_ts.clear()
+        # Y los volcados diferidos que un bucle cerrado a la fuerza dejara
+        # apuntados: sin esto, esa sesión no volvería a programar ninguno.
+        _r_cmv40._cmv40_log_volcado_programado.clear()
+        # Lo que dice si una fase sigue VIVA en este proceso: la copia viva,
+        # el registro en memoria, el set de fases en vuelo y los locks. Los
+        # guards destructivos lo miran desde el 2026-10-17, y un test que
+        # dejara una sesión marcada (con el id por defecto, que comparten
+        # casi todos) hacía que los siguientes vieran «una fase en curso».
+        _r_cmv40._cmv40_sesion_viva.clear()
+        _r_cmv40._cmv40_activas.clear()
+        _r_cmv40._cmv40_phases_in_flight.clear()
+        _r_cmv40._cmv40_phase_locks.clear()
 
         import queue_manager as _qm
         self.encolados: list[str] = []

@@ -1234,5 +1234,7 @@
   "cmv40.otro_proyecto_usa_ese_nombre": "Another unfinished project already uses \"{nombre}\" as its output MKV: both would share the Phase G remux. Choose another name.",
   "cmv40.otro_proyecto_tiene_el_remux": "The \"{nombre}.tmp\" remux in /mnt/output belongs to another project with the same output MKV ({otro}): it is left untouched. Rename this project's output MKV and relaunch the phase.",
   "cmv40.workdir_fuera_de_sitio": "The project's workdir ({ruta}) is not where the app creates them: nothing is deleted.",
-  "cmv40.no_se_pudo_borrar_el_workdir": "The workdir could not be deleted ({error}). The project is not archived: try again."
+  "cmv40.no_se_pudo_borrar_el_workdir": "The workdir could not be deleted ({error}). The project is not archived: try again.",
+  "cmv40.no_se_pudo_leer_el_target_original": "The original target RPU could not be read ({error}): the correction is kept as it is.",
+  "cmv40_pipeline.sin_profile8_no_se_inyecta": "The output is single-layer and the RPU is still Profile {profile}: it is not injected. Phase H rejects such an MKV, because it would advertise itself as dual-layer without an enhancement layer. Relaunch the phase; if the conversion to Profile 8.1 keeps failing, try another bin."
 }

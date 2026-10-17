@@ -1234,5 +1234,7 @@
   "cmv40.otro_proyecto_usa_ese_nombre": "Otro proyecto sin terminar ya usa «{nombre}» como MKV de salida: los dos compartirían el remux de la Fase G. Elige otro nombre.",
   "cmv40.otro_proyecto_tiene_el_remux": "El remux «{nombre}.tmp» de /mnt/output es de otro proyecto con el mismo MKV de salida ({otro}): no se toca. Renombra el MKV de salida de este proyecto y vuelve a lanzar la fase.",
   "cmv40.workdir_fuera_de_sitio": "El workdir del proyecto ({ruta}) no está donde la app los crea: no se borra nada.",
-  "cmv40.no_se_pudo_borrar_el_workdir": "No se pudo borrar el workdir ({error}). El proyecto no se archiva: vuelve a intentarlo."
+  "cmv40.no_se_pudo_borrar_el_workdir": "No se pudo borrar el workdir ({error}). El proyecto no se archiva: vuelve a intentarlo.",
+  "cmv40.no_se_pudo_leer_el_target_original": "No se pudo leer el RPU target original ({error}): la corrección se conserva tal cual.",
+  "cmv40_pipeline.sin_profile8_no_se_inyecta": "La salida es single-layer y el RPU sigue en Profile {profile}: no se inyecta. La Fase H rechaza un MKV así, porque se anunciaría como dual-layer sin capa de mejora. Vuelve a lanzar la fase; si la conversión a Profile 8.1 sigue fallando, prueba con otro bin."
 }

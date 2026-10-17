@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import shutil as _cmv40_shutil
+import threading
 import time as _time
 import re
 from datetime import datetime, time, timedelta, timezone
@@ -375,10 +376,13 @@ def _cmv40_job_pct(session: CMv40Session, phase_pct: float) -> float | None:
     running = session.running_phase
     if not running or running not in _CMV40_PHASE_RUN_ORDER:
         return None
-    dropin = bool(session.target_type == "trusted_p7_fel_final"
-                  and session.target_trust_ok
-                  and (session.source_workflow or "p7_fel") == "p7_fel")
-    pesos = _CMV40_PHASE_WEIGHTS_DROPIN if dropin else _CMV40_PHASE_WEIGHTS_MERGE
+    # La ruta la dice `cmv40_strategy`, no una tercera copia de la regla: la
+    # que había aquí no miraba `force_interactive`, así que un FEL trusted
+    # con revisión manual —que va por merge— sumaba con los pesos del
+    # drop-in (auditoría con Codex del 2026-10-17).
+    from phases.cmv40_strategy import va_por_drop_in
+    pesos = (_CMV40_PHASE_WEIGHTS_DROPIN if va_por_drop_in(session)
+             else _CMV40_PHASE_WEIGHTS_MERGE)
     total = sum(pesos.values()) or 1.0
     idx = _CMV40_PHASE_RUN_ORDER.index(running)
     # Fases ya pasadas: cuentan enteras solo si de verdad se ejecutaron.
@@ -469,6 +473,16 @@ _cmv40_log_buffer: dict[str, list[str]] = {}
 _cmv40_log_buffer_ts: dict[str, float] = {}
 _CMV40_LOG_FLUSH_S = 1.0
 _CMV40_LOG_FLUSH_LINES = 100
+# Escribir un lote y sacarlo del buffer es UNA operación para quien lee. Se
+# sacaba antes de escribir, así que un GET en ese hueco —el thread todavía
+# escribiendo— no encontraba el lote ni en el buffer ni en el fichero; y si
+# la escritura fallaba, se perdía (auditoría con Codex del 2026-10-17). Es un
+# cerrojo de hilos y no de asyncio porque los dos lados corren en threads.
+_cmv40_log_io_lock = threading.Lock()
+# Sesiones con un volcado diferido ya programado: el segundo de la
+# durabilidad no era un temporizador —solo se miraba al llegar otra línea—,
+# así que una línea seguida de minutos de silencio vivía solo en RAM.
+_cmv40_log_volcado_programado: set[str] = set()
 
 
 def _cmv40_log_completo(session: CMv40Session) -> list[str]:
@@ -480,9 +494,12 @@ def _cmv40_log_completo(session: CMv40Session) -> list[str]:
     concatenación no vale la pena.
     """
     from storage import read_cmv40_log
-    return ((session.output_log or [])
-            + read_cmv40_log(session.id)
-            + list(_cmv40_log_buffer.get(session.id) or []))
+    # Bajo el mismo cerrojo que el volcado: el fichero y el buffer se leen
+    # como UNA foto, sin un lote a medio camino entre los dos.
+    with _cmv40_log_io_lock:
+        return ((session.output_log or [])
+                + read_cmv40_log(session.id)
+                + list(_cmv40_log_buffer.get(session.id) or []))
 
 
 def recortar_log_por_tiempo(lineas: list[str], desde: str, hasta: str) -> list[str]:
@@ -557,12 +574,40 @@ async def _cmv40_log_volcar(session_id: str, forzar: bool = False) -> None:
     if not forzar:
         transcurrido = _t.monotonic() - _cmv40_log_buffer_ts.get(session_id, 0.0)
         if transcurrido < _CMV40_LOG_FLUSH_S and len(buf) < _CMV40_LOG_FLUSH_LINES:
+            _cmv40_log_programar_volcado(session_id)
             return
-    # Se saca el lote ANTES de escribir: si llegan líneas mientras el thread
-    # escribe, van al lote siguiente y no se duplican ni se pierden.
-    lote, _cmv40_log_buffer[session_id] = buf, []
     _cmv40_log_buffer_ts[session_id] = _t.monotonic()
-    await asyncio.to_thread(append_cmv40_log, session_id, lote)
+
+    def _escribir():
+        # Lo que haya en ESE momento, escrito y sacado del buffer bajo el
+        # cerrojo: las líneas que lleguen mientras tanto se añaden al final
+        # de la lista y van al lote siguiente; dos volcados a la vez escriben
+        # lotes disjuntos.
+        with _cmv40_log_io_lock:
+            n = len(buf)
+            if n:
+                append_cmv40_log(session_id, buf[:n])
+                del buf[:n]
+    await asyncio.to_thread(_escribir)
+
+
+def _cmv40_log_programar_volcado(session_id: str) -> None:
+    """Asegura que lo que queda en el buffer llega al fichero en ~1 s aunque
+    no llegue ninguna línea más."""
+    if session_id in _cmv40_log_volcado_programado:
+        return
+    _cmv40_log_volcado_programado.add(session_id)
+
+    async def _luego():
+        try:
+            await asyncio.sleep(_CMV40_LOG_FLUSH_S)
+            await _cmv40_log_volcar(session_id, forzar=True)
+        finally:
+            _cmv40_log_volcado_programado.discard(session_id)
+    try:
+        asyncio.get_running_loop().create_task(_luego())
+    except RuntimeError:            # sin bucle (no debería pasar aquí)
+        _cmv40_log_volcado_programado.discard(session_id)
 
 
 async def _cmv40_log(session: CMv40Session, msg: str) -> None:
@@ -912,8 +957,16 @@ async def _run_cmv40_phase_locked(
         # el 2026-09-04 (Predator Badlands: «⏭ Fase inject ignorada — ya hay
         # otra fase (extract) en curso», y ese inject soltó el hueco).
         # Dentro del lock la ocupación y el trabajo real son lo mismo.
+        #
+        # Con la clase de la FASE: las dos Fase B rápidas (2-3 s) son
+        # interactivas en `CLASE_POR_RUTA` y no pasan por la cola, pero aquí
+        # se registraban con el default diferido y `bloqueado_por` las tomaba
+        # por un bloqueo (auditoría con Codex del 2026-10-17).
         workload.registrar(session.id, workload.TAB_CMV40,
-                           f"{phase_name} de {session.output_mkv_name or session.id}")
+                           f"{phase_name} de {session.output_mkv_name or session.id}",
+                           workload.CLASE_DIFERIDO
+                           if phase_name in _CMV40_FASES_DIFERIDAS
+                           else workload.CLASE_INTERACTIVO)
         # Este save está FUERA del try de la fase, así que una excepción aquí
         # no se registra como fallo de fase: sube hasta el `except: pass` del
         # lanzador y el job muere en silencio con `running_phase` pegado en
@@ -1937,6 +1990,9 @@ async def _cmv40_correr_preflight(
             _cmv40_marcar_libre(session)
             workload.liberar(session.id)
             try:
+                # El veredicto del pre-flight son sus últimas líneas: al
+                # fichero ya, no cuando llegue la siguiente línea del log.
+                await _cmv40_log_volcar(session.id, forzar=True)
                 await _save_cmv40_session_async(session)
             except Exception as e:      # noqa: BLE001 — lo de arriba ya se soltó
                 _logger.warning("No se pudo guardar el cierre del pre-flight "
@@ -2175,12 +2231,24 @@ def _cmv40_build_eta_model() -> dict:
         # rápida: desde que corre dentro del remux, los jobs merge también
         # validan en 2 s, y clasificaba como drop-in jobs que habían hecho
         # un demux de 217 s — contaminando la mediana.
-        es_dropin = (
-            data.get("source_workflow") == "p7_fel"
-            and data.get("target_type") == "trusted_p7_fel_final"
-            and bool(data.get("target_trust_ok"))
-            and data.get("trust_override") != "force_interactive"
-        )
+        #
+        # Y antes que ninguna regla, lo que el job HIZO: `output_workflow` lo
+        # escribe el orquestador al terminar. La regla era una copia más de
+        # la del drop-in, escrita a mano fuera de `cmv40_strategy`.
+        hecho = data.get("output_workflow") or ""
+        if hecho in ("restore_dropin", "restore_merge"):
+            es_dropin = hecho == "restore_dropin"
+        else:
+            from types import SimpleNamespace
+            from phases.cmv40_strategy import va_por_drop_in
+            es_dropin = va_por_drop_in(SimpleNamespace(
+                source_workflow=data.get("source_workflow") or "",
+                target_type=data.get("target_type") or "",
+                target_trust_ok=bool(data.get("target_trust_ok")),
+                trust_override=data.get("trust_override") or "auto",
+                user_acknowledged_degradation=bool(
+                    data.get("user_acknowledged_degradation")),
+                target_trust_gates=data.get("target_trust_gates") or {}))
         ruta = "dropin" if es_dropin else "merge"
         if vistos[ruta] >= _ETA_MODEL_WINDOW:
             continue
@@ -2881,6 +2949,51 @@ _CMV40_FAKE_ARTIFACT_SIZES = {
 }
 
 
+def _cmv40_l8_rederivado(session) -> dict:
+    """La clasificación L8 del bin con el criterio de HOY, desde los números
+    persistidos — `{campo: valor}` para superponer a la sesión, o `{}`.
+
+    La usan el relato y `_cmv40_refrescar_textos_derivados`, en ese orden y
+    con el MISMO resultado: el relato se componía con la clasificación
+    guardada y acto seguido el campo se re-derivaba, así que una sesión
+    antigua servía `target_l8_classification="real"` al lado de un relato que
+    explicaba que el bin no traía trabajo de colorista (auditoría con Codex
+    del 2026-10-17).
+
+    Que falle no puede costar la petición: quedarse con lo persistido es un
+    inconveniente, no ver el proyecto no lo es.
+    """
+    if not session.target_l8_combos:
+        return {}
+    try:
+        from phases.rpu_analyze import (
+            analisis_desde_sesion, classify_l8, classify_l8_quality,
+            delta_l8_de)
+        # El rearmado vive en `rpu_analyze`, pegado al criterio. Estaba
+        # aquí, a mano y con siete campos, y cuando el criterio ganó el
+        # tercer veredicto —que mira `l3_*`— nadie volvió por este
+        # endpoint: el listado servía `tone_mapping` y el panel `default`
+        # para el mismo proyecto, a la vez y sin un error.
+        a = analisis_desde_sesion(session)
+        clas, _motivo = classify_l8(a)
+        # `l8_max_delta` puede faltar en sesiones anteriores al campo;
+        # `delta_l8_de` lo deriva de los combos. Servirlo sin esto daba
+        # «maxΔ 0» al lado de un veredicto «real» — incoherente en la
+        # misma tarjeta.
+        derivados = {"target_l8_classification": clas,
+                     "target_l8_max_delta": delta_l8_de(a)}
+        tier, etiqueta, desc = classify_l8_quality(a)
+        if tier:
+            derivados.update(target_l8_quality_tier=tier,
+                             target_l8_quality_label=etiqueta,
+                             target_l8_quality_description=desc)
+        return derivados
+    except Exception as e:
+        _logger.warning("No se pudo re-derivar la clasificación L8 de %s: %s",
+                        session.id, e)
+        return {}
+
+
 def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     """Rehace en el idioma de AHORA el texto que la sesión trae redactado.
 
@@ -2930,32 +3043,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
     #
     # Solo se toca la clasificación, no las decisiones del usuario
     # (`preflight_decision`, los ACK): esas son suyas.
-    try:
-        if session.target_l8_combos:
-            from phases.rpu_analyze import (
-                analisis_desde_sesion, classify_l8, classify_l8_quality,
-                delta_l8_de)
-            # El rearmado vive en `rpu_analyze`, pegado al criterio. Estaba
-            # aquí, a mano y con siete campos, y cuando el criterio ganó el
-            # tercer veredicto —que mira `l3_*`— nadie volvió por este
-            # endpoint: el listado servía `tone_mapping` y el panel `default`
-            # para el mismo proyecto, a la vez y sin un error.
-            a = analisis_desde_sesion(session)
-            clas, _motivo = classify_l8(a)
-            data["target_l8_classification"] = clas
-            # `l8_max_delta` puede faltar en sesiones anteriores al campo;
-            # `delta_l8_de` lo deriva de los combos. Servirlo sin esto daba
-            # «maxΔ 0» al lado de un veredicto «real» — incoherente en la
-            # misma tarjeta.
-            data["target_l8_max_delta"] = delta_l8_de(a)
-            tier, etiqueta, desc = classify_l8_quality(a)
-            if tier:
-                data["target_l8_quality_tier"] = tier
-                data["target_l8_quality_label"] = etiqueta
-                data["target_l8_quality_description"] = desc
-    except Exception as e:
-        _logger.warning("No se pudo re-derivar la clasificación L8 de %s: %s",
-                        session.id, e)
+    data.update(_cmv40_l8_rederivado(session))
 
     # El L3 del BIN vive en la sesión (`target_l3_*`, lo escribe el
     # pre-flight) y NO en `target_dv_info`, que sale del summary de
@@ -3184,8 +3272,14 @@ async def cmv40_get(session_id: str, include_log: bool = True,
     # «Análisis pendiente» en dos proyectos con estados opuestos y no
     # mencionaba que el usuario había cancelado. Mismo sitio y mismo criterio
     # que `plan`: computado al servir, NO persistido.
+    #
+    # Con la clasificación L8 ya re-derivada: la misma que va a servirse en
+    # `target_l8_classification` — ver `_cmv40_l8_rederivado`.
+    l8_hoy = _cmv40_l8_rederivado(session)
     data["relato"] = relato.resolver(
-        workload.TAB_CMV40, session, en_cola=data.get("cola"), plan=plan)
+        workload.TAB_CMV40,
+        session.model_copy(update=l8_hoy) if l8_hoy else session,
+        en_cola=data.get("cola"), plan=plan)
     # El texto derivado se rehace al servirlo — ver el docstring.
     _cmv40_refrescar_textos_derivados(session, data)
     return data
@@ -3892,6 +3986,24 @@ _CMV40_PHASE_ARTIFACTS: dict[str, list[str]] = {
 }
 
 
+#: Lo que la sesión sabe DEL BIN TARGET: lo midió el pre-flight o la Fase B,
+#: o lo decidió el usuario a la vista de ese bin. «Cambiar target» lo vuelve
+#: a sus valores por defecto. Un campo nuevo que describa el bin va aquí.
+_CMV40_CAMPOS_DEL_TARGET: tuple[str, ...] = (
+    "target_rpu_sha256", "target_trust_gates", "compat_warning",
+    "sync_offset_detected", "l2_comparison",
+    "preflight_user_choice", "preflight_user_choice_at",
+    "target_l2_combos", "target_l2_unique_count", "target_l2_target_pqs",
+    "target_l3_unique_count", "target_l3_frames",
+    "target_l8_max_delta", "target_l8_combos", "target_l8_unique_count",
+    "target_l8_target_indices", "target_l8_neutral_frames_pct",
+    "target_l8_has_mid_contrast", "target_l8_has_clip_trim",
+    "target_l8_classification", "target_l8_quality_tier",
+    "target_l8_quality_label", "target_l8_quality_description",
+    "target_l8_scene_cuts", "target_frames_analyzed",
+)
+
+
 def _cmv40_artifacts_to_delete(target_phase: str) -> list[str]:
     """Lista los artefactos que se borrarán al hacer reset-to target_phase."""
     target_idx = CMV40_PHASES_ORDER.index(target_phase)
@@ -3978,6 +4090,14 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     # Borrar artefactos aguas abajo
     wd = _cmv40_workdir_propio(session)
     if wd and wd.exists():
+        # Rebobinar por debajo de la corrección del sync borra el RPU
+        # corregido, pero `per_frame_data.json` es de la Fase C y se quedaba:
+        # la Fase E lo regenera tras cada corrección, así que el gráfico de
+        # la Fase D seguía describiendo el RPU recién borrado. Sin él,
+        # `sync-data` lo regenera bajo demanda desde el target original.
+        if (_clear_from("sync_corrected")
+                and (session.sync_config or (wd / "RPU_synced.bin").exists())):
+            (wd / "per_frame_data.json").unlink(missing_ok=True)
         for name in _cmv40_artifacts_to_delete(target_phase):
             p = wd / name
             if p.exists() and p.is_file():
@@ -4028,6 +4148,20 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
         session.pending_target_file_id = ""
         session.pending_target_file_name = ""
         session.pending_target_source_mkv_path = ""
+        # Y todo lo que se MIDIÓ o se DECIDIÓ sobre el bin anterior. Quedaban
+        # la respuesta del usuario a la pregunta mantener/inyectar y el
+        # análisis L2/L3/L8: con el bin nuevo pidiendo decidir, el relato
+        # decía «decisión tomada» con la respuesta dada para el viejo y el
+        # proyecto se quedaba sin botones; y el GET re-derivaba la
+        # clasificación con los combos del viejo (auditoría con Codex del
+        # 2026-10-17, reproducido).
+        for campo in _CMV40_CAMPOS_DEL_TARGET:
+            setattr(session, campo, CMv40Session.model_fields[campo]
+                    .get_default(call_default_factory=True))
+        # El `[CMv4 CORE]` del nombre de salida es el tier del bin viejo:
+        # vuelve al genérico hasta que el pre-flight mida el nuevo. Un nombre
+        # que el usuario cambió a mano no lleva el patrón y no se toca.
+        _cmv40_apply_quality_label_to_output_name(session, "CMv4.0")
     if _clear_from("sync_corrected"):
         session.sync_config = None
         # Restaurar target_frame_count / sync_delta al valor del RPU original,
@@ -4620,6 +4754,7 @@ async def cmv40_preflight_source(session_id: str):
                 _cmv40_marcar_libre(session)
                 workload.liberar(session.id)
                 try:
+                    await _cmv40_log_volcar(session.id, forzar=True)
                     await _save_cmv40_session_async(session)
                 except Exception as e:      # noqa: BLE001
                     _logger.warning("No se pudo guardar el cierre del "
@@ -4695,7 +4830,11 @@ def _cmv40_pfd_cargar(session_id: str, pf: Path, sync_delta: int | None) -> dict
     from array import array
     st = pf.stat()
     cache = _PFD_CACHE.get(session_id)
-    if cache and cache["mtime_ns"] == st.st_mtime_ns and cache["size"] == st.st_size:
+    # El `sync_gate` lleva el Δ de la sesión dentro, así que el Δ es parte de
+    # la identidad: con el volcado intacto y el Δ cambiado, la caché servía
+    # el criterio de avance calculado con el Δ de antes.
+    if (cache and cache["mtime_ns"] == st.st_mtime_ns and cache["size"] == st.st_size
+            and cache.get("sync_delta") == sync_delta):
         return cache
 
     import json as _json
@@ -4720,7 +4859,7 @@ def _cmv40_pfd_cargar(session_id: str, pf: Path, sync_delta: int | None) -> dict
     suggested = detect_sync_offset(data)
     confidence = compute_sync_confidence(data)
     cache = {
-        "mtime_ns": st.st_mtime_ns, "size": st.st_size,
+        "mtime_ns": st.st_mtime_ns, "size": st.st_size, "sync_delta": sync_delta,
         "frames": frames, "series": series,
         "source_frames": data.get("source_frames") or 0,
         "target_frames": data.get("target_frames") or 0,
@@ -5004,28 +5143,41 @@ async def cmv40_reset_sync(session_id: str):
         return session.model_dump()
 
     # Prod: re-analizar RPU_target.bin original para obtener su frame count
-    wd = Path(session.artifacts_dir)
+    wd = _cmv40_workdir_propio(session)
+    if wd is None:
+        raise HTTPException(status_code=409, detail=tr(
+            'cmv40.workdir_fuera_de_sitio', ruta=session.artifacts_dir))
     rpu_target = wd / "RPU_target.bin"
     if not rpu_target.exists():
         raise HTTPException(status_code=400, detail=tr('cmv40_pipeline.rpu_target_bin_no_existe'))
 
-    # Borrar RPU_synced.bin + editor_config.json
-    (wd / "RPU_synced.bin").unlink(missing_ok=True)
-    (wd / "RPU_synced.tmp.bin").unlink(missing_ok=True)
-    (wd / "editor_config.json").unlink(missing_ok=True)
-
+    # El análisis del original va ANTES de borrar nada. Iba después: si
+    # `dovi_tool info` fallaba, la corrección ya estaba borrada, el frame
+    # count y el Δ se quedaban los de la corregida y la respuesta decía
+    # «target restaurado» (auditoría con Codex del 2026-10-17).
+    from phases.phase_a import _parse_dovi_summary
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "dovi_tool", "info", "--summary", str(rpu_target),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        from phases.phase_a import _parse_dovi_summary
-        dovi_info = _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
-        session.target_frame_count = dovi_info.frame_count
-        session.sync_delta = dovi_info.frame_count - session.source_frame_count
+        rc, out, err = await _cmv40_pipeline_mod._run(
+            [_cmv40_pipeline_mod.DOVI_TOOL_BIN, "info", "--summary", str(rpu_target)],
+            timeout=300)
+        frames = _parse_dovi_summary(out).frame_count if rc == 0 else 0
     except Exception as e:
         _logger.warning("Re-análisis del RPU target falló: %s", e)
+        frames, err = 0, str(e)
+    if frames <= 0:
+        raise HTTPException(status_code=500, detail=tr(
+            'cmv40.no_se_pudo_leer_el_target_original',
+            error=(err or "").strip()[:200]))
+
+    # Borrar la corrección Y el gráfico que la describe. El gráfico se
+    # quedaba si su regeneración fallaba, así que la Fase D seguía enseñando
+    # la corrección recién borrada; sin él, `sync-data` lo regenera bajo
+    # demanda desde el target original.
+    for nombre in ("RPU_synced.bin", "RPU_synced.tmp.bin", "editor_config.json",
+                   "per_frame_data.json"):
+        (wd / nombre).unlink(missing_ok=True)
+    session.target_frame_count = frames
+    session.sync_delta = frames - session.source_frame_count
 
     session.sync_config = None
     save_cmv40_session(session)
