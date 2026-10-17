@@ -112,8 +112,10 @@ def _check_reordering(session: Session, track_map: dict) -> bool:
     # posiciones eran SIEMPRE [0,1,2,…] monótonas y nunca disparaba — los
     # discos con el audio VO físicamente antes del Castellano caían a la
     # ruta propedit posicional y se etiquetaban cruzados (P0 de la auditoría).
-    audio_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map)
-    sub_map   = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map)
+    audio_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map,
+                                        disco=pistas_del_disco(session, "audio"))
+    sub_map   = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map,
+                                        disco=pistas_del_disco(session, "subtitle"))
     audio_seq = [audio_map[i] for i in range(len(audio_tracks)) if i in audio_map]
     sub_seq   = [sub_map[i]   for i in range(len(sub_tracks))   if i in sub_map]
     return audio_seq != sorted(audio_seq) or sub_seq != sorted(sub_seq)
@@ -563,11 +565,54 @@ def _parse_channels(description: str) -> int:
         return 0
 
 
+def _idioma_del_origen(track_map: dict, sid: int) -> str:
+    src = track_map.get(sid, {})
+    return _ISO639.get(src.get("language", ""), src.get("language", "")).lower()
+
+
+def _puestos_en_el_disco(included_tracks: list, disco: list | None) -> dict[int, int]:
+    """El puesto de cada pista incluida entre las del disco DE SU IDIOMA.
+
+    `disco` es la lista de la Fase A (`bdinfo_result.audio_tracks` o
+    `.subtitle_tracks`), que sale del `mkvmerge -J` del mismo origen y en su
+    orden. Las pistas incluidas y descartadas llevan COPIAS de esos `raw`, así
+    que se reconocen por igualdad: es lo único que distingue dos pistas que el
+    resto de señales da por iguales —la normal y la SDH, las dos completas; la
+    principal y los comentarios, las dos AC-3 5.1—. Dos `raw` idénticos en
+    todo son indistinguibles también aquí, y se toman en orden.
+
+    Devuelve `{índice de la incluida: puesto}`; las que no aparecen en el
+    disco (una sesión sin `bdinfo_result`) no salen.
+    """
+    if not disco:
+        return {}
+    tomadas: set[int] = set()
+    puestos: dict[int, int] = {}
+    for i, track in enumerate(included_tracks):
+        for j, del_disco in enumerate(disco):
+            if j in tomadas or del_disco != track.raw:
+                continue
+            tomadas.add(j)
+            idioma = (del_disco.language or "").lower()
+            puestos[i] = sum(1 for d in disco[:j] if (d.language or "").lower() == idioma)
+            break
+    return puestos
+
+
+def pistas_del_disco(session, tipo: str) -> list | None:
+    """Las pistas de la Fase A de ese tipo, o None en una sesión sin ellas."""
+    bd = getattr(session, "bdinfo_result", None)
+    if bd is None:
+        return None
+    return list(bd.audio_tracks if tipo == "audio" else bd.subtitle_tracks)
+
+
 def _match_tracks_to_source(
     included_tracks: list,
     source_ids: list[int],
     track_map: dict,
     avisos: list[str] | None = None,
+    disco: list | None = None,
 ) -> dict[int, int]:
     """
     Mapea cada pista incluida a su ID en el source por idioma + codec.
@@ -588,6 +633,16 @@ def _match_tracks_to_source(
     típico: los comentarios del director, que son AC-3 5.1 en inglés igual
     que la pista principal.
 
+    ``disco`` (opcional): las pistas de ese tipo tal como las vio la Fase A
+    (ver `_puestos_en_el_disco`). **Va primero**: si la pista incluida está ahí
+    y el origen tiene, de su idioma, exactamente las mismas que vio la Fase A,
+    se toma el id del mismo puesto. Sin eso, dentro de una categoría ganaba el
+    primer id libre, y con dos pistas que ninguna otra señal separa —la normal
+    y la SDH, o la principal y los comentarios— recuperar la segunda entregaba
+    el contenido de la primera con la etiqueta de la segunda. Si el origen no
+    cuadra (el M2TS del reintento, otro disco), el puesto no significa nada y
+    se usan las reglas de siempre.
+
     Returns:
         Diccionario {included_index: source_track_id}.
     """
@@ -598,12 +653,29 @@ def _match_tracks_to_source(
     # adyacentes) y clasificar cada source ID como forzado o completo.
     _sub_forced_ids, _sub_complete_ids = _classify_sub_source_ids(source_ids, track_map)
 
+    puestos = _puestos_en_el_disco(included_tracks, disco)
+    en_el_disco: dict[str, int] = {}
+    for d in disco or []:
+        idioma = (d.language or "").lower()
+        en_el_disco[idioma] = en_el_disco.get(idioma, 0) + 1
+
     for i, track in enumerate(included_tracks):
         raw = track.raw
         lang_inc = raw.language.lower()
         codec_inc = getattr(raw, "codec", "").lower()
 
         best_id = None
+
+        if i in puestos:
+            del_idioma = [sid for sid in source_ids
+                          if _idioma_del_origen(track_map, sid) == lang_inc]
+            if len(del_idioma) == en_el_disco.get(lang_inc, 0):
+                sid = del_idioma[puestos[i]]
+                codec_src = track_map.get(sid, {}).get("codec", "").lower()
+                if sid not in used_ids and (not codec_inc or _codec_matches(codec_inc, codec_src)):
+                    result[i] = sid
+                    used_ids.add(sid)
+                    continue
 
         if not codec_inc:
             # Subtítulo: elegir el source id por la identidad ESTRUCTURAL
@@ -746,13 +818,20 @@ def _codec_matches(included_codec: str, source_codec: str) -> bool:
         ("dts-hd master", "dts-hd master"),
         ("dts", "dts"),
         ("dolby digital", "ac-3"),
+        # La Fase A traduce el `PCM` de mkvmerge a «LPCM Audio»
+        # (`MKVMERGE_CODEC_TO_BDINFO`), y sin este par una pista LPCM incluida
+        # no encontraba su origen y se quedaba fuera del MKV.
+        ("lpcm", "pcm"),
     ]
     # Intentar match por la cadena más específica primero
     for inc_key, src_key in pairs:
         if inc_key in included_codec and src_key in source_codec:
             return True
-    # Fallback: si ambos son el mismo string
-    return included_codec == source_codec
+    # Fallback: el mismo nombre, con o sin el « audio» que la Fase A añade al
+    # traducir (`FLAC` → «FLAC Audio», `AAC` → «AAC Audio»…). Sin quitarlo, lo
+    # que la tabla de la Fase A produce no casaba con lo que mkvmerge reporta.
+    return (included_codec == source_codec
+            or included_codec.removesuffix(" audio") == source_codec)
 
 
 def _propedit_track_edits(
@@ -773,8 +852,10 @@ def _propedit_track_edits(
     sub_tracks    = [t for t in session.included_tracks if t.track_type == "subtitle"]
     mkv_audio_ids = [idx for idx, t in sorted(track_map.items()) if t["type"] == "audio"]
     mkv_sub_ids   = [idx for idx, t in sorted(track_map.items()) if t["type"] == "subtitles"]
-    audio_id_map  = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map, avisos)
-    sub_id_map    = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map)
+    audio_id_map  = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map, avisos,
+                                            disco=pistas_del_disco(session, "audio"))
+    sub_id_map    = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map,
+                                            disco=pistas_del_disco(session, "subtitle"))
 
     edits: list[tuple[int, str, bool, bool]] = []
     for i, track in enumerate(audio_tracks):
@@ -827,8 +908,10 @@ def _build_mkvmerge_cmd(
 
     # Mapeo por contenido: cada pista incluida se busca en el source
     # por coincidencia de idioma + codec (no por posición)
-    audio_id_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map, avisos)
-    sub_id_map   = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map)
+    audio_id_map = _match_tracks_to_source(audio_tracks, mkv_audio_ids, track_map, avisos,
+                                           disco=pistas_del_disco(session, "audio"))
+    sub_id_map   = _match_tracks_to_source(sub_tracks,   mkv_sub_ids,   track_map,
+                                           disco=pistas_del_disco(session, "subtitle"))
 
     # --track-order: vídeos + audio mapeado + subs mapeados
     track_order = [f"0:{vid}" for vid in mkv_video_ids]

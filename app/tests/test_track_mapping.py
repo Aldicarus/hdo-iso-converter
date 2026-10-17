@@ -309,5 +309,144 @@ class TestLanguageMapCoverage(unittest.TestCase):
         self.assertEqual(result[2], 10)
 
 
+
+# ── La posición en el disco: lo que distingue dos pistas «iguales» ────────
+
+def _raw_sub(language, bitrate, packets):
+    return RawSubtitleTrack(language=language, bitrate_kbps=bitrate,
+                            description="", packet_count=packets)
+
+
+def _incluida_sub(raw, label, *, subtitle_type="complete", flag_forced=False):
+    return IncludedSubtitleTrack(
+        position=0, raw=raw, language_literal=label.split()[0],
+        subtitle_type=subtitle_type, label=label, flag_default=False,
+        flag_forced=flag_forced, selection_reason="test")
+
+
+def _raw_audio(language, codec, description, bitrate):
+    return RawAudioTrack(codec=codec, language=language,
+                         bitrate_kbps=bitrate, description=description)
+
+
+def _incluida_audio(raw, label):
+    return IncludedAudioTrack(
+        position=0, raw=raw, language_literal=label.split()[0],
+        codec_literal=label, label=label, flag_default=False,
+        selection_reason="test")
+
+
+class TestLaPosicionEnElDisco(unittest.TestCase):
+    """Dentro de un idioma y una categoría, el matcher cogía el PRIMER id
+    libre. Con dos pistas de la misma categoría —normal y SDH, que son las dos
+    completas— recuperar la SDH y descartar la normal entregaba el contenido
+    normal con la etiqueta SDH. Es The Mandalorian and Grogu: castellano
+    normal 5591, SDH 23022 y forzado 248 paquetes.
+
+    Lo que sí distingue las dos es su POSICIÓN en el disco: la pista incluida
+    lleva el mismo `raw` que la Fase A sacó del `mkvmerge -J` del origen, en su
+    orden. El matcher la busca ahí y toma el id que ocupa el mismo puesto entre
+    las del idioma."""
+
+    # Tres bloques: completos · SDH · forzados (el de The Mandalorian).
+    ES_NORMAL = _raw_sub("Spanish", 30.0, 5591)
+    EN_NORMAL = _raw_sub("English", 30.0, 6100)
+    ES_SDH = _raw_sub("Spanish", 30.0, 23022)
+    EN_SDH = _raw_sub("English", 30.0, 21000)
+    ES_FORZ = _raw_sub("Spanish", 1.0, 248)
+    EN_FORZ = _raw_sub("English", 1.0, 260)
+    DISCO = [EN_NORMAL, ES_NORMAL, EN_SDH, ES_SDH, EN_FORZ, ES_FORZ]
+    TMAP = _track_map(_smap(10, lang="eng"), _smap(11, lang="spa"),
+                      _smap(12, lang="eng"), _smap(13, lang="spa"),
+                      _smap(14, lang="eng"), _smap(15, lang="spa"))
+    IDS = [10, 11, 12, 13, 14, 15]
+
+    def test_la_sdh_recuperada_recibe_la_sdh_y_no_la_normal(self):
+        incluidas = [
+            _incluida_sub(self.ES_FORZ, "Castellano Forzados (PGS)",
+                          subtitle_type="forced", flag_forced=True),
+            _incluida_sub(self.ES_SDH, "Castellano SDH (PGS)"),
+        ]
+        m = _match_tracks_to_source(incluidas, self.IDS, self.TMAP,
+                                    disco=self.DISCO)
+        self.assertEqual(m, {0: 15, 1: 13},
+                         "la SDH ha recibido el contenido de la pista normal")
+
+    def test_las_dos_completas_cada_una_la_suya(self):
+        incluidas = [_incluida_sub(self.ES_SDH, "Castellano SDH (PGS)"),
+                     _incluida_sub(self.ES_NORMAL, "Castellano Completos (PGS)")]
+        m = _match_tracks_to_source(incluidas, self.IDS, self.TMAP,
+                                    disco=self.DISCO)
+        self.assertEqual(m, {0: 13, 1: 11})
+
+    def test_si_el_origen_no_cuadra_con_el_disco_cae_a_la_estructura(self):
+        """El M2TS del reintento, o un disco que mkvmerge ve distinto: si el
+        número de pistas del idioma no coincide con lo que vio la Fase A, el
+        puesto no significa nada y se usa la regla de siempre."""
+        incluidas = [_incluida_sub(self.ES_FORZ, "Castellano Forzados (PGS)",
+                                   subtitle_type="forced")]
+        tmap = _track_map(_smap(10, lang="spa"), _smap(11, lang="eng"),
+                          _smap(12, lang="spa"))
+        m = _match_tracks_to_source(incluidas, [10, 11, 12], tmap,
+                                    disco=self.DISCO)
+        self.assertEqual(m, {0: 12}, "sin el puesto, la estructura de bloques")
+
+    def test_sin_el_disco_se_comporta_como_antes(self):
+        """Sesiones sin `bdinfo_result` (o un llamador que no lo pasa)."""
+        incluidas = [_incluida_sub(self.ES_SDH, "Castellano SDH (PGS)")]
+        m = _match_tracks_to_source(incluidas, self.IDS, self.TMAP)
+        self.assertEqual(m, {0: 11})
+
+    def test_los_comentarios_recuperados_reciben_los_comentarios(self):
+        """El mismo fallo en audio: dos AC-3 5.1 inglesas, la principal y la
+        de comentarios, no se distinguen ni por códec ni por canales, y ganaba
+        el id menor aunque el usuario hubiera elegido la otra."""
+        principal = _raw_audio("English", "Dolby Digital Audio", "5.1 / 48 kHz", 640)
+        comentarios = _raw_audio("English", "Dolby Digital Audio", "5.1 / 48 kHz", 192)
+        castellano = _raw_audio("Spanish", "Dolby Digital Audio", "5.1 / 48 kHz", 640)
+        disco = [principal, castellano, comentarios]
+        tmap = _track_map(_amap(1, codec="AC-3", lang="eng", ch=6),
+                          _amap(2, codec="AC-3", lang="spa", ch=6),
+                          _amap(3, codec="AC-3", lang="eng", ch=6))
+        avisos = []
+        m = _match_tracks_to_source(
+            [_incluida_audio(castellano, "Castellano DD 5.1"),
+             _incluida_audio(comentarios, "Inglés DD 5.1")],
+            [1, 2, 3], tmap, avisos, disco=disco)
+        self.assertEqual(m, {0: 2, 1: 3})
+        self.assertEqual(avisos, [], "con el puesto no hay empate que avisar")
+
+    def test_un_puesto_con_otro_codec_no_se_acepta(self):
+        """El puesto se comprueba contra el códec: si no casa, el disco que se
+        está leyendo no es el que vio la Fase A."""
+        dts = _raw_audio("English", "DTS-HD Master Audio", "5.1 / 48 kHz", 3000)
+        dd = _raw_audio("English", "Dolby Digital Audio", "5.1 / 48 kHz", 640)
+        tmap = _track_map(_amap(1, codec="AC-3", lang="eng", ch=6),
+                          _amap(2, codec="DTS-HD Master Audio", lang="eng", ch=6))
+        m = _match_tracks_to_source([_incluida_audio(dts, "Inglés DTS-HD MA 5.1")],
+                                    [1, 2], tmap, disco=[dts, dd])
+        self.assertEqual(m, {0: 2})
+
+
+class TestElLpcmEncuentraSuOrigen(unittest.TestCase):
+    """La Fase A traduce el `PCM` de mkvmerge a «LPCM Audio» y el emparejado
+    de códecs no tenía ese par: una pista LPCM incluida no encontraba su
+    origen y se quedaba fuera del MKV."""
+
+    def test_lpcm(self):
+        included = [_audio("English", "LPCM Audio", "2.0 / 48 kHz", "Inglés LPCM 2.0")]
+        tmap = _track_map(_amap(1, codec="PCM", lang="eng", ch=2))
+        self.assertEqual(_match_tracks_to_source(included, [1], tmap), {0: 1})
+
+    def test_cada_codec_de_la_tabla_encuentra_el_suyo(self):
+        """Todo códec que la Fase A puede producir tiene que casar con el de
+        mkvmerge del que sale. Es la tabla entera, no una lista aparte."""
+        from phases.phase_a import MKVMERGE_CODEC_TO_BDINFO
+        from phases.phase_e import _codec_matches
+        for mkv, bdinfo in MKVMERGE_CODEC_TO_BDINFO.items():
+            self.assertTrue(_codec_matches(bdinfo.lower(), mkv.lower()),
+                            f"«{bdinfo}» no casa con el «{mkv}» de mkvmerge")
+
+
 if __name__ == "__main__":
     unittest.main()

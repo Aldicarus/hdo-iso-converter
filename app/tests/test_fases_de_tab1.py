@@ -339,6 +339,82 @@ class TestFaseEDirecta(FaseTestCase):
                       [l for l in self.log.lines if l.startswith("Progress: ")])
 
 
+class TestFaseEDirectaPorContenido(FaseTestCase):
+    """Qué pista del origen recibe cada etiqueta, mirado en el argv de mkvmerge.
+
+    Los tests de `test_track_mapping` prueban el emparejado suelto; estos, que
+    la Fase E lo usa de verdad — mapear el audio por posición (el P0 de la
+    auditoría) pasaba en verde con el disco de `TestFaseEDirecta`, donde el
+    orden físico y el deseado coinciden."""
+
+    def _nombres(self):
+        mux = self.tb.find("mkvmerge")[-1]
+        return [a for i, a in enumerate(mux.argv) if mux.argv[i - 1] == "--track-name"]
+
+    async def test_con_la_vo_fisicamente_delante_cada_etiqueta_va_a_su_pista(self):
+        self.tb.define_mkv(self.mpls.name, tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H"},
+            {"type": "audio", "codec": "DTS-HD Master Audio", "language": "eng", "channels": 6},
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa", "channels": 8},
+        ])
+        s = self._sesion(included_tracks=[
+            _audio("Spanish", "Dolby TrueHD/Atmos Audio",
+                   "Castellano TrueHD Atmos 7.1", flag_default=True, ch=8),
+            _audio("English", "DTS-HD Master Audio", "Inglés DTS-HD MA 5.1",
+                   position=1, ch=6),
+        ])
+        await self.e.run_phase_e_direct(s, str(self.mpls), log_callback=self.log)
+        self.assertEqual(self._nombres(), ["2:Castellano TrueHD Atmos 7.1",
+                                           "1:Inglés DTS-HD MA 5.1"])
+        mux = self.tb.find("mkvmerge")[-1]
+        self.assertEqual(mux.opt("--track-order"), "0:0,0:2,0:1")
+
+    async def test_la_sdh_recuperada_sale_con_el_contenido_de_la_sdh(self):
+        """The Mandalorian and Grogu: normal + SDH + forzado por idioma. Con la
+        SDH recuperada y la normal descartada, mkvmerge tiene que recibir la
+        SDH (id 4) — no la normal (id 2), que es la primera completa libre."""
+        from models import BDInfoResult
+        self.tb.define_mkv(self.mpls.name, tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H"},
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa", "channels": 8},
+            {"type": "subtitles", "codec": "HDMV PGS", "language": "spa"},   # 2 normal
+            {"type": "subtitles", "codec": "HDMV PGS", "language": "eng"},   # 3
+            {"type": "subtitles", "codec": "HDMV PGS", "language": "spa"},   # 4 SDH
+            {"type": "subtitles", "codec": "HDMV PGS", "language": "spa"},   # 5 forzado
+        ])
+        normal = RawSubtitleTrack(language="Spanish", bitrate_kbps=30.0,
+                                  description="", packet_count=5591)
+        ingles = RawSubtitleTrack(language="English", bitrate_kbps=30.0,
+                                  description="", packet_count=6000)
+        sdh = RawSubtitleTrack(language="Spanish", bitrate_kbps=30.0,
+                               description="", packet_count=23022)
+        forzado = RawSubtitleTrack(language="Spanish", bitrate_kbps=1.0,
+                                   description="", packet_count=248)
+        audio = _audio("Spanish", "Dolby TrueHD/Atmos Audio",
+                       "Castellano TrueHD Atmos 7.1", flag_default=True, ch=8)
+        s = self._sesion(
+            bdinfo_result=BDInfoResult(
+                video_tracks=[], audio_tracks=[audio.raw],
+                subtitle_tracks=[normal, ingles, sdh, forzado],
+                duration_seconds=7200.0, has_fel=False, vo_language="Spanish"),
+            included_tracks=[
+                audio,
+                IncludedSubtitleTrack(
+                    position=1, raw=forzado, language_literal="Castellano",
+                    subtitle_type="forced", label="Castellano Forzados (PGS)",
+                    flag_default=True, flag_forced=True, selection_reason="test"),
+                IncludedSubtitleTrack(
+                    position=2, raw=sdh, language_literal="Castellano",
+                    subtitle_type="complete", label="Castellano SDH (PGS)",
+                    flag_default=False, flag_forced=False, selection_reason="test"),
+            ])
+        await self.e.run_phase_e_direct(s, str(self.mpls), log_callback=self.log)
+        self.assertIn("4:Castellano SDH (PGS)", self._nombres())
+        self.assertIn("5:Castellano Forzados (PGS)", self._nombres())
+        mux = self.tb.find("mkvmerge")[-1]
+        self.assertEqual(mux.opt("--subtitle-tracks"), "4,5")
+
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  Fase E — la ruta con intermedio: mkvpropedit + entrega

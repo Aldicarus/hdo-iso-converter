@@ -3139,6 +3139,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 
 ### Mapeo de pistas (Phase E)
 - **Por contenido, no por posición**: `_match_tracks_to_source()` busca cada pista incluida en el source por coincidencia de idioma + codec.
+- **Y primero, por su puesto en el disco** (`_puestos_en_el_disco`). La pista incluida lleva una COPIA del `raw` que la Fase A sacó del `mkvmerge -J` del mismo origen, en su orden, así que se reconoce por igualdad en `bdinfo_result.audio_tracks` / `.subtitle_tracks` y se toma el id que ocupa el mismo puesto entre las de su idioma. Es lo único que separa dos pistas que el resto de señales da por iguales: dentro de una categoría el matcher cogía el **primer id libre**, y con la normal y la SDH —las dos completas— recuperar la SDH y descartar la normal entregaba el contenido normal con la etiqueta SDH (The Mandalorian and Grogu: castellano normal 5591, SDH 23022, forzado 248 paquetes). Lo mismo con la AC-3 5.1 principal y la de comentarios. Solo se usa si el origen tiene, de ese idioma, exactamente las pistas que vio la Fase A, y si el códec del puesto casa; si no (el M2TS del reintento, una sesión sin `bdinfo_result`), mandan las reglas de siempre. Cubierto por `test_track_mapping::TestLaPosicionEnElDisco` y `test_fases_de_tab1::TestFaseEDirectaPorContenido`. **El golden de los 41 discos no lo ejercita**: sus fixtures no guardan la lista de pistas de la Fase A, así que va por las reglas de siempre.
 - Audio: compara `raw.language` (inglés) con ISO 639-2 del source + subcadenas de codec.
   - **Desambiguación por canales físicos** (`_parse_channels` + `audio_channels` en track_map):
     cuando 2+ pistas comparten idioma + codec (caso típico: Castellano DD 2.0 + Castellano DD 5.1,
@@ -3163,6 +3164,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
     indistinguibles: `mkvmerge` devuelve `track_name` vacío en todos los orígenes Blu-ray del corpus.
     Ahí gana el ID menor porque no hay con qué elegir, y `_match_tracks_to_source` lo anota en su
     parámetro opcional `avisos`, que las dos rutas de Fase E emiten al log. 26 casos en 10 discos.
+  - **El LPCM no tenía par**: la Fase A traduce el `PCM` de mkvmerge a «LPCM Audio» y `_codec_matches` no los casaba, así que una pista LPCM incluida se quedaba fuera del MKV. Hoy lleva el par `lpcm`↔`pcm` y una regla general —el nombre sin el « audio» final—, y `test_track_mapping::TestElLpcmEncuentraSuOrigen` recorre **toda** `MKVMERGE_CODEC_TO_BDINFO`.
   - **`_codec_matches` es laxo A PROPÓSITO**: los pares se prueban en orden y se cae al genérico, así
     que 'dolby truehd/atmos audio' encaja con 'e-ac-3 atmos' y 'dts-hd master audio' con 'dts'. Para
     hacer daño harían falta dos pistas del mismo idioma en tiers distintos, y sobre las 457 pistas de
