@@ -2130,6 +2130,16 @@ def mkvmerge(sc):
             if t.get("fps"):
                 # mkvmerge expone default_duration en ns por frame.
                 props["default_duration"] = int(round(1e9 / float(t["fps"])))
+            # Las etiquetas de estadísticas que mkvmerge escribe en cada pista
+            # al muxear, con su forma real (`"155506"`, `"01:48:05.896000000"`:
+            # cadenas). Solo si la pista las declara: un MKV que no hizo
+            # mkvmerge no las trae.
+            if t.get("frames") is not None:
+                props["tag_number_of_frames"] = str(int(t["frames"]))
+            if t.get("track_duration_s"):
+                seg = float(t["track_duration_s"])
+                props["tag_duration"] = "%02d:%02d:%012.9f" % (
+                    int(seg // 3600), int(seg % 3600 // 60), seg % 60)
             if t.get("channels"):
                 props["audio_channels"] = t["channels"]
             if t.get("sample_rate"):

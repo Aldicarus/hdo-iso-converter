@@ -35,6 +35,31 @@ from phases.phase_a import nits_de_mediainfo as _nits_de_mediainfo
 _logger = logging.getLogger(__name__)
 
 
+# Topes de dos consultas cortas. Constantes de módulo para que un test pueda
+# comprobar qué pasa al agotarse sin esperar medio minuto.
+_TOPE_DURACION_S = 30
+_TOPE_INFO_FRAME_S = 120
+
+
+async def _comunicar_o_matar(proc, timeout: float):
+    """`communicate()` con tope, y si se agota, el proceso MUERTO y recogido.
+
+    `wait_for` cancela la ESPERA, no el proceso: el ffprobe o el dovi_tool
+    abandonado seguía leyendo el MKV con el análisis ya en otra cosa —y fuera
+    del alcance del botón Cancelar— (auditoría con Codex del 2026-10-17). Es
+    el mismo arreglo que `firma._esperar`. Relanza el `TimeoutError`.
+    """
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await proc.wait()
+        raise
+
+
 async def _probe_duration_seconds(media_path: str) -> float:
     """Duración en segundos vía ffprobe (0.0 si no se puede determinar).
 
@@ -48,7 +73,7 @@ async def _probe_duration_seconds(media_path: str) -> float:
             "-of", "csv=p=0", media_path,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
         )
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        out, _ = await _comunicar_o_matar(proc, _TOPE_DURACION_S)
         return float(out.decode().strip())
     except Exception:
         return 0.0
@@ -203,6 +228,19 @@ def _ficha_de_pista(pista, raw_track: dict, tamano_total: int) -> None:
 
 
 
+def _comprobar_espacio(directorio: str, necesarios: int) -> None:
+    """Lanza si `directorio` no tiene `necesarios` bytes libres."""
+    import shutil
+    try:
+        libres = shutil.disk_usage(directorio).free
+    except FileNotFoundError:
+        return
+    if libres < necesarios:
+        raise RuntimeError(tr(
+            'mkv_analyze.espacio_insuficiente_en_la_extraccion_hevc',
+            workdir_base=directorio, p2=_fmt_bytes(necesarios), free=_fmt_bytes(libres)))
+
+
 def _quality_workdir_base() -> str | None:
     """Base donde van los temporales de auditoría (HEVC ~45 GB, RPU, JSON).
 
@@ -214,7 +252,10 @@ def _quality_workdir_base() -> str | None:
     try:
         Path(TMP_DIR).mkdir(parents=True, exist_ok=True)
         return TMP_DIR
-    except Exception:
+    except Exception as e:
+        # Que se note: en el NAS esto sería un montaje roto, no un Mac.
+        _logger.warning("TMP_DIR %s no se puede usar (%s): los temporales del "
+                        "análisis extendido van al temporal del sistema", TMP_DIR, e)
         return None
 
 
@@ -264,12 +305,19 @@ async def analyze_mkv(
         raise RuntimeError(tr('mkv_analyze.fichero_no_encontrado', mkv_path=mkv_path))
 
     # ── Cache check ──────────────────────────────────────────────────
-    # Triple-fingerprint barato (~20 ms para SHA del primer 1 MB).
-    fingerprint = compute_mkv_fingerprint(mkv_path) if use_cache else None
-    if fingerprint:
+    # Triple-fingerprint barato (~20 ms para SHA del primer 1 MB). Se calcula
+    # SIEMPRE, también sin caché: es la foto del fichero con la que
+    # `persist_mkv_basic_to_cache` comprueba que nadie lo editó mientras se
+    # analizaba.
+    fingerprint = await asyncio.to_thread(compute_mkv_fingerprint, mkv_path)
+    if fingerprint and use_cache:
         cached = read_mkv_cache(fingerprint, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
         if cached and cached.get("basic"):
-            await _emit("cache_hit")
+            # El `cache_hit` se anuncia DESPUÉS de reconstruir el resultado,
+            # no antes: el router lo toma por «no hay nada que guardar», y un
+            # bloque con la versión vigente pero que el modelo ya no acepta
+            # se reanalizaba en cada apertura sin repararse nunca (auditoría
+            # con Codex del 2026-10-17).
             try:
                 # Reconstruir el MkvAnalysisResult desde el JSON cacheado.
                 # mediainfo_raw se excluyó del cache (50-80 KB cada uno) →
@@ -319,6 +367,7 @@ async def analyze_mkv(
                     result.file_path = mkv_path
                     result.file_name = Path(mkv_path).name
                     repoint_mkv_cache(fingerprint, mkv_path)
+                await _emit("cache_hit")
                 return result
             except Exception as e:
                 _logger.warning(
@@ -376,15 +425,17 @@ async def analyze_mkv(
     duration_ns = container.get("duration")
     duration_s = (duration_ns / 1_000_000_000) if duration_ns else 0.0
 
-    # ── Frame count total = duration × fps (solo vídeo) ──────────
-    # mkvmerge no siempre expone NUMBER_OF_FRAMES como propiedad simple;
-    # lo derivamos de duration × fps que es exacto para CFR.
-    if duration_s > 0:
-        for t in tracks:
-            if t.type == "video" and t.fps > 0:
-                t.frame_count = int(round(duration_s * t.fps))
+    # ── Frame count del vídeo ────────────────────────────────────
+    raw_por_id = {t.get("id", 0): t for t in data.get("tracks", [])}
+    for t in tracks:
+        if t.type == "video":
+            t.frame_count = _frames_del_video(
+                (raw_por_id.get(t.id) or {}).get("properties") or {}, duration_s)
 
     # ── FEL: segundo track HEVC a 1080p ──────────────────────────
+    # Es una SOSPECHA, no una medida: un MEL —o un segundo vídeo que no es
+    # capa de mejora— tiene la misma forma. Lo confirma o lo desmiente
+    # dovi_tool más abajo (auditoría con Codex del 2026-10-17).
     hevc_count = 0
     has_fel = False
     for t in tracks:
@@ -393,9 +444,16 @@ async def analyze_mkv(
             if hevc_count > 1 and "1920" in t.pixel_dimensions:
                 has_fel = True
 
+    # Lo que no se pudo MEDIR (un paso que falló), para no cachearlo como si
+    # fuera una ausencia comprobada.
+    lectura_incompleta: list[str] = []
+
     # ── Capítulos ────────────────────────────────────────────────
     # A un thread: `mkvextract` en un `subprocess.run` síncrono.
     chapters = await asyncio.to_thread(_extract_chapters, mkv_path)
+    if chapters is None:
+        lectura_incompleta.append("capitulos")
+        chapters = []
 
     # ── Fichero ──────────────────────────────────────────────────
     p = Path(mkv_path)
@@ -476,6 +534,7 @@ async def analyze_mkv(
                 sub_idx += 1
 
     except Exception as e:
+        lectura_incompleta.append("mediainfo")
         _logger.warning("MediaInfo falló para MKV %s (no bloquea): %s", mkv_path, e)
 
     # ── Packet counts de subtítulos bitmap (ffprobe) ─────────────────
@@ -501,6 +560,7 @@ async def analyze_mkv(
                 if t.id in pkt_counts:
                     t.packet_count = pkt_counts[t.id]
     except Exception as e:
+        lectura_incompleta.append("pgs")
         _logger.warning("ffprobe packet count falló para MKV %s (no bloquea): %s", mkv_path, e)
 
     # ── dovi_tool (opcional — añade profile, FEL/MEL, CM version, L levels) ──
@@ -513,9 +573,18 @@ async def analyze_mkv(
         )
         dovi_info = await _run_dovi_on_mkv(mkv_path, hevc_count_val)
     except Exception as e:
+        lectura_incompleta.append("dovi")
         _logger.warning("dovi_tool falló para MKV %s (no bloquea): %s", mkv_path, e)
 
-    return MkvAnalysisResult(
+    # Con la capa ya MEDIDA, manda la medida: dos HEVC no distinguen FEL de
+    # MEL, y el booleano servido contradecía a `dovi.el_type`. Sin medida
+    # (sniff caído, un MKV sin RPU) se queda la sospecha estructural. Un
+    # perfil single-layer (5, 8) también es medida: ahí no hay capa ninguna.
+    if dovi_info is not None and (dovi_info.el_type in ("FEL", "MEL")
+                                  or dovi_info.profile in (5, 8)):
+        has_fel = dovi_info.el_type == "FEL"
+
+    result = MkvAnalysisResult(
         file_path=mkv_path,
         file_name=p.name,
         file_size_bytes=p.stat().st_size,
@@ -532,6 +601,49 @@ async def analyze_mkv(
         hecho_con_esta_app=firma.lleva_nuestra_firma(data),
         mediainfo_raw=mediainfo_raw,
     )
+    result._huella_inicial = fingerprint
+    result._lectura_incompleta = lectura_incompleta
+    return result
+
+
+def _frames_del_video(props: dict, duracion_contenedor_s: float) -> int:
+    """Los frames de una pista de vídeo, del dato más exacto que haya.
+
+    Primero la etiqueta `NUMBER_OF_FRAMES` que escribe mkvmerge
+    (`tag_number_of_frames`): es un recuento, no un cálculo. Si falta (un MKV
+    que no hizo mkvmerge), duración × fps, con la duración de LA PISTA
+    (`tag_duration`) y el fps SIN redondear de `default_duration`. Antes salía
+    de la duración del CONTENEDOR —que el audio puede alargar— por un fps
+    redondeado a tres decimales: un vídeo de 172.800 frames con 2 s más de
+    audio se anunciaba con 172.848 (auditoría con Codex del 2026-10-17).
+    """
+    for clave, valor in props.items():
+        # Con idioma la etiqueta lleva sufijo (`tag_number_of_frames-eng`).
+        if clave == "tag_number_of_frames" or clave.startswith("tag_number_of_frames-"):
+            try:
+                n = int(str(valor).strip())
+                if n > 0:
+                    return n
+            except ValueError:
+                pass
+    try:
+        ns_por_frame = float(props.get("default_duration") or 0)
+    except (TypeError, ValueError):
+        ns_por_frame = 0.0
+    if ns_por_frame <= 0:
+        return 0
+    duracion = _segundos_de_tag(props.get("tag_duration")) or duracion_contenedor_s
+    if duracion <= 0:
+        return 0
+    return int(round(duracion * 1_000_000_000.0 / ns_por_frame))
+
+
+def _segundos_de_tag(valor) -> float:
+    """`01:48:05.896000000` (la etiqueta DURATION de mkvmerge) → segundos."""
+    m = re.fullmatch(r"\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)\s*", str(valor or ""))
+    if not m:
+        return 0.0
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
 
 def _compute_provenance_hints(
@@ -1011,17 +1123,6 @@ async def analyze_rpu_quality_for_mkv(
     expected_hevc = int(mkv_size * 0.75)
     # Workdir en /mnt/tmp (NO el /tmp del contenedor — ver _quality_workdir_base).
     workdir_base = _quality_workdir_base()
-    # Pre-flight de espacio: un error claro AQUÍ es mucho mejor que un
-    # "ffmpeg falló" críptico a los 4 min de extraer 45 GB.
-    if workdir_base:
-        try:
-            free = shutil.disk_usage(workdir_base).free
-            if free < int(expected_hevc * 1.1):
-                raise RuntimeError(
-                    tr('mkv_analyze.espacio_insuficiente_en_la_extraccion_hevc', workdir_base=workdir_base, p2=_fmt_bytes(int(expected_hevc * 1.1)), free=_fmt_bytes(free))
-                )
-        except FileNotFoundError:
-            pass
     tmpdir = Path(tempfile.mkdtemp(prefix="mkv_quality_audit_", dir=workdir_base))
     hevc_path = tmpdir / "video.hevc"
     rpu_path = tmpdir / "rpu.bin"
@@ -1076,6 +1177,13 @@ async def analyze_rpu_quality_for_mkv(
             _emit("extract_rpu", 80.0, tr('cmv40_pipeline.rpu_extraido'))
 
         if not piped_ok:
+            # Pre-flight de espacio: un error claro AQUÍ es mucho mejor que un
+            # "ffmpeg falló" críptico a los 4 min de extraer 45 GB. Solo en la
+            # reserva, que es la única que escribe el HEVC: el pipe no lo
+            # escribe, y exigirle ~45 GB libres rechazaba análisis que caben
+            # de sobra (auditoría con Codex del 2026-10-17). Y contra el
+            # directorio DE VERDAD, que puede ser el temporal del sistema.
+            _comprobar_espacio(str(tmpdir), int(expected_hevc * 1.1))
             # ── Paso 1: ffmpeg → HEVC annex-B ────────────────────────────
             _check()
             _emit("ffmpeg", 0.0, tr('mkv_analyze.extrayendo_el_hevc_con_ffmpeg'))
@@ -1121,10 +1229,8 @@ async def analyze_rpu_quality_for_mkv(
 
             mon_task = asyncio.create_task(_ff_monitor())
             try:
-                _, stderr_bytes = await asyncio.wait_for(ff_proc.communicate(), timeout=2400)
+                _, stderr_bytes = await _comunicar_o_matar(ff_proc, 2400)
             except asyncio.TimeoutError:
-                try: ff_proc.kill()
-                except Exception: pass
                 raise RuntimeError(tr('mkv_analyze.ffmpeg_excedio_40_min_extrayendo_hevc'))
             finally:
                 stop_mon.set()
@@ -1181,10 +1287,8 @@ async def analyze_rpu_quality_for_mkv(
 
             dt_mon = asyncio.create_task(_dt_progress())
             try:
-                dt_out_bytes, _ = await asyncio.wait_for(dt_proc.communicate(), timeout=1800)
+                dt_out_bytes, _ = await _comunicar_o_matar(dt_proc, 1800)
             except asyncio.TimeoutError:
-                try: dt_proc.kill()
-                except Exception: pass
                 raise RuntimeError(tr('mkv_analyze.dovi_tool_extract_rpu_excedio_30'))
             finally:
                 stop_dt.set()
@@ -1412,9 +1516,22 @@ def persist_mkv_basic_to_cache(mkv_path: str, result: MkvAnalysisResult) -> None
     próximo open simplemente re-analizará.
     """
     from storage import compute_mkv_fingerprint, write_mkv_cache_basic
+    if result._lectura_incompleta:
+        _logger.info("MKV cache NO se escribe para %s: falló %s",
+                     Path(mkv_path).name, ", ".join(result._lectura_incompleta))
+        return
     try:
         fingerprint = compute_mkv_fingerprint(mkv_path)
         if not fingerprint:
+            return
+        # El fichero tiene que ser el mismo que se empezó a analizar —contenido
+        # Y fecha—: un `apply` concurrente lo cambia mientras corren MediaInfo
+        # o dovi_tool, y lo medido se guardaría bajo la huella del editado.
+        inicial = result._huella_inicial
+        if inicial and any(inicial.get(k) != fingerprint.get(k)
+                           for k in ("sha256_1mb", "size_bytes", "mtime_ns")):
+            _logger.info("MKV cache NO se escribe para %s: cambió durante el análisis",
+                         Path(mkv_path).name)
             return
         payload = result.model_dump(exclude={"mediainfo_raw"})
         write_mkv_cache_basic(
@@ -1511,8 +1628,11 @@ async def _run_dovi_on_mkv(mkv_path: str, hevc_count: int) -> DoviInfo | None:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            _logger.warning("dovi_tool info falló: %s", stderr.decode()[:200])
-            return None
+            # Aquí ya HAY un RPU extraído: que `info` falle es no haber podido
+            # medirlo, no que el MKV no tenga Dolby Vision. Se lanza para que
+            # `analyze_mkv` no lo cachee como un MKV sin DV.
+            raise RuntimeError(
+                f"dovi_tool info --summary: rc={proc.returncode} {stderr.decode()[:200]}")
 
         dovi = _parse_dovi_summary(stdout.decode("utf-8", errors="replace"))
         # Guardamos el tamaño del RPU para la radiografia (indicador de
@@ -1642,7 +1762,7 @@ async def _marcar_l254(dovi: DoviInfo, rpu_path: str) -> None:
             proc = await asyncio.create_subprocess_exec(
                 DOVI_TOOL_BIN, "info", "-i", rpu_path, "-f", str(f),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-            out, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+            out, _ = await _comunicar_o_matar(proc, _TOPE_INFO_FRAME_S)
         except (OSError, asyncio.TimeoutError) as e:
             _logger.info("info -f %s falló sobre %s: %s", f, rpu_path, e)
             return
@@ -1668,17 +1788,22 @@ def _pq_code_to_nits_local(code_value: float) -> float:
     return 10000.0 * (num / den) ** (1.0 / m1)
 
 
-def _extract_chapters(mkv_path: str) -> list[Chapter]:
-    """Extrae capítulos del MKV con mkvextract --simple."""
+def _extract_chapters(mkv_path: str) -> list[Chapter] | None:
+    """Extrae capítulos del MKV con mkvextract --simple.
+
+    `[]` es «el MKV no tiene capítulos» (mkvextract sale con 0 y no escribe
+    nada); `None` es «no se pudieron leer». Las dos cosas devolvían `[]`, y un
+    `mkvextract` agotado con el NAS cargado acababa cacheado como un MKV sin
+    capítulos."""
     try:
         result = subprocess.run(
             [MKVEXTRACT_BIN, mkv_path, "chapters", "--simple"],
             capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
-            return []
+            return None
     except Exception:
-        return []
+        return None
 
     chapters = []
     timestamps = {}

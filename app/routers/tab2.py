@@ -502,12 +502,14 @@ async def analyze_mkv_endpoint(body: dict):
     if not mkv_path_obj.exists():
         raise HTTPException(status_code=400, detail=tr('tab2.mkv_no_encontrado', rel_path=rel_path))
 
-    # Force refresh: borra el cache antes de delegar para que analyze_mkv
-    # caiga al pipeline completo.
+    # Force refresh: borra el cache y además se lo dice a `analyze_mkv`
+    # (`use_cache=False`). Con el borrado solo, una invalidación que fallara
+    # —permisos, E/S— dejaba la caché donde estaba y el «reanálisis» la
+    # servía con un 200 (auditoría con Codex del 2026-10-17).
     if force_refresh:
         try:
             from storage import invalidate_mkv_cache_by_path
-            invalidate_mkv_cache_by_path(mkv_full)
+            await asyncio.to_thread(invalidate_mkv_cache_by_path, mkv_full)
             _logger.info("MKV cache invalidado por force_refresh: %s", mkv_path_obj.name)
         except Exception as e:
             _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
@@ -553,6 +555,7 @@ async def analyze_mkv_endpoint(body: dict):
             mkv_full,
             progress_callback=_mkv_progress_callback,
             pgs_progress_callback=_mkv_pgs_progress_callback,
+            use_cache=not force_refresh,
         )
         # Si el cache HIT, el analysis_log devuelto viene del cache antiguo
         # (con sus timestamps originales). NO lo sobrescribimos — preserva
@@ -947,7 +950,7 @@ async def mkv_cache_delete_endpoint(file_path: str = ""):
     # borrado deja su análisis en el cache para siempre, y ésa es justamente la
     # entrada que uno quiere poder quitar de la lista.
     from storage import invalidate_mkv_cache_by_path
-    removed = invalidate_mkv_cache_by_path(mkv_full)
+    removed = await asyncio.to_thread(invalidate_mkv_cache_by_path, mkv_full)
     return {"ok": True, "cache_removed": removed, "file_path": mkv_full}
 
 
@@ -1376,12 +1379,21 @@ def recuperar_apply_interrumpido() -> None:
 
 
 def _mkv_needs_copy_to_output(file_path: str) -> bool:
-    """True si el path cae bajo paths.LIBRARY_DIR — read-only, hay que copiar."""
-    try:
-        Path(file_path).resolve().relative_to(paths.LIBRARY_DIR.resolve())
-        return True
-    except ValueError:
-        return False
+    """True si el path cae bajo un root de SOLO LECTURA — hay que copiar.
+
+    Son dos: la biblioteca y los descargados (`/mnt/isos`). El file browser
+    ofrece los tres sitios para abrir un MKV desde que se unificó, pero solo se
+    contaba la biblioteca, así que «Aplicar cambios» sobre un descargado
+    lanzaba mkvpropedit in situ contra un montaje `ro` (auditoría con Codex
+    del 2026-10-17)."""
+    real = Path(file_path).resolve()
+    for raiz in (paths.LIBRARY_DIR, paths.ISOS_DIR):
+        try:
+            real.relative_to(Path(raiz).resolve())
+            return True
+        except ValueError:
+            continue
+    return False
 
 
 def _mkv_apply_reset(total_bytes: int = 0, src_path: str = "", dst_path: str = "", file_name: str = ""):
@@ -1597,7 +1609,7 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
         # debe quedar invalidado para que el próximo open re-analice.
         try:
             from storage import invalidate_mkv_cache_by_path
-            invalidate_mkv_cache_by_path(str(dst_path))
+            await asyncio.to_thread(invalidate_mkv_cache_by_path, str(dst_path))
         except Exception as e:
             _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
         # Devolvemos el nuevo path para que el frontend actualice el state
@@ -1666,9 +1678,15 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     # ⚠️ DEV MODE — branch que devuelve fixtures sin tocar el filesystem
     if DEV_MODE:
         return build_fake_mkv_apply(body)
-    src_path = Path(body.file_path)
-    if not src_path.exists():
+    # La ruta, resuelta y dentro de un root permitido, como en el resto de
+    # endpoints de Tab 2: llegaba tal cual del body a mkvpropedit, y un
+    # fichero existente fuera de los roots —o un enlace que salía de ellos—
+    # se editaba (auditoría con Codex del 2026-10-17). Y un fichero normal: un
+    # directorio no es un MKV.
+    src_path = _resolve_mkv_path_safe(body.file_path)
+    if not src_path.is_file():
         raise HTTPException(status_code=400, detail=tr('tab2.mkv_no_encontrado_3'))
+    body.file_path = str(src_path)
 
     if _mkv_apply_state.get("active"):
         raise HTTPException(
@@ -1679,10 +1697,12 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
     # Detección de library read-only — exige confirmación explícita del usuario
     needs_copy = _mkv_needs_copy_to_output(body.file_path)
     if needs_copy and not body.copy_to_output:
-        raise HTTPException(
-            status_code=409,
-            detail=tr('tab2.mkv_en_biblioteca_read_only_confirma')
-        )
+        try:
+            src_path.relative_to(Path(paths.LIBRARY_DIR).resolve())
+            aviso = tr('tab2.mkv_en_biblioteca_read_only_confirma')
+        except ValueError:
+            aviso = tr('tab2.mkv_en_descargados_read_only_confirma')
+        raise HTTPException(status_code=409, detail=aviso)
 
     try:
         if needs_copy and body.copy_to_output:
@@ -1724,7 +1744,7 @@ async def apply_mkv_edits_endpoint(body: MkvEditRequest):
         # metadatos (nombres de pistas, flags, capítulos).
         try:
             from storage import invalidate_mkv_cache_by_path
-            invalidate_mkv_cache_by_path(body.file_path)
+            await asyncio.to_thread(invalidate_mkv_cache_by_path, body.file_path)
         except Exception as e:
             _logger.warning("invalidate_mkv_cache_by_path falló (no bloquea): %s", e)
         return result
