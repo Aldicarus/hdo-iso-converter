@@ -40,6 +40,9 @@ MIN_MPLS_SIZE = 200  # 200 bytes — ISOs custom tienen MPLS muy pequeños (~1.5
 # bloquear la cola FIFO indefinidamente (audit #20). 15 min es muy holgado: un
 # remux activo emite progreso cada pocos segundos.
 MKVMERGE_INACTIVITY_S = 900
+# Cada cuánto mira el vigilante si mkvmerge sigue escribiendo. Es una
+# constante para que un test pueda ejecutar el vigilante en segundos.
+WATCHDOG_CADA_S = 30
 
 def _limpiar_parcial(out_path: str) -> str | None:
     """Borra la salida a medias de un mkvmerge que abortó.
@@ -191,7 +194,7 @@ async def run_phase_d(
     async def _watchdog():
         nonlocal hung
         while proc.returncode is None:
-            await asyncio.sleep(30)
+            await asyncio.sleep(WATCHDOG_CADA_S)
             if time.monotonic() - last_line_at > MKVMERGE_INACTIVITY_S:
                 hung = True
                 try:

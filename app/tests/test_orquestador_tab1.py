@@ -300,6 +300,39 @@ class TestElReintentoConElM2ts(OrquestadorCase):
         self.assertEqual(len(self.muxes), 1,
                          "con origen m2ts no debe haber segundo intento")
 
+    async def test_un_m2ts_que_no_cubre_el_titulo_no_produce_un_mkv_truncado(self):
+        """El gate de duración: un m2ts más corto que el playlist es seamless
+        branching de verdad, y extraerlo daría la película a medias. La
+        validación final no mira la duración, así que es la única red."""
+        self.tb.define_mkv(self.m2ts.name, tracks=[VIDEO, AUDIO_ES, AUDIO_EN],
+                           duration_s=3600.0)
+        # Solo el MUX del playlist aborta, como en el disco real: el `-J` del
+        # .mpls funciona, y es de donde sale la duración que el gate compara
+        # (fallando también, la duración es «desconocida» y el gate deja pasar).
+        self.tb.fail_when_arg("mkvmerge", "00800_intermediate", stderr=ASSERTION + "\n")
+        s = await self._correr(self._sesion())
+        self.assertEqual(s.status, "error")
+        self.assertFalse([c for c in self.muxes if any(".m2ts" in a for a in c.argv)],
+                         "ha extraído el m2ts corto")
+        self.assertEqual(list(self.salida.rglob("*.mkv")), [])
+
+    async def test_el_reintento_usa_el_m2ts_de_la_fase_a_y_no_el_mas_grande(self):
+        """Un disco con otro m2ts mayor (un extra largo, otra versión): el del
+        título lo dijo la Fase A, y buscar «el más grande» extraería otro."""
+        from test_serie_auto_ejecuta import _bdinfo
+        grande = self.bdmv / "BDMV" / "STREAM" / "00099.m2ts"
+        grande.write_bytes(b"\x00" * (16 * 1024 * 1024))
+        self.tb.define_mkv(grande.name, tracks=[VIDEO, AUDIO_ES, AUDIO_EN],
+                           duration_s=7200.0)
+        bd = _bdinfo()
+        bd.main_m2ts = self.m2ts.name
+        bd.main_mpls = self.mpls.name
+        self.tb.fail_when_arg("mkvmerge", "00800_intermediate", stderr=ASSERTION + "\n")
+        s = await self._correr(self._sesion(bdinfo_result=bd))
+        self.assertEqual(s.status, "done", s.error_message)
+        fuentes = {Path(a).name for c in self.muxes for a in c.argv if a.endswith(".m2ts")}
+        self.assertEqual(fuentes, {self.m2ts.name})
+
     async def test_borra_el_intermedio_parcial_antes_de_reintentar(self):
         """Un intermedio a medias del intento fallido son decenas de GB."""
         self.tb.fail_when_arg("mkvmerge", ".mpls", stderr=ASSERTION + "\n")

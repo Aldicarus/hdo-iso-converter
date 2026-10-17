@@ -82,6 +82,21 @@ class TestReaplicarConservaElNombreDeEpisodio(EpisodiosCase):
         self.assertIn("S04E01", r.json()["mkv_name"])
         self.assertEqual(self._nombre(a.id), r.json()["mkv_name"], "no se guardó")
 
+    def test_recalcular_el_nombre_de_una_pelicula_lo_guarda(self):
+        """La rama de película: devolvía el nombre nuevo y el siguiente GET
+        podía conservar el viejo si nadie guardaba."""
+        from models import Session
+        from storage import save_session
+        iso = self.isos_dir / "Peli (2024) [DV FEL].iso"
+        iso.write_bytes(b"\x00")
+        s = Session(id="Peli_2024_1700000099", iso_path=str(iso), source_type="iso",
+                    mkv_name="viejo.mkv", mkv_name_manual=False, has_fel=True)
+        save_session(s)
+        r = self.client.post(f"/api/sessions/{s.id}/recalculate-name")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotEqual(r.json()["mkv_name"], "viejo.mkv")
+        self.assertEqual(self._nombre(s.id), r.json()["mkv_name"], "no se guardó")
+
     def test_un_nombre_editado_a_mano_no_se_toca(self):
         a = self._episodio(1, mkv_name="Mi nombre.mkv", mkv_name_manual=True)
         self.client.post(f"/api/sessions/{a.id}/reapply-rules", json={"audio_mode": "keep_all"})

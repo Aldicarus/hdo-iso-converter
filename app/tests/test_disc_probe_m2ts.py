@@ -207,5 +207,36 @@ class TestNingunLocalSombreaUnModulo(unittest.TestCase):
         self.assertEqual(problemas, [], "; ".join(problemas))
 
 
+
+class TestLaListaDeM2tsQueEligeElUsuario(unittest.IsolatedAsyncioTestCase):
+    """`identify_episode_candidates_from_m2ts_list` de verdad, con los
+    binarios falsos: los tests de disc-probe sustituían el helper entero, así
+    que descartar un m2ts corto elegido a mano —con el filtro de duración de
+    los MPLS— pasaba en verde (auditoría con Codex del 2026-10-17)."""
+
+    async def test_un_m2ts_de_diez_minutos_elegido_a_mano_se_queda(self):
+        import shutil
+        import tempfile
+        sys.path.insert(0, str(Path(__file__).parent))
+        from cmv40_harness import FakeToolbox
+        from phases import phase_a
+        tmp = Path(tempfile.mkdtemp(prefix="m2ts_lista_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        tb = FakeToolbox(tmp / "tb").install()
+        self.addCleanup(tb.uninstall)
+        rutas = []
+        for nombre, minutos in (("00001.m2ts", 45), ("00002.m2ts", 10)):
+            f = tmp / nombre
+            f.write_bytes(b"\x00" * 4096)
+            tb.define_mkv(nombre, tracks=[
+                {"type": "video", "codec": "HEVC/H.265/MPEG-H"},
+                {"type": "audio", "codec": "TrueHD Atmos", "language": "spa"}],
+                duration_s=minutos * 60.0)
+            rutas.append(str(f))
+        candidatos = await phase_a.identify_episode_candidates_from_m2ts_list(rutas)
+        self.assertEqual([(c["mpls_name"], round(c["duration_minutes"])) for c in candidatos],
+                         [("00001.m2ts", 45), ("00002.m2ts", 10)])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1619,6 +1619,10 @@ def mkvpropedit(sc):
     if props.get("chapters") is None and destino.name in sc.get("chapters", {}):
         props["chapters"] = [list(c) for c in sc["chapters"][destino.name]]
     pistas = _pistas_conocidas(destino, sc)
+    # Y lo mismo con las pistas: tras el rename, el `-J` del fichero nuevo las
+    # tiene que seguir viendo, con sus ediciones encima.
+    if props.get("tracks") is None and pistas is not None:
+        props["tracks"] = [dict(p) for p in pistas]
     editadas = dict(props.get("pistas_editadas") or {})
     cambios = {}
     seleccion = None

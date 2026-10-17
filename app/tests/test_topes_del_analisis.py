@@ -92,6 +92,18 @@ class TestLaDuracionConFfprobe(TopesCase):
         self.assertLess(time.monotonic() - t0, TARDA - 1)
 
 
+class TestElSondeoDeFfprobe(TopesCase):
+
+    async def test_pide_cien_megas_de_sondeo(self):
+        """Con el sondeo por defecto (~5 MB) ffprobe lee solo el primer trozo
+        de un m2ts con PCR discontinuo y da la duración de ese trozo: la
+        cascada de duración lo pide grande a propósito."""
+        await self.a._ffprobe_duration_seconds(str(self.m2ts))
+        argv = self.tb.one("ffprobe").argv
+        for opcion in ("-probesize", "-analyzeduration"):
+            self.assertEqual(argv[argv.index(opcion) + 1], "100M", argv)
+
+
 class TestLaFaseE(TopesCase):
 
     async def test_un_identify_colgado_es_un_error_y_no_una_lista_vacia(self):

@@ -242,5 +242,21 @@ class TestMplsMarksBinary(unittest.TestCase):
         self.assertEqual(_parse_mpls_marks_binary("/no/existe/x.mpls"), [])
 
 
+
+class TestElFormatoSimpleDeMkvextract(unittest.TestCase):
+    """El primer nivel de la extracción —el que preserva los nombres del
+    disco— no lo ejecutaba ningún test: quedarse con un tiempo cualquiera
+    pasaba en verde (auditoría con Codex del 2026-10-17)."""
+
+    def test_tiempos_y_nombres(self):
+        from phases.phase_a import _parse_simple_chapters
+        caps = _parse_simple_chapters(
+            "CHAPTER01=00:00:00.000\nCHAPTER01NAME=Chapter 01\n"
+            "CHAPTER02=00:06:29.847\nCHAPTER02NAME=La llegada\n")
+        self.assertEqual([(c["timestamp"], c["name_custom"]) for c in caps],
+                         [("00:00:00.000", False), ("00:06:29.847", True)])
+        self.assertEqual(caps[1]["name"], "La llegada")
+
+
 if __name__ == "__main__":
     unittest.main()

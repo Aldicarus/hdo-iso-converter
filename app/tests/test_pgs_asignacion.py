@@ -193,5 +193,55 @@ class TestDegradacion(unittest.TestCase):
         self.assertEqual([p.bitrate_kbps for p in pistas], [30.0, 1.0])
 
 
+def _mpls_con_stn(pg, *, videos=1, audios=2) -> bytes:
+    """Un MPLS con un PlayItem cuya STN trae `videos` + `audios` entradas
+    delante de los PG — como un disco de verdad—. `pg` = [(pid, idioma)]."""
+    def entrada(pid):
+        return bytes([9, 1]) + pid.to_bytes(2, "big") + bytes(6)
+
+    def atributos(codigo, idioma=b"und"):
+        return bytes([5, codigo, 0x61]) + idioma[:3]
+
+    stn = bytearray()
+    for i in range(videos):
+        stn += entrada(0x1011 + i) + bytes([5, 0x24, 0x61, 0, 0, 0])
+    for i in range(audios):
+        stn += entrada(0x1100 + i) + atributos(0x83, b"eng")
+    for pid, idioma in pg:
+        stn += entrada(pid) + bytes([5, 0x90]) + idioma.encode()[:3] + bytes(1)
+    cuerpo = bytes([videos, audios, len(pg), 0, 0, 0, 0]) + bytes(5) + bytes(stn)
+    stn_bin = (len(cuerpo) + 2).to_bytes(2, "big") + bytes(2) + cuerpo
+    fijo = b"00800" + b"M2TS" + bytes(2) + bytes(1) + (0).to_bytes(4, "big") \
+        + (45000 * 60).to_bytes(4, "big") + bytes(8) + bytes(4)
+    playitem = fijo + stn_bin
+    playlist = bytearray(bytes(4) + bytes(2) + (1).to_bytes(2, "big") + bytes(2))
+    playlist += len(playitem).to_bytes(2, "big") + playitem
+    playlist[0:4] = (len(playlist) - 4).to_bytes(4, "big")
+    cab = bytearray(40)
+    cab[0:4] = b"MPLS"
+    cab[4:8] = b"0200"
+    cab[8:12] = (40).to_bytes(4, "big")
+    cab[12:16] = (40 + len(playlist)).to_bytes(4, "big")
+    return bytes(cab) + bytes(playlist) + (2).to_bytes(4, "big") + bytes(2)
+
+
+class TestLaStnDeUnMplsDeVerdad(unittest.TestCase):
+    """`parse_mpls_pg_streams` con vídeo y audio DELANTE de los subtítulos.
+
+    El cuerpo que lee una STN válida no lo ejecutaba ningún test: saltarse
+    las entradas de vídeo y leer los PG desde el segundo audio pasaba en
+    verde (auditoría con Codex del 2026-10-17)."""
+
+    def test_salta_el_video_y_el_audio_y_lee_los_pg(self):
+        import tempfile
+        from phases.phase_a import parse_mpls_pg_streams
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "00800.mpls"
+            f.write_bytes(_mpls_con_stn([(0x1200, "eng"), (0x1201, "spa")]))
+            pg, motivo = parse_mpls_pg_streams(str(f))
+        self.assertEqual(pg, [{"pid": 0x1200, "language": "eng"},
+                              {"pid": 0x1201, "language": "spa"}], motivo)
+
+
 if __name__ == "__main__":
     unittest.main()

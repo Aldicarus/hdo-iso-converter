@@ -217,6 +217,21 @@ class TestFaseD(FaseTestCase):
             await self._correr()
         self.assertFalse(viejo.exists(), "el intermedio a medias sigue en /mnt/tmp")
 
+    async def test_un_mkvmerge_que_deja_de_escribir_se_mata_y_no_deja_parcial(self):
+        """El vigilante de inactividad: un mkvmerge colgado (sin una línea
+        en `MKVMERGE_INACTIVITY_S`) se mata y su intermedio a medias se
+        borra. No lo ejecutaba ningún test."""
+        import time
+        self.tb.retrasar_cuando_arg("mkvmerge", "--gui-mode", 20, parcial=True)
+        for nombre, valor in (("MKVMERGE_INACTIVITY_S", 0.5), ("WATCHDOG_CADA_S", 0.2)):
+            self.addCleanup(setattr, self.d, nombre, getattr(self.d, nombre))
+            setattr(self.d, nombre, valor)
+        t0 = time.monotonic()
+        with self.assertRaises(RuntimeError):
+            await self._correr()
+        self.assertLess(time.monotonic() - t0, 10, "no ha matado al mkvmerge colgado")
+        self.assertEqual(list(self.trabajo.glob("*_intermediate.mkv")), [])
+
     async def test_registra_el_comando_completo(self):
         await self._correr()
         self.assertTrue(self.log.says("$ mkvmerge"), self.log.lines)
@@ -336,6 +351,23 @@ class TestFaseEDirecta(FaseTestCase):
         salida = await self._correr()
         self.assertEqual(self._capitulos_de(salida),
                          [("00:00:00.000", "Capítulo 01"), ("00:10:00.000", "Capítulo 02")])
+
+    def _j(self, mkv):
+        import json
+        import subprocess
+        return json.loads(subprocess.run(["mkvmerge", "-J", str(mkv)],
+                                         capture_output=True, text=True).stdout)["tracks"]
+
+    async def test_las_marcas_quedan_en_el_mkv(self):
+        """Lo que pide la sesión, mirado en el MKV que sale: la marca «por
+        defecto» del audio castellano y la de forzado de su subtítulo."""
+        salida = await self._correr()
+        pistas = {(p["type"], p["properties"]["language"]): p["properties"]
+                  for p in self._j(salida) if p["type"] != "video"}
+        self.assertTrue(pistas[("audio", "spa")]["default_track"])
+        self.assertFalse(pistas[("audio", "eng")]["default_track"])
+        self.assertTrue(pistas[("subtitles", "spa")]["forced_track"])
+        self.assertFalse(pistas[("subtitles", "eng")]["forced_track"])
 
     async def test_el_orden_de_pistas_pone_el_video_primero(self):
         await self._correr()
@@ -505,6 +537,39 @@ class TestFaseEPropedit(FaseTestCase):
         self.tb.fail("mkvpropedit", "*", rc=1, stderr="aviso\n")
         await self._correr()
         self.assertEqual(self._en_output(), ["Peli (2024) [DV FEL].mkv"])
+
+    async def test_las_marcas_del_subtitulo_quedan_en_el_mkv(self):
+        import json
+        import subprocess
+        self.tb.define_mkv(self.intermedio.name, tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H"},
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa", "channels": 8},
+            {"type": "subtitles", "codec": "HDMV PGS", "language": "spa"}])
+        sub = _sub("Spanish", "forced", "Castellano Forzados (PGS)", flag_forced=True,
+                   position=1)
+        sub.flag_default = True
+        self.sesion.included_tracks.append(sub)
+        salida = await self._correr()
+        props = json.loads(subprocess.run(["mkvmerge", "-J", salida], capture_output=True,
+                                          text=True).stdout)["tracks"][2]["properties"]
+        self.assertEqual((props["forced_track"], props["default_track"]), (True, True))
+
+    async def test_un_traslado_que_falla_no_entrega_nada_ni_toca_el_anterior(self):
+        """El `move` del intermedio a output (entre montajes, una copia de
+        decenas de GB) que falla tiene que ser un error, no un éxito con un
+        fichero a medias."""
+        from unittest.mock import patch
+        anterior = self.salida / "Peli (2024) [DV FEL].mkv"
+        anterior.write_bytes(b"el MKV bueno de ayer")
+
+        def _falla(origen, destino):
+            Path(destino).write_bytes(b"a medias")
+            raise OSError("No space left on device")
+        with patch.object(self.e.shutil, "move", _falla):
+            with self.assertRaises(OSError):
+                await self._correr()
+        self.assertEqual(anterior.read_bytes(), b"el MKV bueno de ayer")
+        self.assertEqual(self._en_output(), [anterior.name], "queda el parcial del traslado")
 
     async def test_sin_capitulos_en_la_sesion_borra_los_del_intermedio(self):
         """El intermedio trae los capítulos del disco; con la sesión sin
