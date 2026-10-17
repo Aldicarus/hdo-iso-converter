@@ -1002,9 +1002,29 @@ async def _run_cmv40_phase_locked(
                     'cmv40.cancelado_fase_detenida_a_peticion',
                     fase=phase_name,
                     segundos=format(record.elapsed_seconds, '.1f')))
+        except asyncio.CancelledError:
+            # Cancelan la TAREA —una parada ordenada del contenedor—, no el
+            # usuario. `CancelledError` no es un `Exception`, así que no
+            # entraba en ninguna rama: el `finally` soltaba `running_phase`,
+            # el registro se quedaba en `running` para siempre y el historial
+            # anotaba «esperando». El recovery del arranque tampoco lo veía,
+            # porque ya no había `running_phase` que limpiar (auditoría con
+            # Codex del 2026-10-17). Se deja exactamente como lo dejaría el
+            # recovery: la fase en error con el motivo del reinicio.
+            msg = tr('cmv40.sesion_interrumpida_por_reinicio')
+            record.status = "error"
+            record.finished_at = datetime.now(timezone.utc)
+            record.elapsed_seconds = (record.finished_at - started).total_seconds()
+            record.error_message = msg
+            session.phase = previous_phase
+            session.error_message = msg
+            if phase_name == "remux":
+                _cmv40_cleanup_orphan_tmp(session)
+            raise
         except Exception as e:
             record.status = "error"
             record.finished_at = datetime.now(timezone.utc)
+            record.elapsed_seconds = (record.finished_at - started).total_seconds()
             record.error_message = str(e)
             session.phase = previous_phase
             session.error_message = str(e)
@@ -1789,6 +1809,7 @@ async def _cmv40_correr_preflight(
 
     from datetime import datetime as _dt, timezone as _tz
     _inicio_pf = _dt.now(_tz.utc)
+    cancelado = False
     async with lock:
         _cmv40_marcar_activa(session, "preflight")
         _titulo_wl, _poster_wl = _cartel_cmv40(session)
@@ -1807,8 +1828,6 @@ async def _cmv40_correr_preflight(
             titulo=_titulo_wl, poster=_poster_wl)
         session.error_message = ""
         session.target_preflight_ok = False
-        save_cmv40_session(session)
-        await _cmv40_log(session, _separador_de_fase("preflight_target"))
 
         async def _log_cb(msg: str):
             await _cmv40_log(session, msg)
@@ -1829,7 +1848,21 @@ async def _cmv40_correr_preflight(
         async def _paso(pct: float, label: str):
             await _emit_progress(_log_cb, pct, label)
 
+        # La cancelación cooperativa, como en las fases: sin el predicado,
+        # cancelar entre dos subprocesos no hacía nada, y cancelar con uno
+        # vivo acababa como un ERROR del pre-flight —el rc -15 del SIGTERM—
+        # con su banner rojo (auditoría con Codex del 2026-10-17). Se
+        # instala dentro de la task, así que no sale de ella.
+        _cmv40_pipeline_mod.set_cancel_check(
+            lambda: bool(_cmv40_cancel_flags.get(session.id)))
+
         try:
+            # El guardado de arranque va DENTRO del try: fuera, un fallo de
+            # escritura (disco lleno) salía con el proyecto apuntado en
+            # `_cmv40_activas` y en `workload` y sin pasar por el `finally`
+            # que los suelta — actividad fantasma hasta reiniciar.
+            await _save_cmv40_session_async(session)
+            await _cmv40_log(session, _separador_de_fase("preflight_target"))
             await _paso(5, tr('cmv40.comprobando_el_dolby_vision_del_mkv_origen'))
             await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
             # El checklist del modal se rellena con lo que hay EN DISCO, y
@@ -1878,6 +1911,12 @@ async def _cmv40_correr_preflight(
                     '✓ Fase ' + tr('cmv40.preflight_completada_origen_y_bin_validos_next', next_hint=next_hint)
                 )
             # Si NO avanzar, la helper ya pobló preflight_decision/message
+        except _cmv40_pipeline_mod.CMv40Cancelled:
+            # No es un fallo: el usuario canceló. Sin `error_message`, como
+            # una fase cancelada — el reintento no choca con el 409.
+            session.target_preflight_ok = False
+            await _cmv40_log(session, '🛑 Cancelado: ' + tr(
+                'cmv40.preflight_cancelado'))
         except Exception as e:
             msg = str(e)
             await _cmv40_log_phase_failed(session, "preflight", msg)
@@ -1885,10 +1924,14 @@ async def _cmv40_correr_preflight(
             session.target_preflight_ok = False
         finally:
             _cmv40_active_procs.pop(session.id, None)
-            cancelado = _cmv40_cancel_flags.pop(session.id, False)
+            cancelado = bool(_cmv40_cancel_flags.pop(session.id, False))
             _cmv40_marcar_libre(session)
             workload.liberar(session.id)
-            await _save_cmv40_session_async(session)
+            try:
+                await _save_cmv40_session_async(session)
+            except Exception as e:      # noqa: BLE001 — lo de arriba ya se soltó
+                _logger.warning("No se pudo guardar el cierre del pre-flight "
+                                "(sid=%s): %s", session.id, e)
             # El pre-flight no dejaba rastro en ninguna parte: ni al
             # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
             # cuando MÁS falta hace verlo. Al soltar el hueco de workload
@@ -1899,8 +1942,13 @@ async def _cmv40_correr_preflight(
     # notaba porque `_cmv40_dispatch_next_phase` vuelve a mirar
     # `preflight_decision` y se para. Dos copias, dos condiciones distintas
     # para lo mismo: exactamente lo que esta fusión venía a quitar.
+    #
+    # Y nunca tras un Cancelar: si el trabajo pendiente acababa bien después
+    # de pulsarlo, la Fase A arrancaba igual (auditoría con Codex del
+    # 2026-10-17). Cancelar apaga además el auto, pero esa barrera depende de
+    # que la copia viva siga registrada; esta no depende de nada.
     if (session.auto_pipeline and not session.error_message
-            and session.target_preflight_ok):
+            and session.target_preflight_ok and not cancelado):
         asyncio.create_task(_cmv40_dispatch_next_phase(session.id))
 
 
@@ -2884,7 +2932,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
                 data["target_l8_quality_description"] = desc
     except Exception as e:
         _logger.warning("No se pudo re-derivar la clasificación L8 de %s: %s",
-                        session.session_id, e)
+                        session.id, e)
 
     # El L3 del BIN vive en la sesión (`target_l3_*`, lo escribe el
     # pre-flight) y NO en `target_dv_info`, que sale del summary de
@@ -2904,7 +2952,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
             tgt["has_l3"] = session.target_l3_unique_count > 0
     except Exception as e:
         _logger.warning("No se pudo derivar el L3 del bin de %s: %s",
-                        session.session_id, e)
+                        session.id, e)
 
     try:
         from phases.rpu_analyze import recommend_action
@@ -2919,7 +2967,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
             data["recommended_action_reason"] = motivo
     except Exception as e:
         _logger.warning("No se pudo rehacer la recomendación de %s: %s",
-                        session.session_id, e)
+                        session.id, e)
 
     try:
         hoja = data.get("sheet_recommendation")
@@ -2937,7 +2985,7 @@ def _cmv40_refrescar_textos_derivados(session, data: dict) -> None:
             }
     except Exception as e:
         _logger.warning("No se pudo rehacer el veredicto de la hoja de %s: %s",
-                        session.session_id, e)
+                        session.id, e)
 
 
 @router.get("/api/cmv40/{session_id}", summary="Obtiene un proyecto CMv4.0")
@@ -3173,6 +3221,30 @@ def _cmv40_guard_mutable(session: CMv40Session):
         raise HTTPException(status_code=400, detail=tr('cmv40.proyecto_completado_usa_rehacer_para_iterar'))
 
 
+def _cmv40_fase_en_vuelo(session: CMv40Session) -> str | None:
+    """La fase que sigue viva en este proceso, o None.
+
+    `running_phase` no basta: `cancel` lo limpia —en disco y en el registro—
+    en cuanto mata los procesos, para que la UI no se quede bloqueada, pero
+    la corrutina de la fase sigue un rato borrando parciales, escribiendo el
+    log y guardando la sesión. En ese hueco un `cleanup` hacía `rmtree` por
+    debajo y el guardado final de la fase devolvía `archived` a False
+    (auditoría con Codex del 2026-10-17). Lo que dice de verdad si la fase
+    terminó es su lock, que solo se suelta al salir del todo; y la copia viva
+    de la sesión todavía lleva su nombre.
+    """
+    viva = _cmv40_sesion_viva.get(session.id)
+    nombre = (session.running_phase or _cmv40_activas.get(session.id)
+              or (viva.running_phase if viva is not None else None))
+    if nombre:
+        return nombre
+    if (session.id in _cmv40_phases_in_flight
+            or _get_cmv40_phase_lock(session.id).locked()):
+        ultimas = session.phase_history or []
+        return (ultimas[-1].phase if ultimas else "") or "preflight"
+    return None
+
+
 def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
     """Lanza 409 si hay una fase en curso. Para las operaciones DESTRUCTIVAS.
 
@@ -3183,7 +3255,7 @@ def _cmv40_guard_not_running(session: CMv40Session, accion: str) -> None:
     tienen su guard (`_cmv40_guard_no_pending_error`); estos dos no tenían
     ninguno. `reset-sync` sí lo comprueba, con el mismo criterio.
     """
-    en_curso = session.running_phase or _cmv40_activas.get(session.id)
+    en_curso = _cmv40_fase_en_vuelo(session)
     if en_curso:
         raise HTTPException(
             status_code=409,
@@ -3733,11 +3805,12 @@ async def cmv40_reset_to(session_id: str, target_phase: str):
     # `running_phase`, así que ese hueco quedaba abierto.
     en_cola = queue_manager.buscar(
         f"{queue_manager_mod.TIPO_FASE_CMV40}:{session.id}")
-    if session.running_phase or en_cola:
+    en_vuelo = _cmv40_fase_en_vuelo(session)
+    if en_vuelo or en_cola:
         raise HTTPException(
             status_code=409,
             detail=tr('cmv40.hay_una_fase_en_curso_cancelala_2',
-                      running_phase=session.running_phase
+                      running_phase=en_vuelo
                       or (en_cola.datos or {}).get("fase", "?")),
         )
 
@@ -4374,8 +4447,6 @@ async def cmv40_preflight_source(session_id: str):
                 detalle="preflight", cancelable=True,
                 titulo=_titulo_wl, poster=_poster_wl)
             session.error_message = ""
-            save_cmv40_session(session)
-            await _cmv40_log(session, _separador_de_fase("preflight_source"))
 
             async def _log_cb(msg: str):
                 await _cmv40_log(session, msg)
@@ -4383,13 +4454,23 @@ async def cmv40_preflight_source(session_id: str):
             def _proc_cb(proc):
                 _cmv40_proc_register(session.id, proc)
 
+            # Lo mismo que en `_cmv40_correr_preflight`: cancelación
+            # cooperativa y el guardado de arranque dentro del try.
+            _cmv40_pipeline_mod.set_cancel_check(
+                lambda: bool(_cmv40_cancel_flags.get(session.id)))
             try:
+                await _save_cmv40_session_async(session)
+                await _cmv40_log(session, _separador_de_fase("preflight_source"))
                 from phases.cmv40_pipeline import preflight_source
                 await preflight_source(session, log_callback=_log_cb, proc_callback=_proc_cb)
                 await _cmv40_log(
                     session,
                     '✓ Fase ' + tr('cmv40.preflight_source_completada_origen_valido')
                 )
+            except _cmv40_pipeline_mod.CMv40Cancelled:
+                session.source_preflight_ok = False
+                await _cmv40_log(session, '🛑 Cancelado: ' + tr(
+                    'cmv40.preflight_cancelado'))
             except Exception as e:
                 msg = str(e)
                 await _cmv40_log_phase_failed(session, "preflight (source)", msg)
@@ -4400,7 +4481,12 @@ async def cmv40_preflight_source(session_id: str):
                 cancelado = _cmv40_cancel_flags.pop(session.id, False)
                 _cmv40_marcar_libre(session)
                 workload.liberar(session.id)
-                await _save_cmv40_session_async(session)
+                try:
+                    await _save_cmv40_session_async(session)
+                except Exception as e:      # noqa: BLE001
+                    _logger.warning("No se pudo guardar el cierre del "
+                                    "pre-flight del origen (sid=%s): %s",
+                                    session.id, e)
                 # El pre-flight no dejaba rastro en ninguna parte: ni al
                 # cancelarlo ni —peor— al acabar pidiendo una decisión, que es
                 # cuando MÁS falta hace verlo. Al soltar el hueco de workload
@@ -4763,10 +4849,11 @@ async def cmv40_reset_sync(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail=tr('cmv40.proyecto_no_encontrado'))
 
-    if session.running_phase:
+    en_vuelo = _cmv40_fase_en_vuelo(session)
+    if en_vuelo:
         raise HTTPException(
             status_code=409,
-            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_3', running_phase=session.running_phase),
+            detail=tr('cmv40.hay_una_fase_en_curso_cancelala_3', running_phase=en_vuelo),
         )
 
     # ⚠️ DEV MODE: restaurar target a valor original simulado (source + 40)

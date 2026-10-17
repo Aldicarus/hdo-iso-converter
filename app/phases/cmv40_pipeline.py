@@ -1050,31 +1050,42 @@ async def _run_streaming_sin_red(
 
     tick_task = asyncio.create_task(_ticker()) if time_est > 0 else None
 
-    while True:
-        chunk = await proc.stdout.read(4096)
-        if not chunk:
-            break
-        buffer += chunk
+    # El ticker se para en CUALQUIER salida, no solo al llegar al EOF: si
+    # cancelan la tarea mientras espera salida del proceso, el `CancelledError`
+    # se saltaba el `stop_ticker.set()` y el ticker —un bucle sin fin— seguía
+    # emitiendo progreso y latidos de una fase ya terminada mientras empezaba
+    # la siguiente (auditoría con Codex del 2026-10-17).
+    try:
         while True:
-            nl = buffer.find(b"\n")
-            cr = buffer.find(b"\r")
-            if nl == -1 and cr == -1:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
                 break
-            if nl == -1:
-                idx = cr
-            elif cr == -1:
-                idx = nl
-            else:
-                idx = min(nl, cr)
-            line = buffer[:idx].decode("utf-8", errors="replace").rstrip()
-            buffer = buffer[idx + 1:]
+            buffer += chunk
+            while True:
+                nl = buffer.find(b"\n")
+                cr = buffer.find(b"\r")
+                if nl == -1 and cr == -1:
+                    break
+                if nl == -1:
+                    idx = cr
+                elif cr == -1:
+                    idx = nl
+                else:
+                    idx = min(nl, cr)
+                line = buffer[:idx].decode("utf-8", errors="replace").rstrip()
+                buffer = buffer[idx + 1:]
+                if line:
+                    await _emit(line)
+
+        if buffer:
+            line = buffer.decode("utf-8", errors="replace").rstrip()
             if line:
                 await _emit(line)
-
-    if buffer:
-        line = buffer.decode("utf-8", errors="replace").rstrip()
-        if line:
-            await _emit(line)
+    except BaseException:
+        stop_ticker.set()
+        if tick_task:
+            tick_task.cancel()
+        raise
 
     # Parar ticker si estaba activo
     stop_ticker.set()
@@ -1339,6 +1350,10 @@ async def _ffmpeg_extract_rpu_piped(
     ]
     dv_cmd = [DOVI_TOOL_BIN, "extract-rpu", "-", "-o", str(rpu_out)]
 
+    # Como `_run`: antes de lanzar nada. Con el predicado ya en «cancelado»
+    # el caller recurría al camino en dos pasos, que sí lo comprueba — pero
+    # después de haber arrancado (y matado) este pipeline para nada.
+    raise_if_cancelled()
     await _log(log_callback, f"$ {' '.join(ff_cmd)} | {' '.join(dv_cmd)}")
 
     read_fd, write_fd = os.pipe()
@@ -1564,8 +1579,21 @@ async def _ffmpeg_extract_rpu_piped(
         log_callback,
             _et() + tr('cmv40_pipeline.el_pipeline_ffmpeg_extract_rpu_excedio', total_timeout=total_timeout))
         return False
+    except asyncio.CancelledError:
+        # La tarea muere y los DOS extremos con ella: lanzados con
+        # `start_new_session`, quedan fuera del grupo del padre y seguían
+        # leyendo el MKV entero (auditoría con Codex del 2026-10-17).
+        fin.set()
+        _matar_proceso(ff)
+        _matar_proceso(dv)
+        raise
 
     if ff_rc != 0 or dv_rc != 0:
+        # Cancelar mata los dos procesos con SIGTERM: eso no es un fallo
+        # del pipe —que el caller rehiciera por el camino en dos pasos—,
+        # es una cancelación.
+        if ff_rc not in (0, 1) or dv_rc not in (0, 1):
+            raise_if_cancelled()
         if log_callback:
             await log_callback(
                 _et() + tr('cmv40_pipeline.el_pipeline_ffmpeg_extract_rpu_fallo', ff_rc=ff_rc, dv_rc=dv_rc)
@@ -1662,6 +1690,19 @@ async def _run_with_time_estimate(
         except asyncio.TimeoutError:
             proc.kill()
             raise RuntimeError(tr('cmv40_pipeline.timeout_tras_s', timeout=timeout, p2=cmd[0]))
+        except asyncio.CancelledError:
+            # Como en `_run`: la tarea muere y el proceso con ella. Aquí corre
+            # el demux de la Fase C, que seguía escribiendo BL/EL mientras la
+            # fase ya había borrado los parciales.
+            _matar_proceso(proc)
+            raise
+        # Y como en `_run`: un rc de señal tras pulsar Cancelar es una
+        # cancelación, no un fallo. Sin esto, cancelar durante el demux
+        # acababa en «Fase extract FALLÓ … código -15», con su banner rojo y
+        # el 409 del error pendiente al reintentar (reproducido en la
+        # auditoría con Codex del 2026-10-17).
+        if proc.returncode not in (0, 1):
+            raise_if_cancelled()
         return (
             proc.returncode,
             stdout.decode("utf-8", errors="replace"),

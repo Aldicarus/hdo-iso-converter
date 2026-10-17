@@ -209,6 +209,17 @@ async def _run_export(
         try: reader_task.cancel()
         except Exception: pass
         return -1, "timeout"
+    except asyncio.CancelledError:
+        # Si cancelan la tarea, el proceso y su lector mueren con ella: un
+        # `export -d all` sobre un RPU UHD son minutos y seguía corriendo
+        # tras la fase (auditoría con Codex del 2026-10-17).
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        reader_task.cancel()
+        raise
     return proc.returncode, "\n".join(collected)
 
 
