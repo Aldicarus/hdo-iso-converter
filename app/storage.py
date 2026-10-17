@@ -1206,11 +1206,24 @@ def invalidate_mkv_cache_by_path(mkv_path: str) -> bool:
     coincida: el fingerprint no se puede calcular sin el fichero, y ésa es
     justamente la entrada que uno quiere poder quitar de la lista — un MKV
     movido o borrado deja su análisis ahí para siempre.
+
+    **Y las de la misma ruta con OTRA huella se van también.** Tras un
+    `apply`, mkvpropedit ya ha reescrito la cabecera: la huella del fichero es
+    la nueva, la entrada es la del contenido de antes, y borrar solo por huella
+    no encontraba nada. La vieja se quedaba, el reanálisis creaba otra, y la
+    columna de Tab 2 enseñaba dos tarjetas para el mismo MKV, una con los
+    nombres de antes (auditoría con Codex del 2026-10-17, reproducido). Una
+    entrada que dice estar en esta ruta con otro contenido describe un fichero
+    que ya no está aquí.
+
+    Recorre `mkv_audits/` entero: quien la llame desde una corrutina, a un
+    thread.
     """
+    borrada = False
     try:
         fp = compute_mkv_fingerprint(mkv_path)
         if fp:
-            return invalidate_mkv_cache(fp["sha256_1mb"])
+            borrada = invalidate_mkv_cache(fp["sha256_1mb"])
     except OSError:
         pass
     objetivo = str(Path(mkv_path))
@@ -1223,8 +1236,11 @@ def invalidate_mkv_cache_by_path(mkv_path: str) -> bool:
             if not isinstance(datos, dict):
                 continue
             if str(datos.get("original_file_path") or "") == objetivo:
-                f.unlink()
-                return True
+                try:
+                    f.unlink()
+                    borrada = True
+                except OSError as e:
+                    logger.warning("No se pudo borrar cache MKV %s: %s", f.name, e)
     except OSError:
         pass
-    return False
+    return borrada

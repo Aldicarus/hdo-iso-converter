@@ -137,10 +137,11 @@ class TestElSummaryDeDoviTool(ConFakes):
             real = self._parse(REAL["dovi_summary"][nombre])
             for pintor, texto in self._summaries_del_fake({**self.COMUNES, **props}).items():
                 fake = self._parse(texto)
-                # La lista de targets L8 es un dato del RPU (uno en Supergirl,
-                # cuatro en el fake), no un formato.
-                for k in ("l8_trim_nits", "l8_trim_count"):
-                    real.pop(k, None), fake.pop(k, None)
+                # Los targets L8 se comparan también: el fake anunciaba cuatro
+                # (100/600/1000/2000) y su propio export traía uno, y este
+                # test lo tapaba quitando justo `l8_trim_nits`/`l8_trim_count`
+                # (auditoría de la suite con Codex del 2026-10-17, P7 #8). Con
+                # el target por defecto (el 1, como Supergirl) coinciden.
                 with self.subTest(nombre, pintor=pintor):
                     self.assertEqual({k: v for k, v in fake.items() if real[k] != v}, {},
                                      "campos que el parser lee distinto")
@@ -348,6 +349,51 @@ class TestElExportPorNiveles(ConFakes):
                                  (s.l5_top, s.l5_bottom, s.l5_left, s.l5_right))
                 self.assertEqual((f6["max_content_light_level"], f6["max_frame_average_light_level"]),
                                  (s.l6_max_cll, s.l6_max_fall))
+
+    def _targets(self, rpu: Path):
+        """(nits que anuncia el summary, nits de los índices del export)."""
+        from phases.phase_a import _parse_dovi_summary
+        from phases.rpu_analyze import L8_NITS_POR_INDICE
+        r = self.correr("dovi_tool", "info", "-i", str(rpu), "--summary")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        resumen = sorted(_parse_dovi_summary(r.stdout).l8_trim_nits or [])
+        out = self.tmp / ("lv_" + rpu.stem)
+        out.mkdir(exist_ok=True)
+        self.correr("dovi_tool", "export", "-i", str(rpu), "-f", "json",
+                    "--levels", f"level8={out}/l8.json")
+        filas = json.loads((out / "l8.json").read_text())
+        exportado = sorted({L8_NITS_POR_INDICE[f["target_display_index"]] for f in filas})
+        return resumen, exportado
+
+    def test_los_targets_l8_del_summary_son_los_del_export(self):
+        """El summary y el export del MISMO RPU dicen los mismos targets L8,
+        también después de transformarlo con el editor y de renombrarlo."""
+        casos = {"por defecto": None, "dos": [1, 28], "tres": [1, 3, 28], "uno alto": [48]}
+        for nombre, indices in casos.items():
+            with self.subTest(nombre):
+                rpu = self.tmp / f"T_{len(indices or [])}_{nombre[0]}.bin"
+                write_artifacts(self.tmp, rpu.name, props=RpuProps(
+                    profile=7, el_type="MEL", cm_version="v4.0", frames=20, has_l8=True))
+                if indices is not None:
+                    self.tb.define_rpu_levels(rpu.name, l8_indices=indices)
+                resumen, exportado = self._targets(rpu)
+                self.assertTrue(resumen)
+                self.assertEqual(resumen, exportado)
+                if indices is not None:
+                    from cmv40_harness import nits_de_l8
+                    self.assertEqual(exportado, nits_de_l8(indices),
+                                     "lo declarado no llega al RPU")
+                # Transformado por el editor y movido a otro nombre.
+                cfg = self.tmp / "cfg.json"
+                cfg.write_text(json.dumps({"mode": 2}))
+                editado = self.tmp / f"ed_{rpu.name}"
+                r = self.correr("dovi_tool", "editor", "-i", str(rpu), "-j", str(cfg),
+                                "-o", str(editado))
+                self.assertEqual(r.returncode, 0, r.stderr)
+                movido = self.tmp / f"movido_{rpu.name}"
+                editado.rename(movido)
+                self.assertEqual(self._targets(movido), (resumen, exportado),
+                                 "los targets L8 no viajan con el RPU")
 
     def test_las_escenas_son_un_frame_por_linea(self):
         _, escenas = self._export()

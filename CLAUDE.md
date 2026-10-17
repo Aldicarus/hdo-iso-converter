@@ -308,7 +308,7 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 
 ### Arquitectura
 - **Sin persistencia**: estado ephemeral en el frontend (`openMkvProjects`, hasta 5 sub-pestañas). No sobrevive a un refresco de la página.
-- **Backend stateless**: los endpoints de `/api/mkv/` no guardan sesión; lo único que persiste es la caché de análisis por fingerprint.
+- **Backend sin sesiones**: los endpoints de `/api/mkv/` no guardan proyectos. Lo que persiste es la caché de análisis por fingerprint y el estado del job de la copia desde biblioteca (`mkv_apply_state.json`, para el recovery), además de lo que la cola guarda de los dos trabajos encolados.
 - **Edición in-place**: solo `mkvpropedit` (O(1), instantáneo). Sin remux.
 - **Análisis extendido**: `mkvmerge -J` + MediaInfo (bitrate, format_commercial, HDR).
 - **Columna izquierda**: los MKVs analizados (ver abajo). El botón "Abrir MKV" vive ahí, donde el primario de las otras dos pestañas.
@@ -329,7 +329,7 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
   - Si ya existe ese nombre en /mnt/output → HTTP 409 (no sobrescribe).
   - Tras copia exitosa, ejecuta `apply_mkv_edits` sobre la copia + devuelve `new_file_path` + `copied_from_library: true`.
   - Frontend actualiza `mkvProject.filePath` al nuevo path para ediciones posteriores.
-- Polling: `GET /api/mkv/apply/progress` devuelve `_mkv_apply_state`. Frontend hace polling cada 1s mientras el POST está en curso → barra de progreso real con bytes/ETA. Single-job singleton (mismo patrón que `_light_profile_state`).
+- Polling: `GET /api/mkv/apply/progress` devuelve `_mkv_apply_state`. Frontend hace polling cada 1s mientras el POST está en curso → barra de progreso real con bytes/ETA. Single-job singleton (mismo patrón que `_mkv_quality_state`).
 - **Cancelación cooperativa**: botón "🛑 Cancelar copia" en el modal mientras `step=copying`. Llama a `POST /api/mkv/apply/cancel` que setea `_mkv_apply_cancel["requested"]=True`. El thread de copia chequea el flag al inicio de cada chunk (<1s detección), aborta limpiamente y borra el destino parcial. El endpoint principal raise `MkvApplyCancelled` → HTTP 499. Frontend muestra "Cancelado — biblioteca intacta y destino parcial borrado". El botón se oculta al pasar a `step=applying` (mkvpropedit es ms, no aporta cancelar).
 - **Timeout largo**: `apiFetch` para el POST usa `MKV_APPLY_LONG_TIMEOUT_MS = 4h` cuando hay copia. Sin esto el fetch abortaba a los 30s y el modal mostraba "timeout" mientras la copia seguía en background — confusión total. Polling es la fuente de verdad del progreso visible.
 - **«Aplicar cambios» estuvo roto del 2026-09-08 al 2026-10-17 y nada lo dijo.** Al quitar el modal propio de Tab 2 (`6750d4d`) se fueron `let polling` y `_esperarCopiaEncolada`, y se quedaron sus usos. `tab2.js` es `'use strict'`, así que el `polling = false` del `finally` **lanzaba en cada pulsación**: el servidor aplicaba mkvpropedit y la interfaz moría sin el aviso de éxito ni el re-análisis; con copia, ni esperaba al trabajo. La guarda de carga en Chrome no podía verlo —un `ReferenceError` en una función que nadie llama al cargar no es un error de carga— y ningún test ejecutaba `_doApplyMkvEdits`. Hoy lo ejecuta `test_tab2_aplicar_cambios` en sus cinco desenlaces, y `test_referencias_del_frontend` caza la clase entera en el fuente: toda función llamada por su nombre y toda asignación suelta tienen que tener su declaración en alguna pieza (6.916 llamadas y 492 asignaciones; trinquete incluido).
@@ -2379,8 +2379,10 @@ Cachea el resultado en memoria (`_VERSION_CACHE`) — la versión no cambia en r
 ### Chequeo de actualizaciones
 
 `GET /api/version/check-updates?force=&simulate_current=` consulta la API pública de GitHub:
-1. Intenta `/repos/Aldicarus/hdo-iso-converter/releases/latest` (preferido — trae `release_notes` markdown)
+1. Intenta `/repos/Aldicarus/hdo-iso-converter/releases?per_page=30` (preferido — trae las notas de todos los releases, también los intermedios), filtrando a tags semver sin draft ni prerelease
 2. Si vacío → fallback a `/tags?per_page=30`, filtra a semver tags y elige el mayor (común si el repo solo tagea via `git tag` sin formalizar Releases)
+
+**Un 403/429 de GitHub no es «no hay versiones»**: no se gasta otra petición en `/tags`, se contesta con lo que la caché sabía —aunque esté caducada, y con su aviso de actualización— más `stale` y `error`, y la caché NO se reescribe. Seguía como un éxito vacío: guardaba `latest=""` y el aviso de una versión ya conocida se apagaba otra hora. Por eso la caché se lee también con `force=true`; lo que `force` salta es servirla como respuesta fresca.
 
 Cachea en `/config/update_check_cache.json` con TTL **1h** (la API pública limita a 60 req/h por IP sin auth). `force=true` ignora cache.
 
@@ -2489,9 +2491,11 @@ se archivan en una release propia, `sources-ffmpeg-n7.1.5`.
 
 Dos cuidados al crearla, los dos comprobados en vivo:
 
-- **`--latest=false`.** `GET /api/version/check-updates` consulta
+- **`--latest=false`.** `GET /api/version/check-updates` consultaba
   `/releases/latest`; si la de fuentes quedara marcada como la última, la
-  app anunciaría `sources-ffmpeg-n7.1.5` como versión disponible.
+  app anunciaría `sources-ffmpeg-n7.1.5` como versión disponible. Hoy pide
+  `/releases` y filtra a tags semver, así que no la anunciaría, pero la
+  marca de «última» se sigue dejando a la de la app.
 - **`publish-docker.yml` disparaba con CUALQUIER release**, y
   `metadata-action` añade siempre `type=raw,value=latest`: publicar la de
   fuentes habría reconstruido la imagen y **reescrito `latest`** con un tag
@@ -3331,7 +3335,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **315 mutaciones** en
+de entonces seguían en verde. Hoy hay **352 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:
@@ -3446,6 +3450,14 @@ todas. Lo que se aprendió, por orden de cuántas veces se repitió:
     `8.1` pasaba en verde.
   - Y una mutación destapó otra: el `ffprobe` falso devolvía las etiquetas
     aunque no se pidieran con `stream_tags`.
+  - Los **targets L8** eran dos datos del mismo RPU: el summary anunciaba
+    cuatro (100/600/1000/2000) y el export traía uno, y el contrato lo tapaba
+    quitando `l8_trim_nits` de la comparación. Hoy son `RpuProps.l8_indices`
+    (por defecto el 1, como Supergirl) —o lo declarado con
+    `define_rpu_levels`, que pasa a las props y viaja con el RPU editado o
+    renombrado— y summary, export e `info -f` los leen del mismo sitio; los
+    nits salen de la tabla de producción (`L8_NITS_POR_INDICE`), que el
+    escenario le pasa al binario falso.
 
 **`app/tools/mutar.py`** comprueba que la base está en verde antes de mutar,
 restaura desde el contenido original guardado (nunca con `git checkout`),
@@ -3566,11 +3578,45 @@ algo, con su test y su mutación:
   desaparece en la cola **paraba la cola entera** (el registro diferido se
   quedaba puesto). Una copia ya no hereda el `result` de la anterior. Un
   `mkvpropedit` muerto por señal es un fallo (`not in (0, 1)`, como en Tab 1).
+- **Tab 2, la caché.** Guarda lo que se MIDIÓ y solo eso
+  (`test_la_cache_de_tab2_no_miente`): `persist_mkv_basic_to_cache` no
+  escribe si el fichero cambió durante el análisis —`_huella_inicial`, con
+  contenido Y fecha: un «Aplicar cambios» concurrente guardaba los nombres de
+  antes bajo la huella nueva— ni si un paso FALLÓ (`_lectura_incompleta`: un
+  `mkvextract` agotado se cacheaba como «sin capítulos», un sniff DV caído
+  como «sin Dolby Vision»; los dos son atributos privados del modelo y no
+  viajan en `model_dump`). «Forzar reanálisis» pasa `use_cache=False` además
+  de invalidar; el `cache_hit` se anuncia tras reconstruir el resultado, así
+  que una caché que el modelo ya no acepta se repara en la primera apertura;
+  e invalidar por ruta barre también la entrada del contenido ANTERIOR (tras
+  editar, la huella ya es otra y quedaban dos tarjetas en la columna).
+- **Tab 2, el análisis.** El recuento de frames sale de `tag_number_of_frames`
+  (o de `tag_duration` de la pista × el fps sin redondear), no de la duración
+  del contenedor, que el audio alarga; con la capa medida por dovi_tool manda
+  ella sobre «dos HEVC = FEL»; y los dos topes que abandonaban su subproceso
+  vivo lo matan y lo recogen (`_comunicar_o_matar`, el patrón de
+  `firma._esperar`). `POST /api/mkv/apply` resuelve la ruta contra los roots
+  como el resto, y `/mnt/isos` —montado `ro`, abrible desde el selector—
+  pide copia igual que la biblioteca. **Pendiente en el frontend**:
+  `_mkvFileIsInLibrary` (`tab2.js`) solo mira `/mnt/library/`, así que sobre
+  un descargado no ofrece la copia y enseña el 409.
 - **Servicios y limpieza.** `redactar_claves` (en `settings_store`) tapa
   `key=`/`api_key=` en lo que se registra: un 429 de Drive dejaba la clave de
   Google en `docker logs`. La descarga de un bin tiene tope de inactividad y
   borra lo escrito si se corta. El borrado de huérfanos vuelve a escanear al
-  ejecutar y no ofrece el `.mkv.tmp` de un proyecto CMv4.0 vivo.
+  ejecutar y no ofrece el `.mkv.tmp` de un proyecto CMv4.0 vivo ni parado
+  (`test_limpieza_solo_lo_huerfano`).
+- **Lo que viene de fuera no mezcla orígenes** (`test_los_servicios_no_mezclan_origenes`).
+  La recomendación agrega solo filas con las MISMAS palabras significativas
+  (`_identidad`): repetir el fuzzy del match juntaba Night con Night II y
+  Kill Bill 1 con 2. Los episodios que TMDb manda sin nombre se completan en
+  castellano uno a uno, no solo cuando falta la lista. El listado de Drive y
+  la copia de la hoja llevan la identidad de lo que se leyó (carpeta; id +
+  gid), en disco y en memoria. La «última copia buena» de la hoja son las
+  filas PARSEADAS, por cualquiera de las cuatro vías —solo la escribía el
+  CSV, antes de parsearlo—. La carpeta de Drive se resuelve en UN sitio
+  (`_carpeta_drive_efectiva`) para lo que se lista y lo que se anuncia. Y
+  «Probar Google» sin carpeta solo aprueba si Sheets aprueba.
 - **El bucle de eventos.** `test_event_loop_limpio` mira ya las fases, `move`,
   `copyfile`/`copy2` y `subprocess.run`, **y los helpers síncronos pesados que
   una corrutina llama directamente** —el `rmtree` del borrado de huérfanos
@@ -5030,9 +5076,9 @@ Y había una asimetría peor que la repetición: la auditoría de calidad **se c
 
 Lo que hubo que adaptar, y por qué:
 - **El progreso.** El helper emite `§§PROGRESS§§` (contrato del frontend de Tab 3) con el pct ya escalado; un adaptador lo traduce al estado que pollea el modal de Tab 2. El reparto pasa de 55/35/10 a **90/10** (`PESO_EXTRACCION`): por el pipe la extracción es un solo tramo continuo.
-- **La tira de pasos del modal tiene DOS filas.** Extraer el HEVC y extraer el RPU son el mismo trabajo cuando van conectados. El backend conserva los ids internos 1/2/3 porque el camino de reserva sí los hace en serie, y `_dvLightSetStep` mapea id → fila (`_DV_LIGHT_PASO_A_FILA`).
+- **La tira de pasos tiene DOS filas.** Extraer el HEVC y extraer el RPU son el mismo trabajo cuando van conectados: `ffmpeg` y `extract_rpu` son la misma fase (A) para el modal común de trabajos, y el log lleva un solo separador para los dos (`test_mkv_quality_pipeline::TestElLogVaSincronizadoConLaFase`).
 - **La cancelación mata TODOS los procesos vivos.** `_lp_active_proc` guardaba uno; con el pipe hay dos y matar uno deja al otro colgado en el otro extremo.
-- **El pre-flight de espacio solo corre en la reserva.** Exigía ~45 GB libres para un HEVC que ya no se escribe: habría rechazado análisis que caben de sobra.
+- **El pre-flight de espacio solo corre en la reserva** (`_comprobar_espacio`, dentro de `if not piped_ok`). Exigía ~45 GB libres para un HEVC que ya no se escribe: rechazaba análisis que caben de sobra. Y se mide contra el directorio de trabajo creado de verdad, que puede ser el temporal del sistema si `TMP_DIR` no se puede usar — eso ya no pasa en silencio: queda un `warning` en el log. (Estuvo antes del pipe hasta la auditoría con Codex del 2026-10-17, aunque esta línea ya decía lo contrario.)
 - **La duración del MKV** se resuelve con un `ffprobe` best-effort (~1-3 s): es la referencia con la que ffmpeg traduce su `time=` a porcentaje. Sin ella el tramo de ffmpeg dependería solo de `/proc`.
 
 **El camino de reserva (dos pasadas) se conserva y se ejercita en el test**, porque el helper devuelve False *sin lanzar* ante cualquier problema y esa rama tiene que seguir funcionando el día que haga falta.
@@ -5042,8 +5088,7 @@ Lo que hubo que adaptar, y por qué:
   - Antes había un segundo parser aquí dentro —tres formatos, paths conocidos y fallback recursivo— más `_rpus_from_levels`, que **reconstruía la forma anidada** desde el export por niveles solo para alimentarlo. Es la duplicación que la regla de "un solo parser de ese JSON" prohíbe desde `305689a`: dos parsers permitieron que uno divergiera del formato real, y el que funcionaba era el que tenía tests. Medido con 243.552 frames: reconstruir + navegar eran 3,50 s y un pico de **450 MB** de RAM (con el recorrido en el event loop); ahora 1,47 s y 26 MB, todo en un thread.
   - El sanity check `min_pq <= avg_pq <= max_pq` se conserva: venía del bug de BR2049 (la búsqueda a ciegas encontraba bloques hermanos con campos homónimos y daba un peak de ~176 nits donde el real era ~1000). Con el nivel ya etiquetado no puede pasar eso, pero un registro incoherente sigue sin servir.
 - Conversión PQ→nits via SMPTE ST 2084 EOTF inverse (`_pq_code_to_nits`).
-- Polling resiliente (`/api/mkv/light-profile/progress`) — chained-await en frontend (no setInterval, evita races out-of-order), guard monotónico anti-rollback.
-- Resultado guardado en `_light_profile_state["result"]` para fallback si el POST aborta por timeout (frontend 60min timeout, backend hasta 35min).
+- El progreso va por `GET /api/mkv/quality-audit/progress` y el resultado por `_mkv_quality_state["result"]`: el POST solo encola (ver «Polling del análisis extendido»).
 - **Cada serie se reduce con el agregador que le toca**: máximo para los picos, media para el avg, mínimo para el suelo. Reducir las tres con el máximo aplanaría la banda y el gráfico mentiría.
 - Sparkline SVG con 3 curvas superpuestas (peak/avg/min) + líneas de referencia (HDR10 MaxCLL/MaxFALL del SEI, L2 trim targets ámbar, L6 master display) + tooltip hover crosshair + chips de refs out-of-range.
 - Mini-card de stats: percentiles (peak/p99/p95/p50/avg) + clasificación de escenas por brillo (SDR-like <100n / midtone 100-300n / highlight ≥300n).
@@ -5077,12 +5122,9 @@ El panel "Radiografía DV+HDR" del tab "Editar MKV" tiene una sección "Cadena d
 - Filas auxiliares: trim targets DV (chips ámbar de L2 target_max_pq) · HDR10 metadata (MaxCLL/MaxFALL SEI) · L11 content type.
 - Campo backend `mastering_display_primaries` en `HdrMetadata` extraído de mediainfo `MasteringDisplay_ColorPrimaries`.
 
-## Polling resiliente (Tab 2 light-profile)
+## Polling del análisis extendido (Tab 2)
 
-- `setInterval` evitado: en su lugar chained-await en `_pollLoop()` con flag `polling`. Solo 1 fetch en vuelo a la vez → orden monotónico garantizado a nivel de transporte.
-- `_dvLightSetStep` y `_dvLightSetProgress` ignoran updates con valor inferior al actual (guard monotónico, doble red).
-- En error: modal NO se cierra automáticamente. Inyecta el error al log del modal + botón "Cerrar" explícito. Toast de 8s en vez de 3.5s.
-- Fallback: si POST falla (red/abort) y `state.result` está poblado → recuperar el dato sin volver a procesar.
+El modal propio del perfil de luminancia (`_pollLoop`, `_dvLightSetStep`, `/api/mkv/light-profile/progress`) ya no existe: el análisis extendido pasa por la cola única y su progreso lo enseña el **modal común de trabajos** de la columna, que se refresca **encadenado y no con `setInterval`** (`_trabajoModalProgramar`, en `workbar.js`) — una sola petición en vuelo, así que el orden está garantizado a nivel de transporte. El resultado no viaja por el POST (que responde `{queued: true}`) sino por `_mkv_quality_state["result"]`, que la pestaña lee de `GET /api/mkv/quality-audit/progress` al terminar.
 
 ---
 

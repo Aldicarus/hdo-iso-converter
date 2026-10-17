@@ -52,7 +52,8 @@ class TestProgresoCompartido(ApiTestCase):
 
         visto = {}
 
-        async def analyze_falso(path, progress_callback=None, pgs_progress_callback=None):
+        async def analyze_falso(path, progress_callback=None, pgs_progress_callback=None,
+                                use_cache=True):
             await progress_callback("mediainfo")
             # Leído DENTRO del análisis: es el único momento en que el paso
             # intermedio existe. Si el router escribiera en un dict propio,
@@ -87,7 +88,8 @@ class TestProgresoCompartido(ApiTestCase):
         queda girando para siempre."""
         from routers import tab2
 
-        async def analyze_falso(path, progress_callback=None, pgs_progress_callback=None):
+        async def analyze_falso(path, progress_callback=None, pgs_progress_callback=None,
+                                use_cache=True):
             raise RuntimeError("el pipeline falló")
 
         mkv = self.output_dir / "Peli.mkv"

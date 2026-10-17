@@ -96,7 +96,10 @@ class CopiaCase(ApiTestCase):
                 return super().read(n)
 
         def _open(p, mode="r", *a, **k):
-            if p == src and "r" in mode and "b" in mode:
+            # Resueltas las dos: el endpoint trabaja con la ruta ya resuelta
+            # (la valida contra los roots) y en macOS el tmpdir vive bajo un
+            # enlace (`/var` → `/private/var`).
+            if p.resolve() == src.resolve() and "r" in mode and "b" in mode:
                 return _Lento(io.FileIO(str(p), "rb"))
             return original(p, mode, *a, **k)
         pathlib.Path.open = _open

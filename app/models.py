@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 _logger = logging.getLogger(__name__)
 
@@ -1251,6 +1251,21 @@ class MkvAnalysisResult(BaseModel):
     MediaInfo, ffprobe packet counts, dovi_tool). Se exponen en el modal
     "Datos MKV" para diagnóstico de problemas sin tener que pedir el log
     del container. Paralelo a Session.analysis_log de Tab 1."""
+
+    # Dos datos del ANÁLISIS, no del MKV: no viajan en `model_dump()` (ni a
+    # la interfaz ni a la caché) y los consulta `persist_mkv_basic_to_cache`
+    # para decidir si lo que se acaba de medir se puede guardar.
+    #
+    # `_huella_inicial` es el fingerprint del fichero AL EMPEZAR: si otra
+    # petición lo edita mientras corre MediaInfo o dovi_tool, lo medido
+    # describe el fichero de antes y guardarlo bajo la huella nueva lo serviría
+    # indefinidamente (auditoría con Codex del 2026-10-17).
+    #
+    # `_lectura_incompleta` nombra los pasos que FALLARON (no los que no
+    # encontraron nada): un `mkvextract` agotado da cero capítulos y un sniff
+    # DV caído da `dovi=None`, y cacheados son una ausencia falsa para siempre.
+    _huella_inicial: dict | None = PrivateAttr(default=None)
+    _lectura_incompleta: list = PrivateAttr(default_factory=list)
 
 
 class MkvEditTrack(BaseModel):

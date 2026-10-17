@@ -150,6 +150,12 @@ class TestIdentificacionDePistas(MkvAnalyzeCase):
         self.assertTrue(r.has_fel)
 
     async def test_un_mkv_single_layer_no_tiene_fel(self):
+        # Single-layer de verdad: un RPU Profile 8. Con el P7 FEL por defecto
+        # del arnés, dovi_tool —que es quien manda cuando mide la capa— dice
+        # FEL, y con razón: un MKV hecho por mkvmerge lleva la EL en la misma
+        # pista que la BL.
+        write_artifacts(self.tmp, self.mkv.name, props=RpuProps(
+            profile=8, el_type="", cm_version="v4.0"))
         self.declarar(tracks=[
             {"type": "video", "codec": "HEVC/H.265/MPEG-H",
              "dimensions": "3840x2160", "fps": 23.976},

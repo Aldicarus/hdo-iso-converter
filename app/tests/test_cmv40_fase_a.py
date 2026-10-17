@@ -245,11 +245,18 @@ class TestLosDosSummariesDelArnesDicenLoMismo(unittest.TestCase):
         import cmv40_harness
 
         fuente = Path(cmv40_harness.__file__).read_text(encoding="utf-8")
-        m = _re.search(r"^def summary\(props\):.*?^    return .*?$",
+        m = _re.search(r"^def summary\(props, sc=None\):.*?^    return .*?$",
                        fuente, _re.S | _re.M)
         self.assertIsNotNone(m, "no se encuentra la `summary()` del fake")
+        # Los targets L8 salen de `indices_l8` y de la tabla de producción que
+        # el escenario le pasa al binario: los dos van en el ámbito.
+        m_l8 = _re.search(r"^def indices_l8\(props\):.*?^    return .*?$",
+                          fuente, _re.S | _re.M)
+        self.assertIsNotNone(m_l8, "no se encuentra `indices_l8()` del fake")
         ambito: dict = {}
-        exec(m.group(0), ambito)          # noqa: S102 — es nuestro propio arnés
+        exec(m_l8.group(0), ambito)       # noqa: S102 — es nuestro propio arnés
+        exec(m.group(0), ambito)          # noqa: S102
+        escenario = {"l8_nits": {str(k): v for k, v in cmv40_harness.tabla_l8().items()}}
 
         for props in (RpuProps(),
                       RpuProps(profile=8, el_type="", cm_version="v4.0",
@@ -257,7 +264,7 @@ class TestLosDosSummariesDelArnesDicenLoMismo(unittest.TestCase):
                       RpuProps(el_type="MEL", has_l8=True, has_l11=False)):
             with self.subTest(props=props):
                 self.assertEqual(props.to_summary(),
-                                 ambito["summary"](props.as_dict()))
+                                 ambito["summary"](props.as_dict(), escenario))
 
     def test_y_ninguna_emite_una_linea_que_dovi_tool_no_escribe(self):
         """Medido el 2026-09-23 sobre un bin retail CMv4.0: el summary real

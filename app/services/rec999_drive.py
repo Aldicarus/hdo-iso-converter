@@ -58,9 +58,11 @@ class DriveFile(BaseModel):
     modified_time: str = ""
 
 
-# Caché en memoria
+# Caché en memoria. Con la carpeta de la que salió: cambiar la carpeta en ⚙︎
+# no puede seguir sirviendo el listado de la anterior durante 24 h.
 _cache_files: list[DriveFile] | None = None
 _cache_fetched_at: float = 0.0
+_cache_folder_id: str = ""
 
 
 # ── Listado recursivo ──────────────────────────────────────────────────
@@ -124,13 +126,17 @@ async def _walk(client: httpx.AsyncClient, api_key: str,
     return files
 
 
-def _save_cache(files: list[DriveFile]) -> None:
+def _save_cache(files: list[DriveFile], folder_id: str) -> None:
+    """`folder_id` es la carpeta que se LISTÓ, no la configurada al guardar:
+    si alguien cambia la carpeta en ⚙︎ mientras dura el listado (son decenas
+    de peticiones), consultarla aquí etiquetaba los ficheros de A como de B, y
+    eso sobrevivía a un reinicio (auditoría con Codex del 2026-10-17)."""
     tmp_path = CACHE_PATH.with_suffix(CACHE_PATH.suffix + ".tmp")
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
             "fetched_at": time.time(),
-            "folder_id": get_cmv40_drive_folder_id(),
+            "folder_id": folder_id,
             "files": [f.model_dump() for f in files],
         }
         tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
@@ -144,14 +150,16 @@ def _save_cache(files: list[DriveFile]) -> None:
         _logger.warning("No pude persistir cache Drive: %s", e)
 
 
-def _load_cache() -> list[DriveFile] | None:
+def _load_cache(folder_id: str | None = None) -> list[DriveFile] | None:
     if not CACHE_PATH.exists():
         return None
     try:
         data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except Exception:
         return None
-    if data.get("folder_id") != get_cmv40_drive_folder_id():
+    if folder_id is None:
+        folder_id = get_cmv40_drive_folder_id()
+    if not folder_id or data.get("folder_id") != folder_id:
         return None
     return [DriveFile(**f) for f in data.get("files", [])]
 
@@ -169,40 +177,44 @@ async def list_bin_files(force_refresh: bool = False) -> list[DriveFile]:
     """Listado recursivo de `.bin` en la carpeta de REC_9999.
     Lanza `PermissionError` si la API key no tiene permisos suficientes.
     """
-    global _cache_files, _cache_fetched_at
+    global _cache_files, _cache_fetched_at, _cache_folder_id
 
+    # La carpeta se fija AL EMPEZAR: todo lo que salga de aquí es de ella.
+    folder_id = get_cmv40_drive_folder_id()
     now = time.time()
     if (not force_refresh and _cache_files is not None
+            and _cache_folder_id == folder_id
             and now - _cache_fetched_at < CACHE_TTL_SECONDS):
         return _cache_files
+
+    def _publicar(files: list[DriveFile]) -> None:
+        global _cache_files, _cache_fetched_at, _cache_folder_id
+        _cache_files, _cache_fetched_at, _cache_folder_id = files, now, folder_id
 
     api_key = get_google_api_key()
     if not api_key:
         # Sin key, intentamos leer de disco (puede estar rancio pero útil)
-        disk = _load_cache()
+        disk = _load_cache(folder_id)
         if disk:
-            _cache_files = disk
-            _cache_fetched_at = now
+            _publicar(disk)
             return disk
         return []
 
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            files = await _walk(client, api_key, get_cmv40_drive_folder_id())
+            files = await _walk(client, api_key, folder_id)
     except PermissionError:
         raise
     except Exception as e:
         _logger.warning("Drive list falló: %s — intento cache en disco", redactar_claves(e))
-        disk = _load_cache()
+        disk = _load_cache(folder_id)
         if disk:
-            _cache_files = disk
-            _cache_fetched_at = now
+            _publicar(disk)
             return disk
         return []
 
-    _cache_files = files
-    _cache_fetched_at = now
-    _save_cache(files)
+    _publicar(files)
+    _save_cache(files, folder_id)
     _logger.info("Drive REC_9999: %d .bin indexados", len(files))
     return files
 
@@ -223,6 +235,11 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
 
     folder_id = get_cmv40_drive_folder_id()
     drive_ok = False
+    # Sin carpeta Drive NO se comprueba, y «no comprobado» no puede contar
+    # como aprobado: con `drive_ok = True` ahí, una clave inválida salía
+    # «válida para descargas» con Sheets fallando (auditoría con Codex del
+    # 2026-10-17). Sin Drive, lo que decide es Sheets.
+    drive_probado = bool(folder_id)
     drive_msg = ""
     sheets_ok = False
     sheets_msg = ""
@@ -232,7 +249,6 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
             # ── Drive API ────────────────────────────────────────
             if not folder_id:
                 drive_msg = tr('rec999_drive.drive_folder_no_configurado')
-                drive_ok = True  # no falla si no hay folder
             else:
                 resp = await client.get(f"{DRIVE_API}/files", params={
                     "q": f"'{folder_id}' in parents and trashed=false",
@@ -305,9 +321,12 @@ async def test_api_key(api_key: str) -> tuple[bool, str]:
                 else:
                     sheets_msg = f"Sheets ✗ ({sresp.status_code}: {emsg[:80]})"
     except Exception as e:
-        return False, tr('rec999_drive.error_de_red', motivo=e)
+        return False, tr('rec999_drive.error_de_red', motivo=redactar_claves(e))
 
     composite = f"{drive_msg} · {sheets_msg}"
+    if not drive_probado:
+        return sheets_ok, (tr('rec999_drive.api_key_valida_composite', composite=composite)
+                           if sheets_ok else composite)
     if drive_ok and sheets_ok:
         return True, tr('rec999_drive.api_key_valida_composite', composite=composite)
     if drive_ok:

@@ -91,6 +91,32 @@ async def _con_respaldo(client: httpx.AsyncClient, url: str, params: dict,
     return raw
 
 
+async def _rellenar_episodios_mudos(client: httpx.AsyncClient, url: str,
+                                    params: dict, raw: dict) -> None:
+    """Completa en castellano los episodios que llegan SIN nombre.
+
+    `_con_respaldo(..., "episodes")` solo mira que la lista exista, y en
+    catalán TMDb devuelve la lista entera con los nombres y sinopsis en
+    blanco —o solo algunos traducidos—. El nombre del episodio acaba DENTRO
+    del nombre del MKV, así que un episodio mudo era un fichero sin título
+    (auditoría con Codex del 2026-10-17). Se rellena por `episode_number`, y
+    solo lo que viene vacío: lo traducido se queda.
+    """
+    episodios = raw.get("episodes") or []
+    if params.get("language") == _LOCALE_RESPALDO or not any(
+            not (e.get("name") or "").strip() for e in episodios):
+        return
+    resp = await client.get(url, params={**params, "language": _LOCALE_RESPALDO})
+    resp.raise_for_status()
+    castellanos = {e.get("episode_number"): e
+                   for e in (resp.json().get("episodes") or [])}
+    for e in episodios:
+        es = castellanos.get(e.get("episode_number")) or {}
+        for campo in ("name", "overview"):
+            if not (e.get(campo) or "").strip() and es.get(campo):
+                e[campo] = es[campo]
+
+
 class TmdbMatch(BaseModel):
     tmdb_id: int
     title_en: str
@@ -664,10 +690,15 @@ async def fetch_tv_season(
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            raw = await _con_respaldo(
-                client,
-                f"https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}",
-                {"api_key": api_key, "language": locale_tmdb()}, "episodes")
+            url = f"https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}"
+            params = {"api_key": api_key, "language": locale_tmdb()}
+            raw = await _con_respaldo(client, url, params, "episodes")
+            try:
+                await _rellenar_episodios_mudos(client, url, params, raw)
+            except Exception as e:
+                # Sin el respaldo quedan los episodios que hay: mejor
+                # nombres a medias que ninguna temporada.
+                _logger.info("respaldo castellano de la temporada falló: %s", _safe_err(e))
     except Exception:
         return []
 

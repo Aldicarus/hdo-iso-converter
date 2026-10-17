@@ -475,16 +475,34 @@ def get_google_api_key() -> str:
     return os.environ.get("GOOGLE_API_KEY", "").strip()
 
 
-def get_cmv40_drive_folder_url() -> str:
-    """Prioridad: settings.json > `CMV40_DRIVE_FOLDER_URL` > el de la app."""
+def _carpeta_drive_efectiva() -> tuple[str, str]:
+    """(enlace o ID, fuente) del repo DoviTools que se usa DE VERDAD.
+
+    Prioridad: settings.json > `CMV40_DRIVE_FOLDER_URL` > `CMV40_DRIVE_FOLDER_ID`
+    (legacy) > el de la app. Es UNA resolución para las dos preguntas —qué se
+    lista y qué se anuncia en ⚙︎— porque eran dos: el estado público ponía el
+    legacy por delante del enlace de la app y la resolución efectiva, detrás,
+    así que con las dos cosas puestas ⚙︎ decía «la tuya, desde .env» y se
+    listaba la de la app (auditoría con Codex del 2026-10-17).
+    """
     with _lock:
         stored = _load().get("cmv40_drive_folder_url", "").strip()
     if stored:
-        return stored
-    env = os.environ.get("CMV40_DRIVE_FOLDER_URL", "").strip()
-    if env:
-        return env
-    return carpeta_drive_de_la_app()
+        return stored, "settings"
+    for variable in ("CMV40_DRIVE_FOLDER_URL", "CMV40_DRIVE_FOLDER_ID"):
+        env = os.environ.get(variable, "").strip()
+        if env:
+            return env, "env"
+    de_la_app = carpeta_drive_de_la_app()
+    if de_la_app:
+        return de_la_app, "default"
+    return "", "none"
+
+
+def get_cmv40_drive_folder_url() -> str:
+    """El enlace (o el ID legacy) de la carpeta que se usa. Ver
+    `_carpeta_drive_efectiva`."""
+    return _carpeta_drive_efectiva()[0]
 
 
 def usando_el_repo_de_la_app() -> bool:
@@ -499,25 +517,13 @@ def usando_el_repo_de_la_app() -> bool:
     Lo que distingue a un donante no es su carpeta — es que se molestó en
     pegarla. O sea, exactamente `source == "default"` del estado público.
     """
-    if not carpeta_drive_de_la_app():
-        return False
-    with _lock:
-        if _load().get("cmv40_drive_folder_url", "").strip():
-            return False
-    return not (os.environ.get("CMV40_DRIVE_FOLDER_URL", "").strip()
-                or os.environ.get("CMV40_DRIVE_FOLDER_ID", "").strip())
+    return _carpeta_drive_efectiva()[1] == "default"
 
 
 def get_cmv40_drive_folder_id() -> str:
-    """ID del folder Drive extraído de la URL configurada (o env). Vacío si no."""
+    """ID del folder Drive de la carpeta que se usa. Vacío si no hay."""
     raw = get_cmv40_drive_folder_url()
-    if not raw:
-        # Back-compat: env var legacy CMV40_DRIVE_FOLDER_ID si alguien lo tenía
-        legacy = os.environ.get("CMV40_DRIVE_FOLDER_ID", "").strip()
-        if legacy:
-            return legacy
-        return ""
-    return parse_drive_folder_id(raw)
+    return parse_drive_folder_id(raw) if raw else ""
 
 
 def get_cmv40_sheet_url() -> str:
@@ -572,21 +578,9 @@ def get_public_settings() -> dict[str, Any]:
     """
     with _lock:
         stored = _load()
-    drive_url_stored = stored.get("cmv40_drive_folder_url", "").strip()
-    drive_url_env    = os.environ.get("CMV40_DRIVE_FOLDER_URL", "").strip()
-    drive_legacy_env = os.environ.get("CMV40_DRIVE_FOLDER_ID", "").strip()
-    drive_de_la_app  = carpeta_drive_de_la_app()
-    drive_effective  = (drive_url_stored or drive_url_env or drive_legacy_env
-                        or drive_de_la_app)
+    # La MISMA resolución que la que se usa para listar.
+    drive_effective, drive_source = _carpeta_drive_efectiva()
     drive_folder_id  = parse_drive_folder_id(drive_effective) if drive_effective else ""
-    if drive_url_stored:
-        drive_source = "settings"
-    elif drive_url_env or drive_legacy_env:
-        drive_source = "env"
-    elif drive_de_la_app:
-        drive_source = "default"
-    else:
-        drive_source = "none"
 
     sheet_url_stored = stored.get("cmv40_sheet_url", "").strip()
     sheet_url_env    = os.environ.get("CMV40_SHEET_URL", "").strip()

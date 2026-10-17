@@ -1180,13 +1180,19 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
     except Exception:
         pass
 
-    # Cache lookup
+    # Cache lookup. Se LEE siempre —también con `force`—, porque es lo que
+    # se devuelve si GitHub no contesta; lo que `force` y la simulación
+    # saltan es servirla como respuesta fresca.
     cached_data = None
-    # En modo simulado siempre saltamos cache (queremos ver el resultado
-    # exacto con la version overrideada) y NO persistimos el cache nuevo.
-    if not force and not simulated and _UPDATE_CHECK_CACHE_PATH.exists():
+    if _UPDATE_CHECK_CACHE_PATH.exists():
         try:
             cached_data = json.loads(_UPDATE_CHECK_CACHE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            cached_data = None
+    # En modo simulado siempre saltamos cache (queremos ver el resultado
+    # exacto con la version overrideada) y NO persistimos el cache nuevo.
+    if cached_data and not force and not simulated:
+        try:
             age = _time.time() - cached_data.get("fetched_at", 0)
             if age < _UPDATE_CHECK_TTL_S:
                 latest = cached_data.get("latest", "")
@@ -1213,7 +1219,7 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
                     "ignored_version": ignored_version,
                 }
         except Exception:
-            cached_data = None
+            pass
 
     # Fetch fresh desde GitHub. Estrategia:
     # 1. /releases?per_page=30 — preferido. Una sola llamada trae notas
@@ -1312,19 +1318,35 @@ async def app_version_check_updates(force: bool = False, simulate_current: str =
     except Exception as e:
         fetch_error = e
 
+    # Un 403/429 de `/releases` sin nada de `/tags` NO es «no hay versiones»:
+    # es que GitHub no ha contestado. Seguía como un éxito vacío, reescribía la
+    # caché con `latest=""` y el aviso de una actualización ya conocida
+    # desaparecía otra hora (auditoría con Codex del 2026-10-17).
+    if fetch_error is None and rate_limited and not latest_tag:
+        fetch_error = RuntimeError(tr('main.github_limite_de_consultas'))
+
     if fetch_error is not None:
-        # Si falla la API, devolvemos cached (aunque expirado) o nada
+        # Si falla la API, devolvemos cached (aunque expirado) o nada. Con lo
+        # que la caché SABE: el aviso de una versión nueva no se apaga porque
+        # GitHub no conteste ahora.
         if cached_data:
+            latest_c = cached_data.get("latest", "") or ""
+            cur_t = _semver_tuple(current)
             return {
                 "current": current,
-                "latest": cached_data.get("latest", ""),
-                "update_available": False,
+                "latest": latest_c,
+                "update_available": (bool(latest_c) and _semver_gt(latest_c, current)
+                                     and latest_c != ignored_version),
                 "release_url": cached_data.get("release_url", ""),
                 "release_notes": cached_data.get("release_notes", ""),
+                "pending_releases": [
+                    r for r in (cached_data.get("pending_releases") or [])
+                    if _semver_tuple(r.get("tag", "")) > cur_t],
                 "published_at": cached_data.get("published_at", ""),
                 "checked_at": cached_data.get("checked_at", ""),
                 "cached": True,
                 "stale": True,
+                "simulated": simulated,
                 "error": str(fetch_error),
                 "ignored_version": ignored_version,
             }
