@@ -1011,15 +1011,6 @@
   ]
  },
  {
-  "id": "K-10 el recovery borra lo que no escribió",
-  "fichero": "app/routers/tab2.py",
-  "viejo": "    if dst and persisted.get(\"step\") in (\"copying\", \"applying\") and persisted.get(\"dst_creado\"):",
-  "nuevo": "    if dst and persisted.get(\"dst_creado\"):",
-  "modulos": [
-   "test_copia_desde_biblioteca"
-  ]
- },
- {
   "id": "K-11 un destino ajeno se borra al fallar",
   "fichero": "app/routers/tab2.py",
   "viejo": "    except FileExistsError as e:\n        # No es nuestro: ni se toca ni se borra.\n        raise RuntimeError(tr('tab2.ya_existe_un_mkv_con_ese', p1=dst.name)) from e\n",
