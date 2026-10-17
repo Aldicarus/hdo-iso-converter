@@ -338,13 +338,12 @@ class TestCadaTipoRegistraSuVista(unittest.TestCase):
     def test_cada_uno_lo_registra_SU_pestana(self):
         """Si se registraran todos en `workbar.js`, añadir un tipo obligaría a
         tocar el armazón — que es justo lo que el registro evita."""
+        from frontend_sources import fuente_de
         esperado = {"tab1.js": ("rip", "serie"),
                     "tab2.js": ("analisis_extendido", "copia_biblioteca"),
                     "tab3.js": ("cmv40",)}
-        for funcion, claves in (("_serie_vista_marcador", ()),):
-            pass
         for pieza, claves in esperado.items():
-            src = (APP_DIR / "static" / pieza).read_text(encoding="utf-8")
+            src = fuente_de(pieza)
             for c in claves:
                 self.assertIn(f"registrarDetalleDeTrabajo('{c}'", src,
                               f"{c} debería registrarse en {pieza}")
@@ -352,8 +351,9 @@ class TestCadaTipoRegistraSuVista(unittest.TestCase):
     def test_los_dos_que_no_producen_log_no_lo_fingen(self):
         """La copia y la creación de una serie no generan log: su detalle son
         bytes y episodios. Un log vacío sería peor que decirlo."""
+        from frontend_sources import fuente_de
         for pieza, clave in (("tab1.js", "serie"), ("tab2.js", "copia_biblioteca")):
-            src = (APP_DIR / "static" / pieza).read_text(encoding="utf-8")
+            src = fuente_de(pieza)
             i = src.index(f"registrarDetalleDeTrabajo('{clave}'")
             bloque = src[i:src.index("});", i)]
             self.assertIn("conLog: false", bloque)

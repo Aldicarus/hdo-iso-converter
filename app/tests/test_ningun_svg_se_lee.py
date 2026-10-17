@@ -105,15 +105,38 @@ setTimeout(() => {
     // primeras se midió un botón suelto en vez del de verdad — que llevaba
     // encima una compensación óptica puesta para el emoji.
     const desalineados = [];
+    let comparados = 0;
     document.querySelectorAll('button, .banner').forEach(b => {
       const svg = b.querySelector('svg.ico');
-      const texto = [...b.childNodes].find(
-        n => n.nodeType === 3 && n.textContent.trim().length > 2);
-      if (!svg || !texto) return;
-      const r = document.createRange();
-      r.selectNodeContents(texto);
-      const a = svg.getBoundingClientRect(), t = r.getBoundingClientRect();
+      // El primer texto DESCENDIENTE, fuera del SVG. Exigir un hijo directo
+      // descartaba todo botón con el rótulo dentro de un `<span>` —que en
+      // esta app son la mayoría, porque `data-i18n` va en un span— y el
+      // barrido daba cero desalineados sin haberlos mirado (auditoría del
+      // 2026-10-17).
+      const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, {
+        acceptNode: n => (n.textContent.trim().length > 2
+                          && !(n.parentElement && n.parentElement.closest('svg')))
+          ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP });
+      if (!svg) return;
+      // Las líneas de TODO el rótulo, no solo del primer nodo.
+      const lineas = [];
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const r = document.createRange();
+        r.selectNodeContents(n);
+        lineas.push(...[...r.getClientRects()].filter(x => x.height));
+      }
+      if (!lineas.length) return;
+      const arriba = Math.min(...lineas.map(x => x.top));
+      const abajo = Math.max(...lineas.map(x => x.bottom));
+      // Un rótulo de DOS líneas —título y subtítulo— tiene su propia
+      // alineación de diseño: el selector Película/Serie centra el icono en
+      // el bloque y los apartados del manual lo alinean con la primera. Lo
+      // que este barrido caza es una compensación óptica sobrante en un
+      // botón de una línea, que es lo que descolocaba el de la franja navy.
+      if (abajo - arriba > lineas[0].height * 1.5) return;
+      const a = svg.getBoundingClientRect(), t = {top: arriba, height: abajo - arriba};
       if (!a.height || !t.height) return;
+      comparados++;
       const d = (a.top + a.height / 2) - (t.top + t.height / 2);
       // 1,5 px y no 2: la compensación óptica que descolocaba el botón de la
       // franja navy era `translateY(2px)` justo, y con el umbral en 2 pasaba.
@@ -129,13 +152,19 @@ setTimeout(() => {
       errores: window.__errores,
       svgLeido: i === -1 ? '' : txt.slice(Math.max(0, i - 90), i + 40),
       desalineados,
+      comparados,
       iconos: document.querySelectorAll('svg.ico').length,
     });
   }, 250);
 }, 700);
 </script>
 """
-        pagina = html().replace("</head>", sonda + "</head>")
+        # Con el catálogo SEMBRADO, como en producción. Sin él los rótulos de
+        # los botones —que van en spans con `data-i18n`— salían vacíos, y de
+        # 78 botones con icono la medición de alineación solo podía comparar
+        # 2: el barrido daba cero desalineados sin haberlos mirado.
+        from frontend_sources import semilla_catalogo
+        pagina = html().replace("</head>", semilla_catalogo("es") + sonda + "</head>")
         pagina = pagina.replace("</body>", cuerpo + "</body>")
         pagina = (pagina.replace('src="/static/', 'src="')
                         .replace('href="/static/', 'href="'))
@@ -178,6 +207,11 @@ setTimeout(() => {
     def test_y_hay_iconos_de_verdad(self):
         """Un barrido que no encuentra ningún icono no está comprobando nada."""
         self.assertGreater(self.m["iconos"], 50)
+
+    def test_y_se_comparan_de_verdad(self):
+        """Contar iconos no dice cuántos se COMPARARON con su texto: con el
+        criterio del hijo directo, casi ninguno."""
+        self.assertGreater(self.m["comparados"], 20, self.m["comparados"])
 
 
 if __name__ == "__main__":

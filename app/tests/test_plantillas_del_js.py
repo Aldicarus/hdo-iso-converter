@@ -175,10 +175,21 @@ class TestLaFuncionDeTraduccionSeLlamaTr(unittest.TestCase):
             f"lanza:\n  · " + "\n  · ".join(malas[:12])))
 
     def test_tr_existe_y_t_no(self):
+        """Sin `re.MULTILINE`, `^` solo es el principio del TEXTO: el patrón
+        de antes no podía ver una declaración de `t` en ninguna otra línea
+        (auditoría del 2026-10-17). Se miran las tres formas de declararla a
+        nivel de script —con indentación son locales, y `const t =
+        document.createElement` es legítimo— y la asignación a `window`."""
         from frontend_sources import js_completo
         js = js_completo()
         self.assertIn("function tr(clave", js)
-        self.assertNotRegex(js, r"^function t\(", )
+        declaracion = re.compile(
+            r"^(?:(?:async\s+)?function\s+t\s*\(|(?:const|let|var)\s+t\s*=)"
+            r"|\b(?:window|globalThis)\.t\s*=", re.M)
+        self.assertEqual(declaracion.findall(js), [])
+        # Y el patrón ve lo que tiene que ver, en cualquier línea.
+        self.assertTrue(declaracion.search("const x = 1;\nfunction t(k) {}\n"))
+        self.assertTrue(declaracion.search("// x\nconst t = (k) => k;\n"))
 
 
 class TestNingunaClaveSeEscribeComoTexto(unittest.TestCase):

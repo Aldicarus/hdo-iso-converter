@@ -47,6 +47,17 @@ def html() -> str:
     return INDEX.read_text(encoding="utf-8")
 
 
+def fuente_de(nombre: str) -> str:
+    """El fuente de UNA pieza por su nombre, comprobando que `index.html` la
+    carga. Para las aserciones que son, por diseño, sobre qué pieza contiene
+    qué (cada pestaña registra su propia vista). Construir la ruta a mano
+    leería un fichero que el navegador ya no carga sin que nada avisara."""
+    nombres = [n for n, _ in piezas()]
+    if nombre not in nombres:
+        raise AssertionError(f"`{nombre}` no es una pieza que cargue index.html: {nombres}")
+    return (STATIC / nombre).read_text(encoding="utf-8")
+
+
 def pieza_de(funcion: str) -> tuple[str, str]:
     """(nombre, fuente) del script que DECLARA esa función.
 

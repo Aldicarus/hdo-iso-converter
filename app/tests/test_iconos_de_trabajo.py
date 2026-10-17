@@ -187,11 +187,46 @@ class TestNoQuedanEmojiEnLaColumnaNiEnElModal(unittest.TestCase):
             self.assertNotIn("\n    icono:", bloque, bloque[:60])
 
     def test_el_html_de_la_columna_y_el_modal_no_lleva_emoji(self):
+        """Los dos elementos se localizan por id y se recorre su subárbol
+        ENTERO. El guard de antes iteraba por los dos ids sin hacer nada
+        —el bucle acababa en `pass`— y luego miraba 900 caracteres del
+        `<aside>`, así que un emoji en el icono del modal pasaba en verde
+        (auditoría del 2026-10-17)."""
+        import unicodedata
+        from html.parser import HTMLParser
+
+        class _Subarbol(HTMLParser):
+            def __init__(self, objetivo):
+                super().__init__(convert_charrefs=True)
+                self.objetivo, self.prof, self.visto, self.trozos = objetivo, 0, False, []
+
+            def handle_starttag(self, tag, attrs):
+                if self.prof:
+                    self.prof += 1
+                    self.trozos += [v or "" for _, v in attrs]
+                elif dict(attrs).get("id") == self.objetivo:
+                    self.prof, self.visto = 1, True
+                    self.trozos += [v or "" for k, v in attrs if k != "id"]
+
+            def handle_endtag(self, tag):
+                if self.prof:
+                    self.prof -= 1
+
+            def handle_data(self, data):
+                if self.prof:
+                    self.trozos.append(data)
+
         h = html()
-        for marca in ('id="workbar-title"', 'id="trabajo-modal-icono"'):
-            pass
-        i = h.index('<aside id="workbar"')
-        self.assertNotIn("⚙︎", h[i:i + 900])
+        # `workbar` es la columna entera —su título, `#workbar-title`, ya no
+        # existe, y el guard viejo lo seguía citando— y el icono del modal.
+        for objetivo in ("workbar", "trabajo-modal-icono"):
+            p = _Subarbol(objetivo)
+            p.feed(h)
+            with self.subTest(objetivo):
+                self.assertTrue(p.visto, f"no hay ningún elemento #{objetivo}")
+                simbolos = [c for c in "".join(p.trozos)
+                            if unicodedata.category(c) == "So"]
+                self.assertEqual(simbolos, [], f"#{objetivo} lleva emoji")
 
 
 class TestElHistorialSeVeSiempre(unittest.TestCase):
@@ -339,8 +374,6 @@ class TestElEmojiSeFueDeLaInterfaz(unittest.TestCase):
 
     def test_ningun_toast_trae_su_propio_icono(self):
         """El tipo del toast ya pone uno: el del mensaje salía duplicado."""
-        for pieza, src in [(p, s) for p, s in map(pieza_de, ('showToast',))]:
-            pass
         sobra = re.findall(rf"showToast\(\s*[`'\"]\s*{self._EMOJI.pattern}", JS)
         self.assertEqual(sobra, [])
 

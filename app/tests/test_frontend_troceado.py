@@ -152,11 +152,22 @@ class TestNadieLeeUnaPiezaSuelta(unittest.TestCase):
     """
 
     def test_ningun_test_lee_un_js_del_frontend_por_su_ruta(self):
+        """Dos formas, y la segunda se escapaba: la ruta y la lectura en la
+        MISMA línea, y una ruta `… / "static" / x` con el nombre de la pieza
+        en una variable (`test_modal_de_trabajo` leía así tres piezas). El
+        guard de antes miraba solo líneas con `read_text`, así que la segunda
+        no la veía (auditoría del 2026-10-17)."""
+        import ast
         nombres = {n for n, _ in piezas()} | {"app.js"}
         culpables = []
         aqui = Path(__file__).name
-        for ruta in sorted(Path(__file__).parent.glob("*.py")):
-            if ruta.name in (aqui, "frontend_sources.py"):
+
+        def _constantes(nodo):
+            return {n.value for n in ast.walk(nodo)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+
+        for ruta in sorted(Path(__file__).parent.glob("test_*.py")):
+            if ruta.name == aqui:
                 continue
             src = ruta.read_text(encoding="utf-8")
             for i, linea in enumerate(src.splitlines(), 1):
@@ -165,8 +176,18 @@ class TestNadieLeeUnaPiezaSuelta(unittest.TestCase):
                 for nombre in nombres:
                     if f'"{nombre}"' in linea or f"'{nombre}'" in linea:
                         culpables.append(f"{ruta.name}:{i} lee {nombre}")
-        self.assertEqual(culpables, [],
-                         "usar `frontend_sources.js_completo()`: " + "; ".join(culpables))
+            for n in ast.walk(ast.parse(src)):
+                if not (isinstance(n, ast.BinOp) and isinstance(n.op, ast.Div)):
+                    continue
+                if "static" not in _constantes(n.left):
+                    continue
+                derecha = n.right
+                if ((isinstance(derecha, ast.Constant) and derecha.value in nombres)
+                        or isinstance(derecha, ast.Name)):
+                    culpables.append(f"{ruta.name}:{n.lineno} construye la ruta de una pieza")
+        self.assertEqual(sorted(set(culpables)), [],
+                         "usar `frontend_sources` (`js_completo`, `pieza_de`, `fuente_de`): "
+                         + "; ".join(culpables))
 
 
 @unittest.skipUnless(CHROME, "Chrome/Chromium no disponible")

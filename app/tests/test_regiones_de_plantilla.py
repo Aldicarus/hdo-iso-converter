@@ -69,7 +69,7 @@ class TestSobreElFrontendDeVerdad(unittest.TestCase):
     laboratorio y seguir descuadrando en un fichero de 6.000 líneas."""
 
     def test_ninguna_region_abre_justo_despues_de_una_barra(self):
-        """Una plantilla nunca sigue a un `/` pelado: eso es una regex.
+        r"""Una plantilla nunca sigue a un `/` pelado: eso es una regex.
 
         Es la firma exacta del fallo que rompía `settings.js`:
         `s.replace(/\`([^\`]+)\`/g, …)` — el emparejado tomaba el backtick de

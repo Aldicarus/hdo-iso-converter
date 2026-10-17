@@ -517,14 +517,18 @@ def _sonda(respuestas: dict) -> str:
         "<script>window.__errores=[];window.__sinResp=[];"
         "window.addEventListener('error',e=>window.__errores.push("
         "(e.message||'')+' @ '+(e.filename||'').split('/').pop()+':'+e.lineno));"
-        "window.__RESP=" + json.dumps(respuestas) + ";"
+        "window.__RESP=" + json.dumps(respuestas) + ";window.__usadas=[];"
         "window.fetch=function(u,o){"
         "  const url=String(u).split('?')[0];"
-        "  let cuerpo=null, visto=false;"
-        "  for (const k in window.__RESP) {"
-        "    if (url === k || url.indexOf(k) === 0) { cuerpo=window.__RESP[k]; visto=true; break; }"
-        "  }"
-        "  if (!visto) window.__sinResp.push(url);"
+        # La coincidencia EXACTA primero y, si no, el prefijo MÁS LARGO. Con
+        # la primera que casara, `/api/sessions` eclipsaba a `/api/sessions/`
+        # y el detalle recibía el listado (auditoría del 2026-10-17).
+        "  let k=null;"
+        "  if (url in window.__RESP) k=url;"
+        "  else for (const c in window.__RESP)"
+        "    if (url.indexOf(c) === 0 && (k === null || c.length > k.length)) k=c;"
+        "  const cuerpo = k === null ? null : window.__RESP[k];"
+        "  if (k === null) window.__sinResp.push(url); else window.__usadas.push(k);"
         "  return Promise.resolve({ok:true, status:200, statusText:'OK',"
         "    json:()=>Promise.resolve(cuerpo === null ? {} : cuerpo),"
         "    text:()=>Promise.resolve('')});"
@@ -920,6 +924,7 @@ _CUERPO = """
 
   salida.errores = window.__errores || [];
   salida.sin_respuesta = [...new Set(window.__sinResp || [])];
+  salida.usadas = [...new Set(window.__usadas || [])];
   document.getElementById('__out').textContent = JSON.stringify(salida);
 })();
 """
@@ -1120,6 +1125,22 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
                     malas.append(f"{nombre}: {claves[:5]}")
             with self.subTest(idioma=idioma):
                 self.assertEqual(malas, [], "\n  · ".join([""] + malas))
+
+    def test_ninguna_peticion_queda_sin_respuesta(self):
+        """Un endpoint sin respuesta preparada devuelve `{}` y su bloque sale
+        vacío: el render no falla, simplemente no se mide. El docstring de la
+        sonda prometía que eso «se ve» y nadie miraba la lista (auditoría del
+        2026-10-17)."""
+        for idioma, vista in self.vistas.items():
+            with self.subTest(idioma=idioma):
+                self.assertEqual(vista.get("sin_respuesta"), [])
+
+    def test_el_detalle_de_una_sesion_no_recibe_el_listado(self):
+        """Con la primera coincidencia de prefijo, `/api/sessions` contestaba
+        también a `/api/sessions/<id>`: el detalle recibía el listado."""
+        for idioma, vista in self.vistas.items():
+            with self.subTest(idioma=idioma):
+                self.assertIn("/api/sessions/", vista.get("usadas") or [])
 
     def test_no_se_ve_ningun_undefined_ni_hueco_sin_resolver(self):
         for idioma in ("es", "en", "ca"):
