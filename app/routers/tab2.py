@@ -1317,7 +1317,10 @@ def recuperar_apply_interrumpido() -> None:
     dst = persisted.get("dst_path") or ""
     file_name = persisted.get("file_name") or tr('cmv40_pipeline.valor_desconocido')
     freed = 0
-    if dst:
+    # Solo si la copia llegó a ESCRIBIR. En `en_cola` (o antes) el destino no
+    # es nuestro: el endpoint comprobó que no existía al encolar, y lo que
+    # haya ahí ahora lo ha puesto otro mientras el trabajo esperaba turno.
+    if dst and persisted.get("step") in ("copying", "applying"):
         try:
             dst_path = Path(dst)
             if dst_path.exists() and dst_path.is_file():
@@ -1376,6 +1379,12 @@ def _mkv_apply_set_step(step: str, label: str = ""):
     _persist_mkv_apply_state()
 
 
+# El estado se queda `active` este rato tras terminar, para que el siguiente
+# poll del modal vea el desenlace antes de que se libere. Es constante de
+# módulo para que un test pueda comprobar la liberación sin esperar.
+_SEGUNDOS_ANTES_DE_LIBERAR = 5
+
+
 class MkvApplyCancelled(Exception):
     """Levantada cuando el usuario cancela la copia via /api/mkv/apply/cancel."""
 
@@ -1407,7 +1416,11 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
     def _copy_thread():
         copied = 0
         last_persist = _t.monotonic()
-        with src.open("rb") as fin, dst.open("wb") as fout:
+        # `xb` y no `wb`: el trabajo puede llevar cuarenta minutos en la cola
+        # desde que el endpoint comprobó que el destino no existía, y en ese
+        # rato puede haber aparecido un fichero con ese nombre. Con `wb` se
+        # truncaba, y si la copia fallaba el `except` de abajo lo borraba.
+        with src.open("rb") as fin, dst.open("xb") as fout:
             while True:
                 if _mkv_apply_cancel["requested"]:
                     raise MkvApplyCancelled()
@@ -1435,6 +1448,9 @@ async def _mkv_copy_to_output_with_progress(src: Path, dst: Path) -> None:
 
     try:
         await asyncio.to_thread(_copy_thread)
+    except FileExistsError as e:
+        # No es nuestro: ni se toca ni se borra.
+        raise RuntimeError(tr('tab2.ya_existe_un_mkv_con_ese', p1=dst.name)) from e
     except MkvApplyCancelled:
         # Cancelación: borra destino parcial y propaga. La rutina superior
         # marca step="cancelled" en el estado para que el frontend cierre el
@@ -1499,8 +1515,10 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
         dst_path=str(dst_path),
         file_name=src_path.name,
     )
+    copiado = False
     try:
         await _mkv_copy_to_output_with_progress(src_path, dst_path)
+        copiado = True
         _mkv_apply_set_step("applying", tr('tab2.aplicando_cambios_con_mkvpropedit'))
         body.file_path = str(dst_path)
         result = await apply_mkv_edits(body)
@@ -1526,6 +1544,15 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
         _mkv_apply_set_step("cancelled", tr('tab2.copia_cancelada_por_el_usuario'))
     except Exception as e:
         _mkv_apply_state["error"] = str(e)
+        if copiado:
+            # La copia está ENTERA y lo que falló fue mkvpropedit: el fichero
+            # se queda —es válido, solo le faltan los cambios— y se dice
+            # dónde, para que la interfaz pase la pestaña a él. Sin esto,
+            # reintentar desde la biblioteca daba 409 «ya existe».
+            _mkv_apply_state["result"] = {
+                "ok": False, "error": str(e),
+                "new_file_path": str(dst_path), "copied_from_library": True,
+            }
         _mkv_apply_set_step("error", f"Error: {e}")
         _logger.exception("La copia desde biblioteca falló (%s)", src_path.name)
     finally:
@@ -1549,7 +1576,7 @@ async def _ejecutar_copia_desde_biblioteca(body, src_path, dst_path,
         # los 5s para que un poll tardío no se confunda con el
         # próximo job.
         async def _delayed_clear():
-            await asyncio.sleep(5)
+            await asyncio.sleep(_SEGUNDOS_ANTES_DE_LIBERAR)
             _mkv_apply_state["active"] = False
             _mkv_apply_cancel["requested"] = False
             _persist_mkv_apply_state()

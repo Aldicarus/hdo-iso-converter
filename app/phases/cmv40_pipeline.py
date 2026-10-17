@@ -473,20 +473,50 @@ async def _probe_frame_count(media_path: str) -> int:
     return n
 
 
+def _frames_de_ffprobe(salida: str) -> int | None:
+    """El recuento exacto de frames del vídeo, de un `ffprobe -show_entries
+    stream=nb_frames:stream_tags -of json`, o None si no lo trae.
+
+    **Sobre un MKV, `nb_frames` NO viene nunca** —ni en JSON, donde la clave
+    falta, ni en CSV, donde sale `N/A,`—, así que el recuento exacto hasta el
+    2026-10-17 solo existía en los tests: el `ffprobe` falso daba un número
+    para cualquier fichero y el real no lo ha dado jamás. Lo que sí trae un
+    MKV hecho con mkvmerge es la etiqueta de estadísticas `NUMBER_OF_FRAMES`,
+    que cuenta los frames que se escribieron: en los 29 MKV entregados del
+    NAS que se pudieron emparejar con su proyecto coincide EXACTAMENTE con los
+    frames esperados, drop-in y merge. Con idioma, la etiqueta lleva sufijo
+    (`NUMBER_OF_FRAMES-eng`); un HEVC crudo no trae ninguna de las dos."""
+    try:
+        streams = json.loads(salida or "{}").get("streams") or []
+    except ValueError:
+        return None
+    if not streams or not isinstance(streams[0], dict):
+        return None
+    s = streams[0]
+    candidatos = [s.get("nb_frames")]
+    candidatos += [v for k, v in (s.get("tags") or {}).items()
+                   if str(k).upper().split("-")[0] == "NUMBER_OF_FRAMES"]
+    for v in candidatos:
+        if isinstance(v, (int, str)) and str(v).strip().isdigit() and int(v) > 0:
+            return int(v)
+    return None
+
+
 async def _contar_frames(media_path: str) -> tuple[int, bool]:
-    """`(frames, exacto)`: `exacto` es False cuando `ffprobe` no da
-    `nb_frames` y el número sale de duración × 23,976 — una estimación que no
-    puede tumbar ninguna comprobación."""
+    """`(frames, exacto)`: `exacto` es False cuando `ffprobe` no da el
+    recuento (ver `_frames_de_ffprobe`) y el número sale de duración ×
+    23,976 — una estimación que no puede tumbar ninguna comprobación."""
     try:
         rc, out, _ = await _run([
             FFPROBE_BIN, "-v", "error",
             "-select_streams", "v:0",
-            "-show_entries", "stream=nb_frames",
-            "-of", "csv=p=0",
+            "-show_entries", "stream=nb_frames:stream_tags",
+            "-of", "json",
             media_path,
         ], timeout=15)
-        if rc == 0 and out.strip() and out.strip() != "N/A":
-            return int(out.strip()), True
+        n = _frames_de_ffprobe(out) if rc == 0 else None
+        if n:
+            return n, True
     except CMv40Cancelled:
         # Ver `_probe_duration`: cancelar no es que la sonda falle.
         raise
@@ -4793,17 +4823,19 @@ async def run_phase_g_remux(
 # ══════════════════════════════════════════════════════════════════════
 
 # Frame count check de la ruta RÁPIDA: falla con más de ±2 frames de
-# diferencia, pero SOLO cuando el recuento lo da `ffprobe` (`exacto`).
+# diferencia, pero SOLO cuando el recuento es exacto: la etiqueta
+# `NUMBER_OF_FRAMES` que mkvmerge escribe en el MKV (`_frames_de_ffprobe`).
 #
 # La ruta rápida es exclusiva del drop-in P7 FEL, donde el frames gate exige
 # que el bin y el disco tengan exactamente los mismos frames y todos llevan
 # RPU, así que la diferencia legítima que se explica abajo —un P8 con frames
-# sin RPU— no puede llegar aquí. Los ±2 son el redondeo de `ffprobe` sobre un
-# MKV (ver la nota de nb_frames). Hasta el 2026-10-17 esto solo registraba la
-# diferencia, y un MKV truncado se entregaba: la auditoría de la suite lo
-# encontró con una mutación que fijaba el recuento al esperado y pasaba en
-# verde. Sin `nb_frames`, el número es duración × 23,976 y se sigue
-# registrando sin bloquear: una estimación no puede tumbar la fase.
+# sin RPU— no puede llegar aquí. Medido en el NAS: 29 de 29 MKV entregados
+# con la etiqueta igual a lo esperado; los ±2 son margen. Hasta el
+# 2026-10-17 esto solo registraba la diferencia, y un MKV truncado se
+# entregaba; y cuando se hizo estricto, leía `nb_frames`, que sobre un MKV
+# real no viene nunca: solo era estricto en los tests. Sin etiqueta, el
+# número es duración × 23,976 y se sigue registrando sin bloquear: una
+# estimación no puede tumbar la fase.
 #
 # Por qué no se compara en la rama merge, y la historia del check antiguo:
 #
@@ -4823,7 +4855,7 @@ async def run_phase_g_remux(
 #   3. Drop-in: cadena upstream determinista (pre-flight + Fase B + inject-rpu)
 #
 _FRAME_COUNT_INFO_DELTA_PCT = 1.0  # Δ relativo > 1% se loguea como warning
-_FRAME_COUNT_TOLERANCE = 2         # redondeo de `ffprobe` sobre un MKV
+_FRAME_COUNT_TOLERANCE = 2         # margen: medido, la etiqueta coincide exacta
 
 
 async def _check_frame_count(actual: int, expected: int, log_callback,

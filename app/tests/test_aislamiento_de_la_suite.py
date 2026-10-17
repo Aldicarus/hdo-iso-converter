@@ -62,6 +62,42 @@ class TestNingunModuloFijaLosDirectoriosAlImportarse(unittest.TestCase):
                          "usa aislamiento.directorios_aislados en setUpModule")
 
 
+class TestCadaRutaDerivadaSeRedirige(unittest.TestCase):
+    """Una constante de módulo como `X = CONFIG_DIR / "y.json"` se resuelve en
+    el import: redirigir `CONFIG_DIR` después no la mueve. `api_harness` las
+    parchea una a una, y cuando se olvida una —el estado del apply de Tab 2,
+    las cachés de TMDb y DoviTools— el test escribe en el /config real."""
+
+    DIRECTORIOS = {"CONFIG_DIR", "TMP_DIR", "OUTPUT_DIR", "OUTPUT_DIR_MKV",
+                   "LIBRARY_DIR", "ISOS_DIR"}
+
+    def _derivadas(self):
+        for f in sorted(APP.rglob("*.py")):
+            if "tests" in f.parts or "tools" in f.parts:
+                continue
+            arbol = ast.parse(f.read_text(encoding="utf-8"))
+            for n in arbol.body:
+                objetivo = None
+                if isinstance(n, ast.Assign) and len(n.targets) == 1:
+                    objetivo, valor = n.targets[0], n.value
+                elif isinstance(n, ast.AnnAssign) and n.value is not None:
+                    objetivo, valor = n.target, n.value
+                if not isinstance(objetivo, ast.Name) or not isinstance(valor, ast.BinOp):
+                    continue
+                nombres = {x.id for x in ast.walk(valor) if isinstance(x, ast.Name)}
+                nombres |= {x.attr for x in ast.walk(valor) if isinstance(x, ast.Attribute)}
+                if nombres & self.DIRECTORIOS:
+                    yield f.relative_to(APP), objetivo.id
+
+    def test_api_harness_las_redirige_todas(self):
+        arnes = (TESTS / "api_harness.py").read_text(encoding="utf-8")
+        derivadas = list(self._derivadas())
+        self.assertTrue(derivadas, "el barrido no encuentra ninguna: mira el vacío")
+        faltan = [f"{f}:{nombre}" for f, nombre in derivadas
+                  if f'"{nombre}"' not in arnes]
+        self.assertEqual(faltan, [])
+
+
 class TestElLanzadorAislaTodosLosDirectorios(unittest.TestCase):
 
     def test_cada_directorio_que_la_app_lee_del_entorno(self):

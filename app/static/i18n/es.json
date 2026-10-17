@@ -731,6 +731,7 @@
   "tab2.mkv_abierto_p1": "MKV abierto: {p1}",
   "tab2.mkv_actualizado_p1": "MKV actualizado: {p1}",
   "tab2.mkv_copiado_a_output_con_tus": "MKV copiado a Output con tus cambios: {filename}",
+  "tab2.copia_hecha_cambios_sin_aplicar": "La copia ya está en Output ({filename}), pero los cambios no se aplicaron{p1}. La pestaña apunta ahora a la copia: puedes volver a aplicarlos sin una segunda copia.",
   "tab2.mkv_en_biblioteca_read_only": "MKV en Biblioteca (read-only)",
   "tab2.mkvpropedit_sobre_la_copia_sin_remuxar": "mkvpropedit sobre la copia, sin remuxar",
   "tab2.modo_de_tasa": "Cadencia",

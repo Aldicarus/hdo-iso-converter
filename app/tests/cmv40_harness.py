@@ -59,7 +59,7 @@ if str(APP_DIR) not in sys.path:
 _FILLER = b"\x00" * 4096
 
 FAKE_BINARIES = ("dovi_tool", "ffmpeg", "ffprobe", "mkvmerge",
-                 "mediainfo", "mkvextract", "mkvpropedit")
+                 "mediainfo", "mkvextract", "mkvpropedit", "mount", "umount")
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -84,7 +84,10 @@ class RpuProps:
     l1_max_fall: float = 138.55
     l6_max_cll: int = 1000
     l6_max_fall: int = 400
-    l5: tuple = (0, 0, 0, 0)        # top, bottom, left, right
+    # top, bottom, left, right. El 138 es el que el export por niveles emitió
+    # siempre: el summary decía 0 y el export 138 del MISMO RPU, y hoy los
+    # dos salen de aquí (revisión de Codex del 2026-10-17).
+    l5: tuple = (138, 138, 0, 0)
 
     def to_summary(self) -> str:
         """Reconstruye el texto que `_parse_dovi_summary` sabe leer.
@@ -93,8 +96,10 @@ class RpuProps:
         P8 se anuncia como "Profile: 8.1" (sin sufijo de capa) y P7 lleva
         "(FEL)" o "(MEL)".
         """
+        # «Profile: 8», sin el «.1»: es lo que escribe dovi_tool 2.3.3 sobre
+        # un RPU P8 (capturado de `RPU_merged_p81.bin`, 2026-10-17).
         if self.profile == 8:
-            profile_line = "Profile: 8.1"
+            profile_line = "Profile: 8"
         elif self.el_type:
             profile_line = f"Profile: {self.profile} ({self.el_type})"
         else:
@@ -276,8 +281,10 @@ class FakeToolbox:
                      frames: int | None = 1000) -> None:
         """Duración y frame count que `ffprobe` reportará para un fichero.
 
-        `frames=None` es el `N/A` del real: sobre un MKV, `stream=nb_frames`
-        puede no venir, y entonces el pipeline cae a estimarlo por duración.
+        En un MKV, `frames` viaja en la etiqueta `NUMBER_OF_FRAMES`, como en
+        el real (`nb_frames` no viene nunca); `frames=None` es un MKV sin
+        etiquetas de estadísticas, y entonces el pipeline cae a estimarlo
+        por duración.
         """
         self._scenario["media"][name] = {"duration": duration, "frames": frames}
         self._flush()
@@ -415,6 +422,31 @@ class FakeToolbox:
             "binary": binary, "subcadena": subcadena,
             "rc": rc, "stderr": stderr, "senal": senal,
             "tras_producir": tras_producir})
+        self._flush()
+
+    def retrasar_cuando_arg(self, binary: str, subcadena: str, segundos: float, *,
+                            parcial: bool = False) -> None:
+        """El binario TARDA cuando su argv contiene `subcadena`.
+
+        Para lo que solo se puede probar con un proceso vivo: cancelar mata
+        el subproceso en curso, y un fake que termina en milisegundos ya ha
+        salido cuando llega la cancelación.
+
+        Con `parcial`, ANTES de esperar escribe unos bytes en su `-o`: es lo
+        que hace un mkvmerge de verdad a mitad del mux. Sin eso, «no queda
+        nada a medias» tras cancelar no prueba ninguna limpieza —no había
+        nada que limpiar—, que es justo lo que señaló la revisión de Codex
+        del 2026-10-17."""
+        self._scenario.setdefault("retraso_arg", []).append({
+            "binary": binary, "subcadena": subcadena, "segundos": segundos,
+            "parcial": parcial})
+        self._flush()
+
+    def define_iso(self, nombre: str, *, mpls: dict[str, int] | None = None) -> None:
+        """Lo que el `mount` falso deja en el punto de montaje para ese ISO:
+        `BDMV/PLAYLIST/<mpls>` con su tamaño y `BDMV/STREAM`. Sin `mpls`, el
+        ISO no lleva BDMV (un ISO que no es un Blu-ray)."""
+        self._scenario.setdefault("isos", {})[nombre] = {"mpls": mpls}
         self._flush()
 
     def mkvmerge_sin_salida(self) -> None:
@@ -725,7 +757,7 @@ DEFAULT_PROPS = {
     "frames": 1000, "scenes": 120, "has_l8": False, "has_l11": True,
     # Ver `RpuProps`: lo que leen los trust gates de la Fase B.
     "l1_max_cll": 1000.6, "l1_max_fall": 138.55,
-    "l6_max_cll": 1000, "l6_max_fall": 400, "l5": [0, 0, 0, 0],
+    "l6_max_cll": 1000, "l6_max_fall": 400, "l5": [138, 138, 0, 0],
     # El `SegmentUID` de Matroska, donde va la marca de procedencia. Viaja
     # con el resto de props —o sea en la cabecera del CONTENIDO— porque el
     # pipeline mueve el fichero (`.mkv.tmp` -> `.mkv` de la Fase H) y un
@@ -831,14 +863,14 @@ def produce(path, props=None):
 
 def summary(props):
     if props["profile"] == 8:
-        profile_line = "Profile: 8.1"
+        profile_line = "Profile: 8"
     elif props["el_type"]:
         profile_line = "Profile: %d (%s)" % (props["profile"], props["el_type"])
     else:
         profile_line = "Profile: %d" % props["profile"]
     # Formato real de dovi_tool 2.3.3: ver `RpuProps.to_summary`.
     dm = 2 if props["cm_version"] == "v4.0" else 1
-    top, bottom, left, right = props.get("l5") or [0, 0, 0, 0]
+    top, bottom, left, right = props.get("l5") or [138, 138, 0, 0]
     lines = [
         "Parsing RPU file...",
         "",
@@ -919,6 +951,15 @@ def main():
             json_args = {}
     record(json_args)
 
+    for regla in sc.get("retraso_arg", []):
+        if regla["binary"] == BINARY and any(regla["subcadena"] in a for a in ARGV):
+            import time as _time
+            salida = opt("-o")
+            if regla.get("parcial") and salida:
+                Path(salida).parent.mkdir(parents=True, exist_ok=True)
+                Path(salida).write_bytes(b"\x1aE\xdf\xa3" + b"\x00" * 4096)
+            _time.sleep(float(regla["segundos"]))
+
     if forced is None:
         for rule in sc.get("fail_arg", []):
             if rule["binary"] != BINARY:
@@ -978,6 +1019,57 @@ def main():
         return mkvextract(sc)
     if BINARY == "mkvpropedit":
         return mkvpropedit(sc)
+    if BINARY == "mount":
+        return mount(sc)
+    if BINARY == "umount":
+        return umount(sc)
+    return 0
+
+
+def mount(sc):
+    """`mount -t udf -o ro,loop <iso> <punto>`: deja en el punto lo que el
+    test declaró con `define_iso`. Un ISO sin declarar se monta vacío, como
+    uno que no es un Blu-ray."""
+    positional = [a for a in ARGV if not a.startswith("-") and a not in ("udf", "ro,loop")]
+    if len(positional) < 2:
+        sys.stderr.write("mount: bad usage\n")
+        return 1
+    iso, punto = Path(positional[0]), Path(positional[1])
+    if not iso.exists():
+        sys.stderr.write("mount: %s: special device does not exist.\n" % iso)
+        return 32
+    decl = sc.get("isos", {}).get(iso.name) or {}
+    if decl.get("mpls") is not None:
+        lista = punto / "BDMV" / "PLAYLIST"
+        lista.mkdir(parents=True, exist_ok=True)
+        (punto / "BDMV" / "STREAM").mkdir(parents=True, exist_ok=True)
+        for nombre, tam in decl["mpls"].items():
+            (lista / nombre).write_bytes(b"\x00" * int(tam))
+    (STATE / "montados.txt").open("a").write(str(punto) + "\n")
+    return 0
+
+
+def umount(sc):
+    """Vacía el punto de montaje: lo que el ISO mostraba deja de estar.
+
+    SOLO si es un punto montado por el `mount` falso: el real sale con 32
+    («not mounted») ante cualquier otra ruta. Vaciaba lo que le dieran, así
+    que desmontar `/mnt/bd` entero en vez del punto pasaba en verde
+    (revisión de Codex del 2026-10-17)."""
+    positional = [a for a in ARGV if not a.startswith("-")]
+    if not positional:
+        return 1
+    punto = Path(positional[-1])
+    montados_f = STATE / "montados.txt"
+    montados = montados_f.read_text().splitlines() if montados_f.exists() else []
+    if str(punto) not in montados:
+        sys.stderr.write("umount: %s: not mounted.\n" % punto)
+        return 32
+    montados_f.write_text("".join(m + "\n" for m in montados if m != str(punto)))
+    if punto.exists():
+        import shutil as _sh
+        for hijo in punto.iterdir():
+            _sh.rmtree(hijo, ignore_errors=True) if hijo.is_dir() else hijo.unlink()
     return 0
 
 
@@ -1224,20 +1316,46 @@ def dovi_tool(sc, sub, json_args):
                         rows.append({"frame": i, "min_pq": 0,
                                      "avg_pq": 500, "max_pq": 2000 + i})
                     elif lv == "level5":
+                        # Los del summary del mismo RPU: eran constantes.
+                        top, bottom, left, right = props.get("l5") or [138, 138, 0, 0]
                         rows.append({"frame": i,
-                                     "active_area_left_offset": 0,
-                                     "active_area_right_offset": 0,
-                                     "active_area_top_offset": 138,
-                                     "active_area_bottom_offset": 138})
+                                     "active_area_left_offset": left,
+                                     "active_area_right_offset": right,
+                                     "active_area_top_offset": top,
+                                     "active_area_bottom_offset": bottom})
                     elif lv == "level6":
+                        # `min_display_mastering_luminance` va en 0,0001 nits:
+                        # 1 es el 0,0001/1000 que dice el summary (capturado
+                        # de Supergirl, 2026-10-17). Faltaba, y el `min_nits`
+                        # del perfil de luminancia salía 0 en toda la suite.
                         rows.append({"frame": i,
                                      "max_display_mastering_luminance": 1000,
-                                     "max_content_light_level": 1000,
-                                     "max_frame_average_light_level": 400})
+                                     "min_display_mastering_luminance": 1,
+                                     "max_content_light_level": int(props["l6_max_cll"]),
+                                     "max_frame_average_light_level": int(props["l6_max_fall"])})
+                    elif lv == "level2":
+                        # Un registro por (frame, target), como el real. NO
+                        # había rama para L2: el export no emitía nunca ni una
+                        # fila, y los combos L2 y los trim targets salían
+                        # vacíos en toda la suite. Los tres targets del summary
+                        # (100/600/1000 nits = PQ 2081/2851/3079).
+                        for pq in (niveles.get("l2_targets") or (2081, 2851, 3079)):
+                            rows.append({
+                                "frame": i, "target_max_pq": pq,
+                                "trim_slope": 2048, "trim_offset": 2048,
+                                "trim_power": 2048, "trim_chroma_weight": 2048,
+                                "trim_saturation_gain": 2048, "ms_weight": 2048,
+                            })
                     elif lv == "level8":
                         # Un registro por (frame, target display), como el
                         # real: en Zootopia salen 2 índices × 155.001 frames.
-                        for idx in (niveles.get("l8_indices") or []):
+                        # Sin índices declarados, el RPU con L8 trae UNO (el
+                        # 1, como Supergirl): el summary del mismo RPU dice
+                        # «L8 trims», y un export vacío lo contradecía.
+                        indices = niveles.get("l8_indices")
+                        if indices is None:
+                            indices = [1] if props.get("has_l8") else []
+                        for idx in indices:
                             rows.append({
                                 "frame": i, "length": 25,
                                 "target_display_index": idx,
@@ -1456,8 +1574,31 @@ def ffprobe(sc):
                 sys.stdout.write(f"{idx}\n")
         return 0
     if "nb_frames" in joined:
+        # El formato del `ffprobe` real (n7.1.5), capturado en el NAS: sobre
+        # un MKV, `nb_frames` NO viene nunca —en JSON falta la clave y en CSV
+        # sale `N/A,`, con la coma de la side data del DV— y el recuento
+        # exacto está en la etiqueta `NUMBER_OF_FRAMES` que escribe mkvmerge.
+        # Un HEVC crudo no trae ni lo uno ni lo otro. Este fake devolvía el
+        # número a pelo para cualquier fichero, así que la comprobación
+        # estricta de frames de la Fase H solo existía en los tests.
+        # `frames=None` es un MKV sin etiquetas de estadísticas.
         frames = info.get("frames", 1000)
-        sys.stdout.write("N/A\n" if frames is None else "%d\n" % int(frames))
+        # Por la extensión con el `.tmp` de trabajo quitado: el real mira el
+        # contenido, y la Fase H sondea el `.mkv.tmp` antes de renombrarlo.
+        es_mkv = name.lower().removesuffix(".tmp").endswith(".mkv")
+        if "json" in joined:
+            st = {}
+            if es_mkv:
+                st["side_data_list"] = [{}]
+                # Las etiquetas solo si se piden: sin `stream_tags` el real
+                # no las emite, y volver a pedir solo `nb_frames` pasaba.
+                if frames is not None and "stream_tags" in joined:
+                    st["tags"] = {"NUMBER_OF_FRAMES": "%d" % int(frames),
+                                  "_STATISTICS_TAGS": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES"}
+            sys.stdout.write(json.dumps({"programs": [], "stream_groups": [],
+                                         "streams": [st]}, indent=4) + "\n")
+        else:
+            sys.stdout.write("N/A,\n" if es_mkv else "N/A\n")
     elif "format=duration" in joined:
         sys.stdout.write("%.3f\n" % float(info.get("duration", 7200.0)))
     return 0

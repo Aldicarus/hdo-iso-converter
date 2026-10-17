@@ -731,6 +731,7 @@
   "tab2.mkv_abierto_p1": "MKV opened: {p1}",
   "tab2.mkv_actualizado_p1": "MKV updated: {p1}",
   "tab2.mkv_copiado_a_output_con_tus": "MKV copied to Output with your changes: {filename}",
+  "tab2.copia_hecha_cambios_sin_aplicar": "The copy is already in Output ({filename}), but the changes were not applied{p1}. The tab now points to the copy: you can apply them again without a second copy.",
   "tab2.mkv_en_biblioteca_read_only": "MKV in the library (read-only)",
   "tab2.mkvpropedit_sobre_la_copia_sin_remuxar": "mkvpropedit on the copy, with no remux",
   "tab2.modo_de_tasa": "Frame rate mode",

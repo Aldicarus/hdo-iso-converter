@@ -80,6 +80,8 @@ class ApiTestCase(unittest.TestCase):
 
         from phases import phase_e as _phase_e
         from services import settings_store as _settings
+        from services import rec999_drive as _drive, rec999_sheet as _sheet, tmdb as _tmdb
+        from routers import tab2 as _r_tab2
         import paths as _paths
         self._parches = [
             # `settings_store` resuelve CONFIG_DIR en el import y escribe
@@ -116,6 +118,16 @@ class ApiTestCase(unittest.TestCase):
             (pipeline, "OUTPUT_DIR", self.output_dir),
             (pipeline, "CMV40_WORK_BASE", self.work_base),
             (_phase_e, "OUTPUT_DIR", str(self.output_dir)),
+            # Más rutas que se resuelven en el import a partir de CONFIG_DIR:
+            # el estado persistido del apply de Tab 2 y las tres cachés de
+            # servicios externos. Sin redirigirlas, un test de la copia desde
+            # biblioteca escribía `mkv_apply_state.json` en el /config real
+            # (auditoría del 2026-10-17). `test_aislamiento_de_la_suite`
+            # comprueba que ninguna ruta derivada se queda fuera de esta lista.
+            (_r_tab2, "_MKV_APPLY_STATE_FILE", self.config_dir / "mkv_apply_state.json"),
+            (_tmdb, "CACHE_PATH", self.config_dir / "tmdb_cache.json"),
+            (_drive, "CACHE_PATH", self.config_dir / "rec999_drive_cache.json"),
+            (_sheet, "CACHE_PATH", self.config_dir / "rec999_sheet_cache.csv"),
         ]
         self._originales = [(mod, attr, getattr(mod, attr, None))
                             for mod, attr, _ in self._parches]

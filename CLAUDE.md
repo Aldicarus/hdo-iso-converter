@@ -127,7 +127,9 @@ ISO2MKVFEL/
     ├── static/img/tmdb.svg  ← El logo de TMDb. Activo de marca, NO un glifo de `GLIFOS` (ver abajo)
     └── tools/
         ├── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
-        └── generar_avisos_python.py  ← Emite el apéndice de licencias leyendo los metadatos INSTALADOS
+        ├── generar_avisos_python.py  ← Emite el apéndice de licencias leyendo los metadatos INSTALADOS
+        ├── mutar.py              ← Verificación por mutación (`mutaciones.json`): aplica, ejecuta, restaura
+        └── capturar_contrato.py  ← Captura en el NAS las salidas reales para `tests/fixtures_contrato/`
 ```
 
 ## Volúmenes Docker
@@ -328,6 +330,10 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 - Polling: `GET /api/mkv/apply/progress` devuelve `_mkv_apply_state`. Frontend hace polling cada 1s mientras el POST está en curso → barra de progreso real con bytes/ETA. Single-job singleton (mismo patrón que `_light_profile_state`).
 - **Cancelación cooperativa**: botón "🛑 Cancelar copia" en el modal mientras `step=copying`. Llama a `POST /api/mkv/apply/cancel` que setea `_mkv_apply_cancel["requested"]=True`. El thread de copia chequea el flag al inicio de cada chunk (<1s detección), aborta limpiamente y borra el destino parcial. El endpoint principal raise `MkvApplyCancelled` → HTTP 499. Frontend muestra "Cancelado — biblioteca intacta y destino parcial borrado". El botón se oculta al pasar a `step=applying` (mkvpropedit es ms, no aporta cancelar).
 - **Timeout largo**: `apiFetch` para el POST usa `MKV_APPLY_LONG_TIMEOUT_MS = 4h` cuando hay copia. Sin esto el fetch abortaba a los 30s y el modal mostraba "timeout" mientras la copia seguía en background — confusión total. Polling es la fuente de verdad del progreso visible.
+- **«Aplicar cambios» estuvo roto del 2026-09-08 al 2026-10-17 y nada lo dijo.** Al quitar el modal propio de Tab 2 (`6750d4d`) se fueron `let polling` y `_esperarCopiaEncolada`, y se quedaron sus usos. `tab2.js` es `'use strict'`, así que el `polling = false` del `finally` **lanzaba en cada pulsación**: el servidor aplicaba mkvpropedit y la interfaz moría sin el aviso de éxito ni el re-análisis; con copia, ni esperaba al trabajo. La guarda de carga en Chrome no podía verlo —un `ReferenceError` en una función que nadie llama al cargar no es un error de carga— y ningún test ejecutaba `_doApplyMkvEdits`. Hoy lo ejecuta `test_tab2_aplicar_cambios` en sus cinco desenlaces, y `test_referencias_del_frontend` caza la clase entera en el fuente: toda función llamada por su nombre y toda asignación suelta tienen que tener su declaración en alguna pieza (6.916 llamadas y 492 asignaciones; trinquete incluido).
+- **El destino se abre en exclusiva (`xb`), no truncando (`wb`).** El endpoint comprueba que no existe al ENCOLAR, y la cola puede despachar cuarenta minutos después: si en ese rato aparecía un fichero con ese nombre, la copia lo truncaba, y si además fallaba, el `except` lo borraba. Hoy un `FileExistsError` es un error que no toca nada. Lo encontró la revisión de Codex de los tests nuevos (2026-10-17), como pregunta abierta: «¿el runner vuelve a validar el destino al comenzar?».
+- **El recovery solo borra el destino si la copia llegó a escribir** (`copying` / `applying`). Un trabajo interrumpido en la cola no escribió nada, y lo que haya en el destino no es suyo.
+- **Si la copia termina y mkvpropedit falla, la copia se queda y la pestaña pasa a ella.** El fichero está entero —solo le faltan los cambios— y reintentar desde la biblioteca daba 409 «ya existe un MKV con ese nombre». El runner deja en `result` `new_file_path` + `copied_from_library` aunque `ok` sea `False`, y `_esperarCopiaEncolada` lo conserva al devolver el error. Si lo que falla es la copia, no se anuncia ninguna (el parcial lo borra `_mkv_copy_to_output_with_progress`).
 
 ### Endpoints
 - `GET /api/mkv/files` — lista MKVs en `/mnt/output`
@@ -456,7 +462,8 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
    - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, se avisa y se inyecta el RPU original — el vídeo es correcto igualmente. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
 8. **Fase H — Validación**: dos rutas según el modo:
-   - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Verifica el frame count con `ffprobe` —**falla** con más de ±2 frames cuando el recuento lo da `ffprobe`; si es una estimación por duración, solo lo registra—, el Dolby Vision del propio MKV (ver abajo) y `mkvmerge -J`. ~segundos. Hasta el 2026-10-17 el frame count solo se registraba y el resultado era un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito a mano: un MKV truncado se entregaba.
+   - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Verifica el frame count —**falla** con más de ±2 frames cuando el recuento es exacto; si es una estimación por duración, solo lo registra—, el Dolby Vision del propio MKV (ver abajo) y `mkvmerge -J`. ~segundos. Hasta el 2026-10-17 el frame count solo se registraba y el resultado era un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito a mano: un MKV truncado se entregaba.
+     - **El recuento exacto es la etiqueta `NUMBER_OF_FRAMES` que escribe mkvmerge, NO `nb_frames`** (`_frames_de_ffprobe`). Sobre un MKV real, `ffprobe … stream=nb_frames` no lo da NUNCA —en JSON la clave falta, en CSV sale `N/A,`, con la coma de la side data del DV—, así que la primera versión del arreglo solo era estricta **en los tests**: el `ffprobe` falso daba el número para cualquier fichero. Lo destapó la captura del contrato (ver «Los fakes tienen contrato»). Antes de activarlo se midió en el NAS: en los **29** MKV entregados que se emparejan con su proyecto, la etiqueta coincide EXACTAMENTE con los frames esperados, drop-in y merge. Con idioma la etiqueta lleva sufijo (`NUMBER_OF_FRAMES-eng`), y un HEVC crudo no trae nada.
    - **Merge CMv4.0** (rama merge sobre P7/P8 source): `dovi_tool extract-rpu` COMPLETO del HEVC pre-mux (BL_injected/EL_injected/source_injected/DV_dual según workflow) + `dovi_tool info --summary` → valida frame count del RPU vs expected (±2), `cm_version == v4.0`, `el_type` correcto, `L8 presente`. Después `mkvmerge -J`. ~5-8 min en UHD. NO usa muestreo HEAD+TAIL aunque sería más rápido: el merge frame-a-frame es la operación más sensible del pipeline y un bug que cortara el RPU a la mitad pasaría desapercibido con muestreo. Si falla, el `.mkv.tmp` se preserva para inspección.
    - **Revalidar es idempotente también por la rama merge.** Un segundo disparo llega con el MKV ya entregado y los HEVC previos al mux BORRADOS por el primero: con el RPU extraído (que ya sobrevive) se revalida igual, y sin él se comprueba el propio MKV y se dice. Antes lanzaba «No se encontró el HEVC pre-mux» sobre un proyecto terminado y correcto.
    - **Las dos rutas miran el MKV que se entrega** (`_dv_del_mkv_entregado` y `_comprobar_pistas_del_origen`): un muestreo de 30 s (`ffmpeg -t 30` + `extract-rpu --limit 720`, el mismo del pre-flight) comprueba el perfil (8 si la salida es single-layer, 7 si no), la capa y CM v4.0 del RPU que lleva **el fichero**, y `mkvmerge -J` que conserve el audio y los subtítulos del MKV origen. La rama merge valida el HEVC PREVIO al mux, así que un remux que tomara el vídeo del origen —la mutación P3-2, que sobrevivía a la suite entera— o que dejara fuera su audio salía en verde. El muestreo lleva `--limit` a propósito: es la marca de «esto no es el `extract-rpu` completo» que ya usaban los tests del precache. Cubierto por `test_cmv40_fase_h_mira_el_mkv.py`, con la Fase G y la H en cadena.
@@ -3294,7 +3301,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **67 mutaciones** en
+de entonces seguían en verde. Hoy hay **117 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:
@@ -3327,6 +3334,65 @@ todas. Lo que se aprendió, por orden de cuántas veces se repitió:
   `tests/aislamiento.py` en `setUpModule`, `correr_suite.py` los fija para la
   suite entera, y `test_aislamiento_de_la_suite` lo vigila. Mismo patrón con
   el búfer del log de CMv4.0, que se filtraba entre tests con el mismo id.
+  - **Una ruta resuelta al importar a partir de un directorio** —`CACHE_PATH
+    = CONFIG_DIR / "tmdb_cache.json"`, `_MKV_APPLY_STATE_FILE`— no la arregla
+    parchear el directorio: ya está calculada. `api_harness` redirige las
+    cuatro que había, y `TestCadaRutaDerivadaSeRedirige` recorre el AST de
+    la app y falla con la quinta que alguien escriba.
+- **Tres zonas que nadie ejecutaba, y las tres porque hacía falta un
+  proceso vivo o un privilegio**: el montaje del ISO (5 % de cobertura),
+  cancelar un rip (7 %) y la copia desde biblioteca (dentro del 36 % de
+  `tab2`). El arnés gana un **`mount`/`umount` falsos** —crean el árbol
+  `BDMV/` que declara `define_iso` y dan el `rc=32` real si el ISO no
+  existe— y **`retrasar_cuando_arg(bin, subcadena, s)`**, que hace que un
+  binario tarde DESPUÉS de registrar la llamada, para que la cancelación
+  llegue con el proceso vivo. Lo cubren `test_montaje_del_iso`,
+  `test_cancelar_un_rip` y `test_copia_desde_biblioteca`.
+  - **El primer test de cancelar pasaba cancelando OTRA cosa.** Esperaba a
+    que hubiera un proceso registrado, y el `mkvmerge --identify` previo al
+    mux también se registra: cancelaba durante la identificación, el rip
+    acababa como cancelado y el test pasaba sin haber tocado el mux. Lo
+    destapó afirmar QUÉ ruta ejercía cada test. Hoy espera al argv del mux
+    (`--gui-mode`) y comprueba que el rip no había terminado.
+  - **La cancelación de la copia necesita una lectura lenta**, no un fichero
+    enorme: 24 MB se copian en milisegundos y la cancelación llegaría tarde.
+    El test envuelve el `open` del origen con un `read` que tarda 0,2 s por
+    trozo y comprueba que, al cancelar, lo copiado está ENTRE cero y el
+    total — si no, no prueba nada.
+  - **La revisión de Codex de estos tests encontró cinco más que pasaban en
+    verde**, y las cinco eran ciertas: el retraso del fake ocurría ANTES de
+    escribir la salida, así que «no queda parcial» tras cancelar no probaba
+    ninguna limpieza (hoy `retrasar_cuando_arg(..., parcial=True)` y el test
+    exige el parcial antes de cancelar); el `umount` falso vaciaba cualquier
+    ruta, y desmontar `/mnt/bd` entero pasaba (hoy da 32 «not mounted» como
+    el real, y el test afirma el argumento exacto); la liberación de
+    `active` a los 5 s no la miraba nadie (es `_SEGUNDOS_ANTES_DE_LIBERAR`
+    para poder ponerla a cero); las transiciones de la copia se comprobaban
+    en memoria y no en disco, que es lo que lee el recovery; y ningún test
+    provocaba un error de E/S a mitad de la copia.
+  - El recovery de la copia tiene el test que más importa: **un `done` que
+    sigue `active`** (el estado se queda así cinco segundos para que el modal
+    cierre) con el contenedor reiniciado en esa ventana. Ahí el destino es el
+    MKV bueno, y quitar la guarda de los estados terminales lo borraba.
+- **Los fakes tienen contrato: `test_contrato_de_los_fakes`.** La regla de
+  los fakes fieles se cumplía a mano y una vez —se copiaba una salida real y
+  nadie volvía a mirarla—. Hoy `fixtures_contrato/` guarda las salidas
+  REALES de dovi_tool 2.3.3, mkvmerge 88, MediaInfo 21.09 y ffmpeg n7.1.5
+  (capturadas en el NAS con `app/tools/capturar_contrato.py`, solo lectura) y
+  el test exige que cada fake emita la misma forma —claves, tipos, unidades,
+  decimales— y que el parser de producción saque lo mismo de las dos. Un test
+  aparte falla si el Dockerfile sube una versión: el contrato es con ESA.
+  La primera captura sacó cuatro infidelidades que ningún test podía ver:
+  - `ffprobe` daba `nb_frames` sobre un MKV (ver la Fase H);
+  - el export por niveles **no emitía nunca filas de `level2`** —no había
+    rama—, así que los combos L2 y los trim targets salían vacíos en toda la
+    suite; `level8` salía vacío aunque el summary del mismo RPU dijera «L8
+    trims»; y a `level6` le faltaba `min_display_mastering_luminance`;
+  - el summary de un P8 dice `Profile: 8`, no `Profile: 8.1`. Por eso la forma
+    del summary conserva los decimales: con `\d+(\.\d+)?` → `N`, volver a
+    `8.1` pasaba en verde.
+  - Y una mutación destapó otra: el `ffprobe` falso devolvía las etiquetas
+    aunque no se pidieran con `stream_tags`.
 
 **`app/tools/mutar.py`** comprueba que la base está en verde antes de mutar,
 restaura desde el contenido original guardado (nunca con `git checkout`),

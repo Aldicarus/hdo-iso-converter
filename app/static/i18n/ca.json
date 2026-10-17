@@ -731,6 +731,7 @@
   "tab2.mkv_abierto_p1": "MKV obert: {p1}",
   "tab2.mkv_actualizado_p1": "MKV actualitzat: {p1}",
   "tab2.mkv_copiado_a_output_con_tus": "MKV copiat a Output amb els teus canvis: {filename}",
+  "tab2.copia_hecha_cambios_sin_aplicar": "La còpia ja és a Output ({filename}), però els canvis no s'han aplicat{p1}. La pestanya apunta ara a la còpia: pots tornar a aplicar-los sense una segona còpia.",
   "tab2.mkv_en_biblioteca_read_only": "MKV a la Biblioteca (només lectura)",
   "tab2.mkvpropedit_sobre_la_copia_sin_remuxar": "mkvpropedit sobre la còpia, sense fer cap remux",
   "tab2.modo_de_tasa": "Cadència",

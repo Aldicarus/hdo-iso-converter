@@ -622,5 +622,437 @@
   "modulos": [
    "test_cmv40_el_contenido_viaja"
   ]
+ },
+ {
+  "id": "T1-c1 cancelar no mata el proceso",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "            proc.kill()\n        except ProcessLookupError:\n            pass\n\n    return {\"ok\": True, \"session_id\": session_id}",
+  "nuevo": "            pass\n        except ProcessLookupError:\n            pass\n\n    return {\"ok\": True, \"session_id\": session_id}",
+  "modulos": [
+   "test_cancelar_un_rip"
+  ]
+ },
+ {
+  "id": "T1-c2 cancelar no marca la cancelación",
+  "fichero": "app/routers/tab1.py",
+  "viejo": "    # Señalizar cancelación\n    _cancel_flags[session_id] = True\n",
+  "nuevo": "    # Señalizar cancelación\n",
+  "modulos": [
+   "test_cancelar_un_rip"
+  ]
+ },
+ {
+  "id": "T1-m1 el ISO no se desmonta al salir",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "        if self._mounted and self.bdmv_root:\n            await unmount_iso(self.bdmv_root)\n",
+  "nuevo": "        if self._mounted and self.bdmv_root:\n            pass\n",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "T1-m2 un mount que falla deja el punto",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "        shutil.rmtree(mount_point, ignore_errors=True)\n        stderr = result.stderr.strip()",
+  "nuevo": "        stderr = result.stderr.strip()",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "T1-m3 montar en lectura-escritura",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "\"-o\", \"ro,loop\"",
+  "nuevo": "\"-o\", \"loop\"",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "T1-m4 sin umount -l de reserva",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "            # Intentar lazy unmount como fallback\n            await asyncio.to_thread(",
+  "nuevo": "            # Intentar lazy unmount como fallback\n            return\n            await asyncio.to_thread(",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "T1-m5 un ISO sin BDMV no se desmonta",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "    if not bdmv.exists():\n        await unmount_iso(str(mount_point))\n",
+  "nuevo": "    if not bdmv.exists():\n",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "T2-c1 la copia no mira la cancelación",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "                if _mkv_apply_cancel[\"requested\"]:\n                    raise MkvApplyCancelled()\n",
+  "nuevo": "",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-c2 cancelar no borra el parcial",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    except MkvApplyCancelled:\n        # Cancelación: borra destino parcial y propaga. La rutina superior\n        # marca step=\"cancelled\" en el estado para que el frontend cierre el\n        # modal con el mensaje correcto en el siguiente poll.\n        try:\n            if dst.exists():\n                dst.unlink()",
+  "nuevo": "    except MkvApplyCancelled:\n        # Cancelación: borra destino parcial y propaga. La rutina superior\n        # marca step=\"cancelled\" en el estado para que el frontend cierre el\n        # modal con el mensaje correcto en el siguiente poll.\n        try:\n            if dst.exists():\n                pass",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-c3 un destino que ya existe se sobrescribe",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "            if dst_path.exists():\n                raise HTTPException(",
+  "nuevo": "            if False:\n                raise HTTPException(",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-c4 el recovery borra también lo terminado",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    if persisted.get(\"step\") in (\"done\", \"cancelled\", \"error\"):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-c5 el recovery no borra el parcial",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "                dst_path.unlink()\n                _logger.info(",
+  "nuevo": "                pass\n                _logger.info(",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-c6 mkvpropedit sobre la biblioteca",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        body.file_path = str(dst_path)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-c7 sin confirmar también copia",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    if needs_copy and not body.copy_to_output:",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-c8 cancelar fuera de la copia",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    if _mkv_apply_state.get(\"step\") != \"copying\":\n        return",
+  "nuevo": "    if False:\n        return",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "P-frames1 vuelve a pedir solo nb_frames",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            \"-show_entries\", \"stream=nb_frames:stream_tags\",\n            \"-of\", \"json\",",
+  "nuevo": "            \"-show_entries\", \"stream=nb_frames\",\n            \"-of\", \"json\",",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "P-frames2 sin la etiqueta con idioma",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "                   if str(k).upper().split(\"-\")[0] == \"NUMBER_OF_FRAMES\"]",
+  "nuevo": "                   if str(k).upper() == \"NUMBER_OF_FRAMES\"]",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-1 el fake da nb_frames en un MKV",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "            st = {}\n            if es_mkv:",
+  "nuevo": "            st = {\"nb_frames\": \"%d\" % int(frames or 0)}\n            if es_mkv:",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-2 el fake da el número a pelo en CSV",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "            sys.stdout.write(\"N/A,\\n\" if es_mkv else \"N/A\\n\")",
+  "nuevo": "            sys.stdout.write(\"%d\\n\" % int(frames or 0))",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-3 sin filas de level2",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "                    elif lv == \"level2\":",
+  "nuevo": "                    elif lv == \"level2_\":",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-4 level6 sin el mínimo",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "                                     \"min_display_mastering_luminance\": 1,\n",
+  "nuevo": "",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-5 L8 vacío sin índices declarados",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "                            indices = [1] if props.get(\"has_l8\") else []",
+  "nuevo": "                            indices = []",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-6 Profile 8.1 en el binario",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "    if props[\"profile\"] == 8:\n        profile_line = \"Profile: 8\"",
+  "nuevo": "    if props[\"profile\"] == 8:\n        profile_line = \"Profile: 8.1\"",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-7 Profile 8.1 en to_summary",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "        if self.profile == 8:\n            profile_line = \"Profile: 8\"",
+  "nuevo": "        if self.profile == 8:\n            profile_line = \"Profile: 8.1\"",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "C-8 el .mkv.tmp no es un MKV",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "        es_mkv = name.lower().removesuffix(\".tmp\").endswith(\".mkv\")",
+  "nuevo": "        es_mkv = name.lower().endswith(\".mkv\")",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "T2-ap1 vuelve el polling suelto",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (result?.queued) result = await _esperarCopiaEncolada();\n",
+  "nuevo": "  if (result?.queued) result = await _esperarCopiaEncolada();\n  polling = false;\n",
+  "modulos": [
+   "test_tab2_aplicar_cambios"
+  ]
+ },
+ {
+  "id": "T2-ap2 la espera de la copia no existe",
+  "fichero": "app/static/tab2.js",
+  "viejo": "async function _esperarCopiaEncolada() {",
+  "nuevo": "async function _esperarCopiaEncolada_() {",
+  "modulos": [
+   "test_tab2_aplicar_cambios"
+  ]
+ },
+ {
+  "id": "T2-ap3 un error tras copiar deja la pestaña en la biblioteca",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    if (result?.copied_from_library && result.new_file_path) {\n      project.filePath = result.new_file_path;",
+  "nuevo": "    if (false) {\n      project.filePath = result.new_file_path;",
+  "modulos": [
+   "test_tab2_aplicar_cambios"
+  ]
+ },
+ {
+  "id": "T2-ap4 el error pisa el resultado con la copia",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    if (st.step === 'error') return { ...(st.result || {}), ok: false, error: st.error };",
+  "nuevo": "    if (st.step === 'error') return { ok: false, error: st.error };",
+  "modulos": [
+   "test_tab2_aplicar_cambios"
+  ]
+ },
+ {
+  "id": "T2-ap5 el servidor no dice dónde quedó la copia",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        if copiado:\n            # La copia está ENTERA",
+  "nuevo": "        if False:\n            # La copia está ENTERA",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "T2-ap6 el servidor anuncia una copia que falló",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        await _mkv_copy_to_output_with_progress(src_path, dst_path)\n        copiado = True\n",
+  "nuevo": "        copiado = True\n        await _mkv_copy_to_output_with_progress(src_path, dst_path)\n",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "R-1 una asignación a un nombre sin declarar",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (result?.queued) result = await _esperarCopiaEncolada();\n",
+  "nuevo": "  if (result?.queued) result = await _esperarCopiaEncolada();\n  polling = false;\n",
+  "modulos": [
+   "test_referencias_del_frontend"
+  ]
+ },
+ {
+  "id": "R-2 una llamada a una función que ya no existe",
+  "fichero": "app/static/tab2.js",
+  "viejo": "async function _esperarCopiaEncolada() {",
+  "nuevo": "async function _esperarLaCopia() {",
+  "modulos": [
+   "test_referencias_del_frontend"
+  ]
+ },
+ {
+  "id": "R-3 un helper de core.js renombrado",
+  "fichero": "app/static/core.js",
+  "viejo": "function pinturaDeSituacion(",
+  "nuevo": "function pinturaDeLaSituacion(",
+  "modulos": [
+   "test_referencias_del_frontend"
+  ]
+ },
+ {
+  "id": "K-1 la ruta directa no limpia el parcial al cancelar",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        borrado = _limpiar_parcial(work_path)\n",
+  "nuevo": "        borrado = None\n",
+  "modulos": [
+   "test_cancelar_un_rip"
+  ]
+ },
+ {
+  "id": "K-2 la Fase D no limpia el intermedio al cancelar",
+  "fichero": "app/phases/phase_d.py",
+  "viejo": "        borrado = _limpiar_parcial(out_path)\n",
+  "nuevo": "        borrado = None\n",
+  "modulos": [
+   "test_cancelar_un_rip"
+  ]
+ },
+ {
+  "id": "K-3 se desmonta la base y no el punto",
+  "fichero": "app/phases/iso_mount.py",
+  "viejo": "            await unmount_iso(self.bdmv_root)\n",
+  "nuevo": "            await unmount_iso(str(MOUNT_BASE))\n",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
+ },
+ {
+  "id": "K-4 la copia no se libera al terminar",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "            await asyncio.sleep(_SEGUNDOS_ANTES_DE_LIBERAR)\n            _mkv_apply_state[\"active\"] = False\n",
+  "nuevo": "            await asyncio.sleep(_SEGUNDOS_ANTES_DE_LIBERAR)\n",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "K-5 las transiciones no se persisten",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    # que el frontend NO debe perder ante crash (especialmente done/error).\n    _persist_mkv_apply_state()\n",
+  "nuevo": "    # que el frontend NO debe perder ante crash (especialmente done/error).\n",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "K-6 un error de E/S deja el parcial",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        # Best-effort cleanup: borra destino parcial para no dejar basura\n        try:\n            if dst.exists():\n                dst.unlink()\n",
+  "nuevo": "        # Best-effort cleanup: borra destino parcial para no dejar basura\n        try:\n            if dst.exists():\n                pass\n",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "K-7 el recuento exacto se toma por estimación",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            return n, True\n",
+  "nuevo": "            return n, False\n",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "K-8 la Fase H ignora que el recuento es exacto",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        await _check_frame_count(actual_frames, expected_frames, log_callback,\n                                 exacto=exacto)\n        # El DV sale del MKV",
+  "nuevo": "        await _check_frame_count(actual_frames, expected_frames, log_callback,\n                                 exacto=False)\n        # El DV sale del MKV",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "K-9 el destino se abre truncando",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "dst.open(\"xb\") as fout:",
+  "nuevo": "dst.open(\"wb\") as fout:",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "K-10 el recovery borra lo que no escribió",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    if dst and persisted.get(\"step\") in (\"copying\", \"applying\"):",
+  "nuevo": "    if dst:",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "K-11 un destino ajeno se borra al fallar",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "    except FileExistsError as e:\n        # No es nuestro: ni se toca ni se borra.\n        raise RuntimeError(tr('tab2.ya_existe_un_mkv_con_ese', p1=dst.name)) from e\n",
+  "nuevo": "",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "K-12 el export vuelve al L5 fijo",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "                        top, bottom, left, right = props.get(\"l5\") or [138, 138, 0, 0]\n",
+  "nuevo": "                        top, bottom, left, right = [138, 138, 0, 0]\n",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "K-13 el export vuelve al L6 fijo",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "\"max_content_light_level\": int(props[\"l6_max_cll\"]),",
+  "nuevo": "\"max_content_light_level\": 1000,",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "K-14 el umount falso vacía cualquier ruta",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "    if str(punto) not in montados:\n        sys.stderr.write(\"umount: %s: not mounted.\\n\" % punto)\n        return 32\n",
+  "nuevo": "",
+  "modulos": [
+   "test_montaje_del_iso"
+  ]
  }
 ]

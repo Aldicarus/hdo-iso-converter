@@ -291,8 +291,14 @@ class TestFaseEDirecta(FaseTestCase):
         self.assertTrue(chapters.endswith(".xml"), chapters)
 
     async def test_el_xml_de_capitulos_se_borra_al_terminar(self):
+        # El XML que ESTA ejecución le pasó a mkvmerge, no «cualquier XML del
+        # temporal del sistema»: ese directorio lo comparten todos los
+        # procesos, y con otra tanda de tests corriendo a la vez el glob
+        # encontró uno ajeno y falló sin que esta fase hubiera dejado nada.
         await self._correr()
-        self.assertEqual(list(Path(tempfile.gettempdir()).glob("*chapters*.xml")), [],
+        chapters = self.tb.find("mkvmerge")[-1].opt("--chapters")
+        self.assertIsNotNone(chapters)
+        self.assertFalse(Path(chapters).exists(),
                          "el XML temporal de capítulos no se ha borrado")
 
     async def test_sin_capitulos_no_pasa_la_opcion(self):

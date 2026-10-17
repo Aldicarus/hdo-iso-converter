@@ -2749,7 +2749,8 @@ def _parse_dovi_summary(summary: str) -> DoviInfo:
     info = DoviInfo(raw_summary=summary)
 
     # P7: "Profile: 7 (FEL)" / "Profile: 7 (MEL)"
-    # P8: "Profile: 8.1" (single-layer, sin sufijo)
+    # P8: "Profile: 8" (single-layer, sin sufijo ni el «.1»: es lo que
+    #     escribe dovi_tool 2.3.3, capturado en el NAS el 2026-10-17)
     # P5: "Profile: 5"
     m = re.search(r"Profile:\s+(\d+)(?:\.\d+)?(?:\s+\((FEL|MEL)\))?", summary)
     if m:

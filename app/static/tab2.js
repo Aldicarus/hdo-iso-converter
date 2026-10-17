@@ -3019,6 +3019,28 @@ const MKV_APPLY_LONG_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 // de tr('tab2.error_generico') cuando el POST devuelve 499).
 let _mkvApplyUserCancelled = false;
 
+/** Espera a que la copia encolada termine y devuelve su resultado.
+ *
+ *  Desde la cola única el POST responde al instante con `{queued:true}`: la
+ *  copia son decenas de GB y puede tener por delante un rip de 40 minutos.
+ *  El estado del job es el canal —el mismo que alimenta la columna— y ahí
+ *  deja el runner tanto el resultado como el error. `null` es «cancelada» o
+ *  «terminó sin resultado»; quien llama distingue las dos por
+ *  `_mkvApplyUserCancelled`.
+ */
+async function _esperarCopiaEncolada() {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 1000));
+    const st = await apiFetch('/api/mkv/apply/progress', { silent: true });
+    if (!st) continue;
+    if (st.step === 'cancelled') { _mkvApplyUserCancelled = true; return null; }
+    // `result` con el error puede traer dónde quedó la copia, si lo que falló
+    // fue mkvpropedit y no la copia.
+    if (st.step === 'error') return { ...(st.result || {}), ok: false, error: st.error };
+    if (st.step === 'done' || st.active === false) return st.result || null;
+  }
+}
+
 async function _doApplyMkvEdits(copyToOutput) {
   const project = mkvProject;
   if (!project) return;
@@ -3052,21 +3074,23 @@ async function _doApplyMkvEdits(copyToOutput) {
               'success');
   }
 
-  let result;
-  try {
-    // Para copia: silent + timeout largo. El polling cuenta el progreso
-    // visualmente; el modal sabe interpretar 499 (cancelado) y otros
-    // errores via el último estado del polling, sin necesidad del toast
-    // genérico de apiFetch.
-    const opts = { method: 'POST', body: JSON.stringify(body) };
-    if (copyToOutput) opts.silent = true;
-    result = await apiFetch('/api/mkv/apply', opts, copyToOutput ? MKV_APPLY_LONG_TIMEOUT_MS : API_FETCH_TIMEOUT);
-    // Con copia, la respuesta es solo el acuse de encolado; el resultado de
-    // verdad llega por el estado del job.
-    if (result?.queued) result = await _esperarCopiaEncolada();
-  } finally {
-    polling = false;
-  }
+  // Para copia: silent + timeout largo. El modal común sabe interpretar 499
+  // (cancelado) y otros errores via el estado del job, sin necesidad del
+  // toast genérico de apiFetch.
+  //
+  // Aquí había un `try { … } finally { polling = false; }` cuyo `let polling`
+  // se llevó por delante el commit que quitó el modal propio (6750d4d,
+  // 2026-09-08), junto con `_esperarCopiaEncolada`, que seguía llamándose.
+  // En un script `'use strict'` asignar a una variable no declarada LANZA:
+  // «Aplicar cambios» moría en CADA pulsación después de que el servidor
+  // aplicara mkvpropedit —sin aviso de éxito, sin re-análisis—, y con copia
+  // ni siquiera esperaba al trabajo. Ningún test ejecutaba esta función.
+  const opts = { method: 'POST', body: JSON.stringify(body) };
+  if (copyToOutput) opts.silent = true;
+  let result = await apiFetch('/api/mkv/apply', opts, copyToOutput ? MKV_APPLY_LONG_TIMEOUT_MS : API_FETCH_TIMEOUT);
+  // Con copia, la respuesta es solo el acuse de encolado; el resultado de
+  // verdad llega por el estado del job.
+  if (result?.queued) result = await _esperarCopiaEncolada();
 
   // Cancelación por el usuario: prima sobre cualquier otro estado.
   if (_mkvApplyUserCancelled) {
@@ -3077,6 +3101,20 @@ async function _doApplyMkvEdits(copyToOutput) {
   }
 
   if (!result?.ok) {
+    // La copia terminó y lo que falló fue mkvpropedit: el fichero está entero
+    // en /mnt/output, sin los cambios. La pestaña pasa a él —es editable y
+    // reintentar no vuelve a copiar decenas de GB—; quedándose en la
+    // biblioteca, reintentar daba 409 «ya existe un MKV con ese nombre».
+    if (result?.copied_from_library && result.new_file_path) {
+      project.filePath = result.new_file_path;
+      project.fileName = result.new_file_path.split('/').pop();
+      _mkvRefreshSubTab(project);
+      refrescarMkvRecientes();
+      showToast(tr('tab2.copia_hecha_cambios_sin_aplicar', {
+        filename: project.fileName, p1: result.error ? ': ' + result.error : '',
+      }), 'error', 12000);
+      return;
+    }
     // El detalle del fallo vive en el estado del job (lo enseña el modal
     // común) y en el historial; aquí basta con decirlo y no cerrar el modal,
     // para que se pueda leer.

@@ -1,0 +1,376 @@
+{
+ "_origen": "Capturado en el NAS el 2026-10-17 con app/tools/capturar_contrato.py (solo lectura): el MKV de Supergirl (2026) de Tab 3 y su workdir CMv4.0.",
+ "versiones": {
+  "dovi_tool": "dovi_tool 2.3.3",
+  "mkvmerge": "mkvmerge v88.0 ('All I Know') 64-bit",
+  "mediainfo": "MediaInfoLib - v21.09",
+  "ffmpeg": "ffmpeg version n7.1.5-12-g1fdbca85aa-20260731 Copyright (c) 2000-2026 the FFmpeg developers",
+  "ffprobe": "ffprobe version n7.1.5-12-g1fdbca85aa-20260731 Copyright (c) 2007-2026 the FFmpeg developers"
+ },
+ "dovi_summary": {
+  "RPU_source.bin": "Parsing RPU file...\n\nSummary:\n  Frames: 155506\n  Profile: 7 (MEL)\n  DM version: 1 (CM v2.9)\n  Scene/shot count: 2414\n  RPU mastering display: 0.0001/1000 nits\n  RPU content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 138.55 nits\n  L6 metadata: Mastering display: 0.0001/1000 nits. MaxCLL: 371 nits, MaxFALL: 162 nits\n  L5 offsets: top=276, bottom=276, left=0, right=0\n  L2 trims: 100 nits, 600 nits, 1000 nits\n",
+  "RPU_target.bin": "Parsing RPU file...\n\nSummary:\n  Frames: 155506\n  Profile: 7 (MEL)\n  DM version: 2 (CM v4.0)\n  Scene/shot count: 2414\n  RPU mastering display: 0.0001/1000 nits\n  RPU content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 138.55 nits\n  L6 metadata: Mastering display: 0.0001/1000 nits. MaxCLL: 371 nits, MaxFALL: 162 nits\n  L5 offsets: top=276, bottom=276, left=0, right=0\n  L2 trims: 100 nits, 600 nits, 1000 nits\n  L8 trims: 100 nits\n  L9 MDP: DCI-P3 D65\n",
+  "RPU_merged_p81.bin": "Parsing RPU file...\n\nSummary:\n  Frames: 155506\n  Profile: 8\n  DM version: 2 (CM v4.0)\n  Scene/shot count: 2414\n  RPU mastering display: 0.0001/1000 nits\n  RPU content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 138.55 nits\n  L6 metadata: Mastering display: 0.0001/1000 nits. MaxCLL: 371 nits, MaxFALL: 162 nits\n  L5 offsets: top=276, bottom=276, left=0, right=0\n  L2 trims: 100 nits, 600 nits, 1000 nits\n  L8 trims: 100 nits\n  L9 MDP: DCI-P3 D65\n"
+ },
+ "dovi_export_levels": {
+  "stdout": "Parsing RPU file...\nExporting scenes list...\nExporting extension metadata levels 1, 2, 3, 5, 6, 8, 9, 11...\nDone.\n",
+  "ficheros": {
+   "level1": {
+    "tipo": "list",
+    "n": 155506,
+    "primeros": [
+     {
+      "frame": 0,
+      "min_pq": 0,
+      "max_pq": 2081,
+      "avg_pq": 819
+     },
+     {
+      "frame": 1,
+      "min_pq": 0,
+      "max_pq": 2081,
+      "avg_pq": 819
+     },
+     {
+      "frame": 2,
+      "min_pq": 0,
+      "max_pq": 2081,
+      "avg_pq": 819
+     },
+     {
+      "frame": 3,
+      "min_pq": 0,
+      "max_pq": 2081,
+      "avg_pq": 819
+     }
+    ]
+   },
+   "level2": {
+    "tipo": "list",
+    "n": 466260,
+    "primeros": [
+     {
+      "frame": 40,
+      "target_max_pq": 2081,
+      "trim_slope": 1800,
+      "trim_offset": 2012,
+      "trim_power": 1128,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 1782,
+      "ms_weight": 2048
+     },
+     {
+      "frame": 40,
+      "target_max_pq": 2851,
+      "trim_slope": 2065,
+      "trim_offset": 2048,
+      "trim_power": 1868,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 2020,
+      "ms_weight": 2048
+     },
+     {
+      "frame": 40,
+      "target_max_pq": 3079,
+      "trim_slope": 2050,
+      "trim_offset": 2048,
+      "trim_power": 2046,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 2048,
+      "ms_weight": 2048
+     },
+     {
+      "frame": 41,
+      "target_max_pq": 2081,
+      "trim_slope": 1800,
+      "trim_offset": 2012,
+      "trim_power": 1128,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 1782,
+      "ms_weight": 2048
+     }
+    ]
+   },
+   "level3": {
+    "tipo": "list",
+    "n": 155052,
+    "primeros": [
+     {
+      "frame": 0,
+      "min_pq_offset": 2048,
+      "max_pq_offset": 1007,
+      "avg_pq_offset": 1434
+     },
+     {
+      "frame": 1,
+      "min_pq_offset": 2048,
+      "max_pq_offset": 1007,
+      "avg_pq_offset": 1434
+     },
+     {
+      "frame": 2,
+      "min_pq_offset": 2048,
+      "max_pq_offset": 1007,
+      "avg_pq_offset": 1434
+     },
+     {
+      "frame": 3,
+      "min_pq_offset": 2048,
+      "max_pq_offset": 1007,
+      "avg_pq_offset": 1434
+     }
+    ]
+   },
+   "level5": {
+    "tipo": "list",
+    "n": 155506,
+    "primeros": [
+     {
+      "frame": 0,
+      "active_area_left_offset": 0,
+      "active_area_right_offset": 0,
+      "active_area_top_offset": 276,
+      "active_area_bottom_offset": 276
+     },
+     {
+      "frame": 1,
+      "active_area_left_offset": 0,
+      "active_area_right_offset": 0,
+      "active_area_top_offset": 276,
+      "active_area_bottom_offset": 276
+     },
+     {
+      "frame": 2,
+      "active_area_left_offset": 0,
+      "active_area_right_offset": 0,
+      "active_area_top_offset": 276,
+      "active_area_bottom_offset": 276
+     },
+     {
+      "frame": 3,
+      "active_area_left_offset": 0,
+      "active_area_right_offset": 0,
+      "active_area_top_offset": 276,
+      "active_area_bottom_offset": 276
+     }
+    ]
+   },
+   "level6": {
+    "tipo": "list",
+    "n": 155506,
+    "primeros": [
+     {
+      "frame": 0,
+      "max_display_mastering_luminance": 1000,
+      "min_display_mastering_luminance": 1,
+      "max_content_light_level": 371,
+      "max_frame_average_light_level": 162
+     },
+     {
+      "frame": 1,
+      "max_display_mastering_luminance": 1000,
+      "min_display_mastering_luminance": 1,
+      "max_content_light_level": 371,
+      "max_frame_average_light_level": 162
+     },
+     {
+      "frame": 2,
+      "max_display_mastering_luminance": 1000,
+      "min_display_mastering_luminance": 1,
+      "max_content_light_level": 371,
+      "max_frame_average_light_level": 162
+     },
+     {
+      "frame": 3,
+      "max_display_mastering_luminance": 1000,
+      "min_display_mastering_luminance": 1,
+      "max_content_light_level": 371,
+      "max_frame_average_light_level": 162
+     }
+    ]
+   },
+   "level8": {
+    "tipo": "list",
+    "n": 155420,
+    "primeros": [
+     {
+      "frame": 40,
+      "length": 10,
+      "target_display_index": 1,
+      "trim_slope": 2038,
+      "trim_offset": 2048,
+      "trim_power": 1900,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 1782,
+      "ms_weight": 2048
+     },
+     {
+      "frame": 41,
+      "length": 10,
+      "target_display_index": 1,
+      "trim_slope": 2038,
+      "trim_offset": 2048,
+      "trim_power": 1900,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 1782,
+      "ms_weight": 2048
+     },
+     {
+      "frame": 42,
+      "length": 10,
+      "target_display_index": 1,
+      "trim_slope": 2038,
+      "trim_offset": 2048,
+      "trim_power": 1900,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 1782,
+      "ms_weight": 2048
+     },
+     {
+      "frame": 43,
+      "length": 10,
+      "target_display_index": 1,
+      "trim_slope": 2038,
+      "trim_offset": 2048,
+      "trim_power": 1900,
+      "trim_chroma_weight": 2048,
+      "trim_saturation_gain": 1782,
+      "ms_weight": 2048
+     }
+    ]
+   },
+   "level9": {
+    "tipo": "list",
+    "n": 155506,
+    "primeros": [
+     {
+      "frame": 0,
+      "length": 1,
+      "source_primary_index": 0
+     },
+     {
+      "frame": 1,
+      "length": 1,
+      "source_primary_index": 0
+     },
+     {
+      "frame": 2,
+      "length": 1,
+      "source_primary_index": 0
+     },
+     {
+      "frame": 3,
+      "length": 1,
+      "source_primary_index": 0
+     }
+    ]
+   },
+   "level11": {
+    "tipo": "list",
+    "n": 155506,
+    "primeros": [
+     {
+      "frame": 0,
+      "content_type": 1,
+      "whitepoint": 0,
+      "reference_mode_flag": false,
+      "reserved_byte2": 0,
+      "reserved_byte3": 0
+     },
+     {
+      "frame": 1,
+      "content_type": 1,
+      "whitepoint": 0,
+      "reference_mode_flag": false,
+      "reserved_byte2": 0,
+      "reserved_byte3": 0
+     },
+     {
+      "frame": 2,
+      "content_type": 1,
+      "whitepoint": 0,
+      "reference_mode_flag": false,
+      "reserved_byte2": 0,
+      "reserved_byte3": 0
+     },
+     {
+      "frame": 3,
+      "content_type": 1,
+      "whitepoint": 0,
+      "reference_mode_flag": false,
+      "reserved_byte2": 0,
+      "reserved_byte3": 0
+     }
+    ]
+   },
+   "scenes": {
+    "n": 2414,
+    "primeras": [
+     "0",
+     "16",
+     "40",
+     "494",
+     "504",
+     "1685"
+    ]
+   }
+  }
+ },
+ "ffprobe_nb_frames_csv": "N/A,\n",
+ "ffprobe_duration_csv": "6486.208000\n",
+ "ffmpeg_lineas_de_progreso": [
+  "frame=   99 fps=0.0 q=-1.0 Lsize=   20614KiB time=00:00:04.04 bitrate=41747.6kbits/s speed= 237x"
+ ],
+ "ffprobe_frames_json": {
+  "_argv": "-v error -select_streams v:0 -show_entries stream=nb_frames:stream_tags -of json",
+  "mkv_tab3_p8": {
+   "programs": [],
+   "stream_groups": [],
+   "streams": [
+    {
+     "tags": {
+      "title": "HEVC DV P8.1 CMv4.0 (from P7 MEL)",
+      "BPS": "72615448",
+      "DURATION": "01:48:05.896000000",
+      "NUMBER_OF_FRAMES": "155506",
+      "NUMBER_OF_BYTES": "58872031082",
+      "_STATISTICS_WRITING_APP": "mkvmerge v88.0 ('All I Know') 64-bit",
+      "_STATISTICS_WRITING_DATE_UTC": "2026-10-13 21:26:05",
+      "_STATISTICS_TAGS": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES"
+     },
+     "side_data_list": [
+      {}
+     ]
+    }
+   ]
+  },
+  "mkv_tab1_fel": {
+   "programs": [],
+   "stream_groups": [],
+   "streams": [
+    {
+     "tags": {
+      "BPS": "74666851",
+      "DURATION": "02:05:43.250000000",
+      "NUMBER_OF_FRAMES": "181037",
+      "NUMBER_OF_BYTES": "70403841002",
+      "_STATISTICS_WRITING_APP": "mkvmerge v92.0 ('Everglow') 64-bit",
+      "_STATISTICS_WRITING_DATE_UTC": "2025-06-15 18:52:52",
+      "_STATISTICS_TAGS": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES"
+     },
+     "side_data_list": [
+      {}
+     ]
+    }
+   ]
+  },
+  "hevc_crudo": {
+   "programs": [],
+   "stream_groups": [],
+   "streams": [
+    {}
+   ]
+  }
+ },
+ "ffprobe_nb_frames_csv_hevc": "N/A\n"
+}
