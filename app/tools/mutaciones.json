@@ -1496,8 +1496,8 @@
  {
   "id": "T2-21 la Fase H merge no mide el MKV",
   "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "            await _mkv_tan_largo_como_el_origen(output_mkv, session, log_callback)\n",
-  "nuevo": "",
+  "viejo": "            await _dv_del_mkv_entregado(output_mkv, wd, plan, session, log_callback)\n            await _mkv_tan_largo_como_el_origen(output_mkv, session, log_callback)\n",
+  "nuevo": "            await _dv_del_mkv_entregado(output_mkv, wd, plan, session, log_callback)\n",
   "modulos": [
    "test_cmv40_fase_h_mira_el_mkv"
   ]
@@ -1505,8 +1505,8 @@
  {
   "id": "T2-22 el recovery borra un destino que no creó",
   "fichero": "app/routers/tab2.py",
-  "viejo": "persisted.get(\"step\") in (\"copying\", \"applying\") and persisted.get(\"dst_creado\"):",
-  "nuevo": "persisted.get(\"step\") in (\"copying\", \"applying\"):",
+  "viejo": "    if (dst and persisted.get(\"step\") in (\"copying\", \"applying\")\n            and persisted.get(\"dst_creado\", True)):\n",
+  "nuevo": "    if dst and persisted.get(\"step\") in (\"copying\", \"applying\"):\n",
   "modulos": [
    "test_copia_desde_biblioteca"
   ]
