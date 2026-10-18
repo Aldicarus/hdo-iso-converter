@@ -1057,23 +1057,27 @@ def _select_subtitle_tracks(
                 if t.packet_count <= 0:
                     # El muestreo distribuido no capturó NINGÚN paquete de
                     # esta pista, mientras que biggest sí es una completa
-                    # clara. Una completa (miles de eventos repartidos por
-                    # toda la peli) casi nunca sale a 0 en un muestreo que
-                    # cubre inicio/cuerpo/final; salir a 0 es señal de pista
-                    # muy dispersa = forzado. Pero no lo asumimos a ciegas:
-                    # el modelo define packet_count=0 como "usar la heurística
-                    # de patrones", así que confirmamos con la señal
-                    # estructural (bitrate sintético del patrón de bloques/
-                    # adyacencia de phase_a). Si el patrón TAMBIÉN dice forzado
-                    # (<3 kbps) → forzado; si no, conservador → ambigua.
-                    # Sin esto, un forzado que el sample pierde (caso real
-                    # Obsession 2025: ES forzado 0x12A3 = 0 paq. frente a
-                    # completo 4516) caía en "ambigua" y disparaba el falso
-                    # aviso de "otra pista parecida" sin auto-incluirse.
-                    if t.bitrate_kbps < 3.0:
-                        forced_idx.append(i)
-                    else:
-                        ambiguous_idx.append(i)
+                    # clara (≥500, lo garantiza la rama de arriba). Es una
+                    # MEDIDA, no un hueco: el contador pone a 0 cada PID del
+                    # MPLS que no ve y el asignador no reparte nada si las
+                    # longitudes no cuadran. Y es el límite de la regla del
+                    # ratio de abajo: mayor/0 es infinito. Una completa
+                    # (miles de eventos repartidos por la peli) no sale a 0
+                    # en cuatro tramos; un forzado de pocos carteles, sí.
+                    #
+                    # Se confirmaba con la señal estructural (el bitrate
+                    # sintético de phase_a) y eso perdía forzados: esa señal
+                    # decide «bloques» o «adyacente» por la PRIMERA
+                    # repetición, y un disco con la normal y la SDH seguidas
+                    # cae en «adyacente» aunque sus forzados vayan en bloque
+                    # al final. Medido en las 84 sesiones del NAS: 65 discos
+                    # así. En He-Man (2026) los siete forzados del bloque 2
+                    # salieron a 0, el patrón los daba por completos y el
+                    # castellano se descartaba como «alternativa de tamaño
+                    # parecido» — con 0 paquetes contra 7481. El caso que
+                    # motivó la confirmación (Obsession 2025, forzado
+                    # castellano a 0 frente a 4516) sale igual.
+                    forced_idx.append(i)
                     continue
                 ratio = biggest.packet_count / t.packet_count
                 # El ratio solo compara con `biggest`, y eso asume que el

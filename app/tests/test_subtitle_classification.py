@@ -199,10 +199,11 @@ class TestSubtitleClassification(unittest.TestCase):
         self.assertEqual(len(forced_included), 1)
         self.assertEqual(forced_included[0].raw.packet_count, 0)
 
-    def test_zero_packets_without_forced_pattern_stays_conservative(self):
-        """0 paquetes PERO el patrón estructural NO lo marca forzado (bitrate
-        completo 30.0): nos mantenemos conservadores → no se clasifica como
-        forzado (queda como alternativa ambigua, sin auto-incluir)."""
+    def test_zero_packets_is_forced_whatever_the_pattern_says(self):
+        """0 paquetes junto a una completa clara es un forzado AUNQUE el
+        patrón estructural diga completo (bitrate 30.0). Se confirmaba con el
+        patrón, y el patrón se equivoca en los discos con la normal y la SDH
+        seguidas — He-Man (2026), ver `TestHeManLosForzadosDelBloque2`."""
         complete = RawSubtitleTrack(
             language="Spanish", bitrate_kbps=30.0, description="", packet_count=4516,
         )
@@ -212,7 +213,7 @@ class TestSubtitleClassification(unittest.TestCase):
         tracks = [complete, other]
         included, _ = _select_subtitle_tracks(tracks, vo_language="English")
         self.assertEqual(_complete_packets(included, "Spanish"), 4516)
-        self.assertIsNone(_forced_packets(included, "Spanish"))
+        self.assertEqual(_forced_packets(included, "Spanish"), 0)
 
 
 class TestSinConteoDePaquetes(unittest.TestCase):
@@ -356,3 +357,83 @@ class TestTresBloquesPorIdioma(unittest.TestCase):
         tracks = [_sub("Spanish", 12000), _sub("Spanish", 2200)]
         included, _ = _select_subtitle_tracks(tracks, vo_language="English")
         self.assertEqual(_forced_packets(included, "Spanish"), 2200)
+
+
+class TestHeManLosForzadosDelBloque2(unittest.TestCase):
+    """He-Man y los Masters del Universo (2026), disco real del NAS: 17 PGS.
+
+        bloque 1  eng 7288 · eng 9636 · fre 7928 · fre 7699 · ger 8216 ·
+                  ita 7510 · spa 7481 · jpn 5356 · dut 7381 · spa 7302
+        bloque 2  fre · fre · ger · ita · spa · jpn · spa   ← 0 en la muestra
+
+    El muestreo de 4 GB no vio ni un paquete de los siete forzados, y la Fase B
+    confirmaba un 0 con la señal estructural. Esa señal decide el patrón por la
+    PRIMERA repetición, que aquí es adyacente (la normal inglesa y su SDH), así
+    que marca forzada la primera aparición de cada idioma —las completas del
+    bloque 1— y deja los forzados de verdad a 30 kbps. El forzado castellano
+    salía descartado como «otra pista de tamaño parecido», con 0 paquetes
+    contra 7481, y el MKV se entregó sin «Castellano Forzados».
+
+    Va de punta a punta: la señal estructural de la Fase A, el asignador de
+    conteos, la Fase B y el emparejado de la Fase E con los ids reales del
+    `mkvmerge -J`."""
+
+    IDIOMAS = ("eng eng fre fre ger ita spa jpn dut spa "
+               "fre fre ger ita spa jpn spa").split()
+    CONTEOS = [7288, 9636, 7928, 7699, 8216, 7510, 7481, 5356, 7381, 7302,
+               0, 0, 0, 0, 0, 0, 0]
+    IDS = list(range(13, 30))          # los del `mkvmerge -J` del disco
+    FORZADO_ES = 14                     # el primer castellano del bloque 2
+    FORZADO_ES_2 = 16
+
+    def setUp(self):
+        from phases.phase_a import _build_subtitle_tracks, asignar_packet_counts
+        self.subs = _build_subtitle_tracks([
+            {"type": "subtitles", "codec": "HDMV PGS",
+             "properties": {"language": l}} for l in self.IDIOMAS])
+        asignado, _ = asignar_packet_counts(
+            self.subs, {0x12A0 + i: c for i, c in enumerate(self.CONTEOS)})
+        self.assertTrue(asignado)
+        # Lo que hace el caso: el patrón da por COMPLETOS los forzados.
+        self.assertEqual(
+            {s.bitrate_kbps for s in self.subs[10:]}, {30.0},
+            "precondición: la señal estructural ya no se equivoca en este "
+            "disco; el test sigue siendo válido, pero revisa su docstring")
+        self.incluidas, self.descartadas = _select_subtitle_tracks(
+            self.subs, vo_language="English")
+
+    def _indice(self, raw):
+        return next(i for i, s in enumerate(self.subs) if s is raw)
+
+    def test_el_forzado_castellano_entra(self):
+        forzados = [t for t in self.incluidas if t.subtitle_type == "forced"]
+        self.assertEqual([self._indice(t.raw) for t in forzados],
+                         [self.FORZADO_ES])
+        self.assertTrue(forzados[0].flag_forced)
+
+    def test_las_completas_siguen_siendo_las_del_bloque_1(self):
+        completas = sorted(self._indice(t.raw) for t in self.incluidas
+                           if t.subtitle_type == "complete")
+        self.assertEqual(completas, [0, 6])
+
+    def test_ningun_cero_queda_como_completa(self):
+        """El segundo forzado castellano y los de otros idiomas se descartan,
+        pero al recuperarlos tienen que salir como «Forzados»."""
+        for d in self.descartadas:
+            if d.track_type == "subtitle" and d.raw.packet_count == 0:
+                self.assertEqual(d.inferred_subtitle_type, "forced",
+                                 f"{d.raw.language}: {d.discard_reason}")
+
+    def test_la_fase_e_le_da_su_propio_contenido(self):
+        """Los dos forzados castellanos tienen el mismo `raw` (Spanish, 30, 0):
+        el puesto en el disco los separa por orden, y el incluido es el
+        primero — el id 27, no el 29 ni el de una completa."""
+        from phases.phase_e import _match_tracks_to_source
+        tmap = {i: {"type": "subtitles", "codec": "", "language": l,
+                    "audio_channels": 0}
+                for i, l in zip(self.IDS, self.IDIOMAS)}
+        m = _match_tracks_to_source(self.incluidas, self.IDS, tmap,
+                                    disco=self.subs)
+        por_indice = {self._indice(t.raw): m[n]
+                      for n, t in enumerate(self.incluidas)}
+        self.assertEqual(por_indice, {0: 13, 6: 19, self.FORZADO_ES: 27})

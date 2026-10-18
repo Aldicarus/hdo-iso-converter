@@ -3726,5 +3726,14 @@
   "modulos": [
    "test_track_mapping"
   ]
+ },
+ {
+  "id": "PGS-1 un cero se confirma con la señal estructural",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "                    forced_idx.append(i)\n                    continue\n",
+  "nuevo": "                    if t.bitrate_kbps < 3.0:\n                        forced_idx.append(i)\n                    else:\n                        ambiguous_idx.append(i)\n                    continue\n",
+  "modulos": [
+   "test_subtitle_classification"
+  ]
  }
 ]
