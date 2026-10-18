@@ -3663,5 +3663,23 @@
   "modulos": [
    "test_tab2_aplicar_cambios"
   ]
+ },
+ {
+  "id": "REL-1 la respuesta de una acción no consume número",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  const seq = data._seq || (project._seqPedida = (project._seqPedida || 0) + 1);\n",
+  "nuevo": "  const seq = data._seq || project._seqPedida || 0;\n",
+  "modulos": [
+   "test_tanda3_tab3"
+  ]
+ },
+ {
+  "id": "REL-2 revertir el nombre escribe en la sesión capturada",
+  "fichero": "app/static/tab1.js",
+  "viejo": "  const viva = project.session?.id === sesion.id ? project.session : sesion;\n",
+  "nuevo": "  const viva = sesion;\n",
+  "modulos": [
+   "test_tanda3_tab1_y_comun"
+  ]
  }
 ]
