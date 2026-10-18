@@ -3681,5 +3681,50 @@
   "modulos": [
    "test_tanda3_tab1_y_comun"
   ]
+ },
+ {
+  "id": "REL-3 un extract de validación cortado se queda",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "                    if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:\n                        full_rpu.unlink(missing_ok=True)\n",
+  "nuevo": "                    if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:\n",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "REL-4 la revalidación sin artefactos no mira la longitud",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            await _mkv_tan_largo_como_el_origen(output_mkv, session, log_callback)\n            result_info.frame_count = expected_frames\n",
+  "nuevo": "            result_info.frame_count = expected_frames\n",
+  "modulos": [
+   "test_cmv40_fase_h_mira_el_mkv"
+  ]
+ },
+ {
+  "id": "REL-5 el bin de Drive descarta la corrección antes de descargar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    written = await download_file(file_id, parcial, progress_cb=progress_cb)\n    _descartar_correccion_de_otro_target(session, wd)\n",
+  "nuevo": "    _descartar_correccion_de_otro_target(session, wd)\n    written = await download_file(file_id, parcial, progress_cb=progress_cb)\n",
+  "modulos": [
+   "test_cmv40_bin_nuevo"
+  ]
+ },
+ {
+  "id": "REL-6 el recovery ignora el estado de la versión anterior",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "            and persisted.get(\"dst_creado\", True)):\n",
+  "nuevo": "            and persisted.get(\"dst_creado\")):\n",
+  "modulos": [
+   "test_copia_desde_biblioteca"
+  ]
+ },
+ {
+  "id": "REL-7 el puesto en el disco no mira los canales",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "                canales_ok = not (ch_inc and ch_src and ch_inc != ch_src)\n",
+  "nuevo": "                canales_ok = True\n",
+  "modulos": [
+   "test_track_mapping"
+  ]
  }
 ]
