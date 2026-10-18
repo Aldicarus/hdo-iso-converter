@@ -2081,9 +2081,12 @@ function _cmv40AssignSession(project, data) {
   if (!project || !data || typeof data !== 'object'
       || typeof data.id !== 'string' || typeof data.phase !== 'string') return;
   // Lo que se aplica marca hasta dónde llega: un GET suyo trae su número, y
-  // cualquier otra cosa (la respuesta de una acción) cuenta como la lectura
-  // más reciente pedida hasta ahora.
-  const seq = data._seq || project._seqPedida || 0;
+  // cualquier otra cosa (la respuesta de una acción) consume uno NUEVO, así
+  // que cuenta como pedida después de todos los GET en vuelo. Con el número
+  // del último pedido, ese último GET empataba y pasaba: tras apagar el auto,
+  // su foto vieja lo volvía a encender y `_refreshCMv40Session` podía lanzar
+  // la fase siguiente (revisión con Codex de la v3.4.0).
+  const seq = data._seq || (project._seqPedida = (project._seqPedida || 0) + 1);
   project._seqAplicada = Math.max(project._seqAplicada || 0, seq);
   // El modo auto lo dice el servidor, que es quien encadena las fases. El
   // cancel y el toggle lo cambian allí; sin esto la interfaz seguía con su

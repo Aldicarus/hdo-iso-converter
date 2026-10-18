@@ -4287,7 +4287,13 @@ async function revertMkvName() {
   // pestaña mientras volvía, `currentSession` y `E()` ya son de otro, y el
   // nombre de A acababa escrito en B (auditoría con Codex del 2026-10-17).
   if (!data) return;
-  sesion.mkv_name = data.mkv_name;
+  // A la sesión que el proyecto tiene AHORA: si un refresco la sustituyó
+  // mientras volvía la respuesta, escribir en la capturada dejaba el nombre
+  // nuevo en el input y el viejo en la sesión que guarda `saveSession`
+  // (revisión con Codex de la v3.4.0).
+  const viva = project.session?.id === sesion.id ? project.session : sesion;
+  viva.mkv_name = data.mkv_name;
+  viva.mkv_name_manual = false;
   if (!openProjects.includes(project)) return;
   enProyecto(project, () => {
     const inp = E('mkv-name-input');

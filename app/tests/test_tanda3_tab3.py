@@ -140,6 +140,23 @@ _GUION = r"""
       return {fase: p.session.phase, corriendo: p.session.running_phase};
     });
 
+    // H7 — y el último GET en vuelo tampoco pisa la respuesta de una acción:
+    // apagar el auto con una lectura pendiente no lo vuelve a encender.
+    await caso('getEnVueloTrasElToggle', async () => {
+      limpiar();
+      const p = proyecto({auto_pipeline: true});
+      const viejo = diferida();
+      let n = 0;
+      responder = (url) => url.endsWith('/auto-pipeline')
+        ? Object.assign(SES(), {auto_pipeline: false})
+        : (++n === 1 ? viejo : null);
+      const a = _refreshCMv40Session(p.id);
+      await cmv40ToggleAuto(p.id);
+      viejo.resolver(Object.assign(SES(), {auto_pipeline: true}));
+      await a;
+      return {auto: p.autoContinue, sesion: p.session.auto_pipeline};
+    });
+
     // H13 — el `onclose` de un socket sustituido no reconecta.
     await caso('wsViejoNoReconecta', async () => {
       limpiar();
@@ -462,6 +479,11 @@ class TestTab3(unittest.TestCase):
         c = self._caso("getViejoNoPisa")
         self.assertEqual(c["fase"], "remuxed", "la interfaz volvió a la fase anterior")
         self.assertEqual(c["corriendo"], "remux")
+
+    def test_H7_el_get_en_vuelo_no_pisa_el_toggle(self):
+        c = self._caso("getEnVueloTrasElToggle")
+        self.assertFalse(c["auto"], "la foto vieja del GET volvió a encender el auto")
+        self.assertFalse(c["sesion"])
 
     def test_H13_el_socket_viejo_no_reconecta(self):
         c = self._caso("wsViejoNoReconecta")

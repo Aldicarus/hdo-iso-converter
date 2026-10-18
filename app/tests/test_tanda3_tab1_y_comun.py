@@ -156,6 +156,25 @@ _GUION = r"""
       };
     });
 
+    // F04 — y si un refresco sustituye la sesión mientras vuelve, el nombre
+    // va a la sesión NUEVA, que es la que guarda `saveSession`.
+    await caso('revertirNombreConRefresco', async () => {
+      limpiar();
+      const recalc = diferida();
+      responder = (url) => url.endsWith('/recalculate-name') ? recalc : {available: true};
+      const A = openProject(S('a', 'A.mkv'));
+      switchSubTab(A.id);
+      const p = revertMkvName();
+      A.session = JSON.parse(JSON.stringify(A.session));
+      recalc.resolver({mkv_name: 'A-recalculado.mkv'});
+      await p;
+      return {
+        nombre: A.session.mkv_name,
+        manual: A.session.mkv_name_manual,
+        input: document.getElementById(`${A.id}-mkv-name-input`).value,
+      };
+    });
+
     // F11 — un refresco de estado con ediciones sin guardar.
     await caso('refrescoConservaLasEdiciones', async () => {
       limpiar();
@@ -425,6 +444,13 @@ class TestTab1YComun(unittest.TestCase):
         self.assertEqual(c["inputA"], "A-recalculado.mkv")
         self.assertEqual(c["inputB"], "B.mkv", "el nombre de A se escribió en el panel de B")
         self.assertEqual(c["nombreB"], "B.mkv")
+
+    def test_F04_revertir_el_nombre_va_a_la_sesion_viva(self):
+        c = self._caso("revertirNombreConRefresco")
+        self.assertEqual(c["input"], "A-recalculado.mkv")
+        self.assertEqual(c["nombre"], "A-recalculado.mkv",
+                         "el nombre nuevo fue a la sesión sustituida y se guardaría el viejo")
+        self.assertFalse(c["manual"])
 
     def test_F11_un_refresco_conserva_lo_editado(self):
         c = self._caso("refrescoConservaLasEdiciones")
