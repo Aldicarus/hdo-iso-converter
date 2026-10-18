@@ -427,6 +427,20 @@ class TestLaPosicionEnElDisco(unittest.TestCase):
                                     [1, 2], tmap, disco=[dts, dd])
         self.assertEqual(m, {0: 2})
 
+    def test_un_puesto_con_otros_canales_no_se_acepta(self):
+        """Si el origen trae las pistas del idioma en otro orden que el que
+        vio la Fase A —el M2TS del reintento no tiene por qué respetar el del
+        MPLS—, coinciden idioma, número y códec, y el puesto señala la 2.0
+        cuando la incluida es la 5.1. Los canales lo desmienten (revisión con
+        Codex de la v3.4.0)."""
+        dd51 = _raw_audio("Spanish", "Dolby Digital Audio", "5.1 / 48 kHz", 640)
+        dd20 = _raw_audio("Spanish", "Dolby Digital Audio", "2.0 / 48 kHz", 192)
+        tmap = _track_map(_amap(1, codec="AC-3", lang="spa", ch=2),
+                          _amap(2, codec="AC-3", lang="spa", ch=6))
+        m = _match_tracks_to_source([_incluida_audio(dd51, "Castellano DD 5.1")],
+                                    [1, 2], tmap, disco=[dd51, dd20])
+        self.assertEqual(m, {0: 2}, "la DD 5.1 recibió el contenido de la 2.0")
+
 
 class TestElLpcmEncuentraSuOrigen(unittest.TestCase):
     """La Fase A traduce el `PCM` de mkvmerge a «LPCM Audio» y el emparejado

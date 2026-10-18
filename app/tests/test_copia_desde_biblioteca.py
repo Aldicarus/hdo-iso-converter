@@ -348,11 +348,21 @@ class TestElReinicioAMitad(CopiaCase):
         """El paso `copying` se persiste ANTES del `xb`: un reinicio en ese
         hueco dejaba `copying` en disco con un destino que era de otro
         (auditoría con Codex del 2026-10-17). Lo que decide es la marca de
-        que el destino lo creó esta copia."""
+        que el destino lo creó esta copia, que el reset escribe siempre."""
         self.dst.write_bytes(self.contenido)
-        self._persistido(step="copying")
+        self._persistido(step="copying", dst_creado=False)
         self.tab2.recuperar_apply_interrumpido()
         self.assertEqual(self.dst.read_bytes(), self.contenido)
+
+    def test_el_estado_de_la_version_anterior_borra_su_parcial(self):
+        """Un contenedor que se actualiza a mitad de una copia arranca con el
+        estado de la versión ANTERIOR, que no tenía la marca. En `copying` esa
+        copia ya había abierto su destino, así que es el parcial —con el nombre
+        definitivo— y se borra como entonces (revisión con Codex de la v3.4.0)."""
+        self.dst.write_bytes(self.contenido[: 8 * MB])
+        self._persistido(step="copying")
+        self.tab2.recuperar_apply_interrumpido()
+        self.assertFalse(self.dst.exists(), "el parcial se quedó con el nombre definitivo")
 
     def test_un_destino_fuera_de_output_no_se_borra(self):
         """La ruta sale de un JSON persistido: el recovery no borra fuera."""

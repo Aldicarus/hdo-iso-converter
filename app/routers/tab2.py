@@ -1350,7 +1350,12 @@ def recuperar_apply_interrumpido() -> None:
     # Solo si la copia llegó a ESCRIBIR. En `en_cola` (o antes) el destino no
     # es nuestro: el endpoint comprobó que no existía al encolar, y lo que
     # haya ahí ahora lo ha puesto otro mientras el trabajo esperaba turno.
-    if dst and persisted.get("step") in ("copying", "applying") and persisted.get("dst_creado"):
+    # Sin la clave, el estado es de una versión anterior a `dst_creado` —un
+    # contenedor actualizado a mitad de una copia—, y ahí la copia en
+    # `copying` ya había abierto su destino: se borra como entonces
+    # (revisión con Codex de la v3.4.0).
+    if (dst and persisted.get("step") in ("copying", "applying")
+            and persisted.get("dst_creado", True)):
         try:
             dst_path = Path(dst)
             # Y solo dentro de output: la ruta viene de un JSON persistido.

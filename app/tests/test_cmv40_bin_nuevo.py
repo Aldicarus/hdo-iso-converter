@@ -88,6 +88,62 @@ class TestUnBinNuevoNoHeredaLaCorreccion(PhaseTestCase):
         self.assertEqual(s.sync_config, CORRECCION)
 
 
+class TestUnaDescargaFallidaNoSeLlevaLaCorreccion(PhaseTestCase):
+    """Desde Drive el descarte iba ANTES de descargar: un 404 o la cuota
+    agotada —lo normal con el repo— dejaba el bin de antes sin su corrección
+    (revisión con Codex de la v3.4.0). Se descarga a un `.part` y solo con el
+    bin entero se descarta y se pone en su sitio."""
+
+    def _proyecto(self):
+        self.tb.define_rpu("RPU_target.bin", **TGT.as_dict())
+        for n in ("RPU_target.bin", "RPU_synced.bin", "editor_config.json"):
+            write_artifacts(self.wd, n, props=TGT)
+        return make_session(self.wd, target_rpu_source="drive",
+                            target_rpu_path="drive://anterior/anterior.bin",
+                            sync_config=dict(CORRECCION))
+
+    @staticmethod
+    async def _drive_caido(file_id, dest, progress_cb=None):
+        raise RuntimeError("Drive download falló (HTTP 404)")
+
+    @staticmethod
+    async def _drive_bien(file_id, dest, progress_cb=None):
+        Path(dest).write_bytes(b"\x00" * 4096)
+        return 4096
+
+    async def _lanzar(self, fase, descarga):
+        from unittest import mock
+        from phases import cmv40_pipeline as P
+        s = self._proyecto()
+        f = {"pre-flight": P.preflight_target_drive,
+             "fase B": P.run_phase_b_target_from_drive}[fase]
+        with mock.patch("services.rec999_drive.download_file", descarga):
+            try:
+                await f(s, "nuevo", "nuevo.bin", self.log)
+            except RuntimeError:
+                pass
+        return s
+
+    async def test_con_drive_caido_la_correccion_sigue(self):
+        for fase in ("pre-flight", "fase B"):
+            with self.subTest(fase=fase):
+                s = await self._lanzar(fase, self._drive_caido)
+                self.assertTrue((self.wd / "RPU_synced.bin").exists(),
+                                "la corrección del bin que sigue puesto se ha perdido")
+                self.assertTrue((self.wd / "editor_config.json").exists())
+                self.assertEqual(s.sync_config, CORRECCION)
+                self.assertTrue((self.wd / "RPU_target.bin").exists())
+
+    async def test_con_el_bin_entero_se_descarta(self):
+        for fase in ("pre-flight", "fase B"):
+            with self.subTest(fase=fase):
+                s = await self._lanzar(fase, self._drive_bien)
+                self.assertFalse((self.wd / "RPU_synced.bin").exists())
+                self.assertIsNone(s.sync_config)
+                self.assertFalse((self.wd / "RPU_target.bin.part").exists())
+                self.assertEqual((self.wd / "RPU_target.bin").stat().st_size, 4096)
+
+
 class TestUnBinEnMayusculasSeAcepta(PhaseTestCase):
     """El listado de la carpeta local no distingue mayúsculas y ofrecía
     `Peli.BIN`; el pre-flight y la Fase B lo rechazaban por el sufijo

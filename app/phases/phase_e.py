@@ -753,7 +753,16 @@ def _match_tracks_to_source(
             if len(del_idioma) == en_el_disco.get(lang_inc, 0):
                 sid = del_idioma[puestos[i]]
                 codec_src = track_map.get(sid, {}).get("codec", "").lower()
-                if sid not in used_ids and (not codec_inc or _codec_matches(codec_inc, codec_src)):
+                # Y en audio, los canales: si el origen trae las pistas del
+                # idioma en otro orden —el M2TS del reintento no tiene por qué
+                # respetar el del MPLS—, el puesto apunta a la 2.0 cuando la
+                # incluida es la 5.1 (revisión con Codex de la v3.4.0). Sin
+                # canales en un lado no hay con qué contradecir el puesto.
+                ch_inc = _parse_channels(getattr(raw, "description", "")) if codec_inc else 0
+                ch_src = track_map.get(sid, {}).get("audio_channels", 0) or 0
+                canales_ok = not (ch_inc and ch_src and ch_inc != ch_src)
+                if (sid not in used_ids and canales_ok
+                        and (not codec_inc or _codec_matches(codec_inc, codec_src))):
                     result[i] = sid
                     used_ids.add(sid)
                     continue

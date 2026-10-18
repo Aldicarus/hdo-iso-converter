@@ -232,6 +232,26 @@ class TestLaRutaMergeValidaElStreamCompleto(FaseHCase):
             await self.fase_h(s)
 
 
+class TestUnExtractCortadoNoSeReutiliza(FaseHCase):
+    """El RPU extraído sobrevive a la Fase H (lo usa el precache), y el
+    reintento recoge lo que encuentre como el adelanto de la Fase G. Un
+    `extract-rpu` que falla a medias dejaba su parcial, y la H volvía a fallar
+    sobre él sin repetir la extracción (revisión con Codex de la v3.4.0)."""
+
+    async def test_el_parcial_se_borra_y_el_reintento_extrae(self):
+        s = self.preparar(trust=False, artefactos=("BL.hevc", "DV_dual.hevc"))
+        self.mkv_de_la_fase_g(s, INJ_FEL)
+        rpu = self.wd / "_validate_full_rpu.bin"
+        self.tb.fail("dovi_tool", "extract-rpu", tras_producir=True)
+        with self.assertRaises(RuntimeError):
+            await self.fase_h(s)
+        self.assertFalse(rpu.exists(), "el extract cortado se quedó para el reintento")
+        self.tb._scenario["fail"].clear()
+        self.tb._flush()
+        await self.fase_h(s)
+        self.assertTrue(self.entregado(s))
+
+
 class TestLaFaseHLiberaLosHevc(FaseHCase):
     """Validado y movido el MKV, los HEVC del workdir no sirven para nada: en
     un UHD son ~227 GB por job. Lo vigilaba un test que buscaba el nombre de
@@ -525,6 +545,18 @@ class TestUnSegundoDisparoPorLaRamaMerge(FaseHCase):
         self.assertTrue(r.get("already_validated"))
         self.assertTrue(any("_sniff_final" in " ".join(c.argv)
                             for c in self.tb.find("ffmpeg")))
+
+    async def test_sin_el_rpu_extraido_un_mkv_truncado_no_pasa(self):
+        """Sin HEVC ni RPU, la longitud solo la dice el propio MKV: con media
+        película y los primeros 30 s bien, la revalidación lo aceptaba
+        (revisión con Codex de la v3.4.0)."""
+        s = self.preparar(trust=False, artefactos=())
+        final = self.output_dir / s.output_mkv_name
+        write_artifacts(self.output_dir, final.name, props=INJ_FEL)
+        self.tb.define_media(final.name, duration=7200.0, frames=FRAMES // 2)
+        with self.assertRaises(RuntimeError) as ctx:
+            await self.fase_h(s)
+        self.assertIn(str(FRAMES // 2), str(ctx.exception))
 
     async def test_en_la_primera_pasada_sin_hevc_sigue_fallando(self):
         s = self.preparar(trust=False, artefactos=())

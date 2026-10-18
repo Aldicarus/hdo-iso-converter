@@ -2329,6 +2329,24 @@ def list_available_rpus() -> list[dict]:
 # en RPU_target.bin del workdir, así que cuando Fase B se ejecute después de
 # Fase A no necesita re-descargar (short-circuit en run_phase_b_target_*).
 
+async def _bajar_el_bin_nuevo(download_file, file_id: str, rpu_target: Path,
+                             session: CMv40Session, wd: Path,
+                             progress_cb=None) -> int:
+    """Descarga el bin a un `.part` y, solo con él entero, descarta la
+    corrección del anterior y lo pone en su sitio.
+
+    Descartarla antes de descargar dejaba un 404 o la cuota de Drive agotada
+    —lo normal con el repo— con el bin de antes y sin su corrección
+    (revisión con Codex de la v3.4.0). `download_file` borra el `.part` si
+    se corta, y con un error de Drive ni lo crea.
+    """
+    parcial = rpu_target.with_name(rpu_target.name + ".part")
+    written = await download_file(file_id, parcial, progress_cb=progress_cb)
+    _descartar_correccion_de_otro_target(session, wd)
+    os.replace(parcial, rpu_target)
+    return written
+
+
 async def preflight_target_drive(
     session: CMv40Session,
     file_id: str,
@@ -2351,8 +2369,8 @@ async def preflight_target_drive(
         )
 
     try:
-        _descartar_correccion_de_otro_target(session, wd)
-        written = await download_file(file_id, rpu_target, progress_cb=None)
+        written = await _bajar_el_bin_nuevo(download_file, file_id, rpu_target,
+                                            session, wd)
     except Exception as e:
         raise RuntimeError(tr('cmv40_pipeline.descarga_del_repo_dovitools_fallo', e=e))
 
@@ -2666,8 +2684,8 @@ async def run_phase_b_target_from_drive(
         await _emit_progress(log_callback, pct, label)
 
     try:
-        _descartar_correccion_de_otro_target(session, wd)
-        written = await download_file(file_id, rpu_target, progress_cb=_progress)
+        written = await _bajar_el_bin_nuevo(download_file, file_id, rpu_target,
+                                            session, wd, progress_cb=_progress)
     except Exception as e:
         raise RuntimeError(tr('cmv40_pipeline.descarga_de_drive_fallo', e=e))
 
@@ -5436,6 +5454,10 @@ async def run_phase_h_validate(
             await _log(log_callback, _et() + tr('cmv40_pipeline.revalidacion_sin_hevc_pre_mux'))
             result_info = await _dv_del_mkv_entregado(output_mkv, wd, plan, session,
                                                       log_callback)
+            # Sin el RPU completo, la longitud solo la dice el propio MKV: un
+            # fichero con media película y los primeros 30 s bien pasaba
+            # (revisión con Codex de la v3.4.0).
+            await _mkv_tan_largo_como_el_origen(output_mkv, session, log_callback)
             result_info.frame_count = expected_frames
         else:
             try:
@@ -5489,6 +5511,12 @@ async def run_phase_h_validate(
                                _estimate_from_ffmpeg(session, RATIO_EXTRACT_RPU, FPS_EXTRACT_RPU),
                                floor_s=1200),
                         )
+                    except BaseException:
+                        # Un extract cortado no puede quedarse: el reintento lo
+                        # tomaría por el adelanto de la Fase G (existe y tiene
+                        # tamaño) y fallaría sobre él una y otra vez.
+                        full_rpu.unlink(missing_ok=True)
+                        raise
                     finally:
                         hb_task.cancel()
                         try:
@@ -5497,6 +5525,7 @@ async def run_phase_h_validate(
                             pass
 
                     if rc != 0 or not full_rpu.exists() or full_rpu.stat().st_size == 0:
+                        full_rpu.unlink(missing_ok=True)
                         raise RuntimeError(
                             tr('cmv40_pipeline.extract_rpu_fallo_sobre', p1=pre_mux_hevc.name, p2=err[:200])
                         )
@@ -5508,6 +5537,9 @@ async def run_phase_h_validate(
                     log_callback=log_callback, timeout=60,
                 )
                 if rc != 0:
+                    # Ilegible: que el reintento lo vuelva a extraer en vez de
+                    # recogerlo como adelantado.
+                    full_rpu.unlink(missing_ok=True)
                     raise RuntimeError(tr('cmv40_pipeline.dovi_tool_info_fallo_sobre_rpu_2', p1=err[:200]))
                 rpu_info = _parse_dovi_summary(summary)
 
