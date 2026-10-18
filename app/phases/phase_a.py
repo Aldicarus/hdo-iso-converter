@@ -1243,6 +1243,7 @@ def _build_audio_tracks(
             language=lang_english,
             bitrate_kbps=0,
             description=description,
+            orden=len(audio_tracks),
         ))
 
     return audio_tracks
@@ -1372,6 +1373,7 @@ def _build_subtitle_tracks(tracks: list[dict]) -> list[RawSubtitleTrack]:
             language=lang_english,
             bitrate_kbps=bitrate,
             description="",
+            orden=i,
         ))
 
     return subtitle_tracks

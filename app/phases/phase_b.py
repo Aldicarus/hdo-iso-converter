@@ -1070,7 +1070,7 @@ def _select_subtitle_tracks(
                     # decide «bloques» o «adyacente» por la PRIMERA
                     # repetición, y un disco con la normal y la SDH seguidas
                     # cae en «adyacente» aunque sus forzados vayan en bloque
-                    # al final. Medido en las 84 sesiones del NAS: 65 discos
+                    # al final. Medido en las 85 sesiones del NAS: 65 discos
                     # así. En He-Man (2026) los siete forzados del bloque 2
                     # salieron a 0, el patrón los daba por completos y el
                     # castellano se descartaba como «alternativa de tamaño

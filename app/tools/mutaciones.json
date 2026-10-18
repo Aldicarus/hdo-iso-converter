@@ -3735,5 +3735,23 @@
   "modulos": [
    "test_subtitle_classification"
   ]
+ },
+ {
+  "id": "PGS-2 la Fase A no numera los subtítulos",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "            description=\"\",\n            orden=i,\n",
+  "nuevo": "            description=\"\",\n",
+  "modulos": [
+   "test_subtitle_classification"
+  ]
+ },
+ {
+  "id": "PGS-3 la Fase A no numera los audios",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "            description=description,\n            orden=len(audio_tracks),\n",
+  "nuevo": "            description=description,\n",
+  "modulos": [
+   "test_track_mapping"
+  ]
  }
 ]

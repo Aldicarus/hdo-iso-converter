@@ -441,6 +441,18 @@ class RawAudioTrack(BaseModel):
     compression_mode: str = ""
     """'Lossless' o 'Lossy'."""
 
+    orden: int | None = None
+    """Puesto de la pista entre las de su tipo en la lista de la Fase A, que
+    sale del `mkvmerge -J` del origen y en su orden.
+
+    Es lo único que separa dos pistas iguales en todo lo demás —dos forzados
+    del mismo idioma que el muestreo PGS dejó a 0 paquetes, dos AC-3 5.1 de
+    comentarios—. La Fase E reconoce cada pista incluida por igualdad con la
+    del disco (`_puestos_en_el_disco`), y sin esto la segunda se reconocía
+    como la primera: recuperar el segundo forzado castellano de He-Man (2026)
+    entregaba el contenido del primero. None en las sesiones anteriores, que
+    se emparejan como antes, por orden."""
+
 
 class RawSubtitleTrack(BaseModel):
     """
@@ -474,6 +486,18 @@ class RawSubtitleTrack(BaseModel):
       mismo idioma (texto extra en momentos sin diálogo)
 
     0 si ffprobe no pudo medirlo (fallback a heurística de patrones)."""
+
+    orden: int | None = None
+    """Puesto de la pista entre las de su tipo en la lista de la Fase A, que
+    sale del `mkvmerge -J` del origen y en su orden.
+
+    Es lo único que separa dos pistas iguales en todo lo demás —dos forzados
+    del mismo idioma que el muestreo PGS dejó a 0 paquetes, dos AC-3 5.1 de
+    comentarios—. La Fase E reconoce cada pista incluida por igualdad con la
+    del disco (`_puestos_en_el_disco`), y sin esto la segunda se reconocía
+    como la primera: recuperar el segundo forzado castellano de He-Man (2026)
+    entregaba el contenido del primero. None en las sesiones anteriores, que
+    se emparejan como antes, por orden."""
 
 
 class BDInfoResult(BaseModel):

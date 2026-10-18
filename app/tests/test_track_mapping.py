@@ -416,6 +416,28 @@ class TestLaPosicionEnElDisco(unittest.TestCase):
         self.assertEqual(m, {0: 2, 1: 3})
         self.assertEqual(avisos, [], "con el puesto no hay empate que avisar")
 
+    def test_dos_audios_iguales_en_todo_se_separan_por_su_orden(self):
+        """Con los comentarios al MISMO bitrate que la principal (o sin
+        MediaInfo, que deja el bitrate a 0), los dos `raw` son iguales y la
+        Fase E reconocía los comentarios como la principal. Los separa el
+        `orden` que pone la Fase A, y por eso los `raw` salen de su builder."""
+        from phases.phase_a import _build_audio_tracks
+        disco = _build_audio_tracks([
+            {"id": 1, "type": "audio", "codec": "AC-3",
+             "properties": {"language": "eng", "audio_channels": 6}},
+            {"id": 2, "type": "audio", "codec": "AC-3",
+             "properties": {"language": "spa", "audio_channels": 6}},
+            {"id": 3, "type": "audio", "codec": "AC-3",
+             "properties": {"language": "eng", "audio_channels": 6}},
+        ], set())
+        tmap = _track_map(_amap(1, codec="AC-3", lang="eng", ch=6),
+                          _amap(2, codec="AC-3", lang="spa", ch=6),
+                          _amap(3, codec="AC-3", lang="eng", ch=6))
+        comentarios = disco[2].model_copy()   # como llega tras persistir
+        m = _match_tracks_to_source([_incluida_audio(comentarios, "Inglés DD 5.1")],
+                                    [1, 2, 3], tmap, disco=disco)
+        self.assertEqual(m, {0: 3})
+
     def test_un_puesto_con_otro_codec_no_se_acepta(self):
         """El puesto se comprueba contra el códec: si no casa, el disco que se
         está leyendo no es el que vio la Fase A."""

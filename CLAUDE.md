@@ -3087,13 +3087,16 @@ no los demás candidatos.
     - 1 sola pista: `<500 paq → forced`, `≥500 paq → complete` (no hay con qué comparar).
     - 2+ pistas: la de más paquetes (`biggest`) es la REFERENCIA para medir ratios. Cada otra pista
       se clasifica contra ella: `ratio ≥ 3.0 → forced` · `ratio < 3.0 → alternativa ambigua` (España/Latam, normal/SDH, comentarios).
-    - **Pista con `packet_count == 0` (el muestreo la perdió) — fallback al patrón estructural**: un forzado muy disperso
-      puede caer entero fuera de los 4 tramos del muestreo y salir con 0 paquetes. En ese caso NO se manda a "ambigua"
-      (eso disparaba el falso aviso de "otra pista parecida" y no la auto-incluía); se usa la señal estructural del patrón
-      de bloques/adyacencia (bitrate sintético de phase_a): si el patrón también dice forzado (`bitrate_kbps < 3.0`) → **forced**;
-      si no hay patrón forzado → conservador → ambigua. El modelo ya define `packet_count=0` como "usar la heurística de patrones".
-      Caso real: Obsession 2025, ES forzado `0x12A3` = 0 paq. (frente a completo 4516) — con la corrección se clasifica forzado.
-      Cubierto por `test_subtitle_classification.py::test_obsession_forced_missed_by_sample_uses_pattern`.
+    - **Pista con `packet_count == 0` junto a una completa clara (≥500) — es un FORZADO**, sin más confirmación. Un forzado
+      de pocos carteles puede caer entero fuera de los 4 tramos del muestreo; una completa, no. El 0 es una MEDIDA (el contador
+      pone a 0 cada PID del MPLS que no ve, y el asignador no reparte nada si las longitudes no cuadran) y es el límite de la
+      regla del ratio. **Se confirmaba con la señal estructural y eso perdía forzados**: esa señal elige «bloques» o «adyacente»
+      por la PRIMERA repetición de idioma, y un disco con la normal y la SDH seguidas cae en «adyacente» aunque sus forzados
+      vayan en bloque al final — 65 de las 85 sesiones del NAS. Caso real **He-Man (2026)**: los siete forzados del bloque 2
+      salieron a 0 en la muestra (el conteo del m2ts entero da 528-2.864, frente a 106.000-236.000 de las completas), el patrón
+      los daba por completos y «Castellano Forzados» se descartaba como «otra pista de tamaño parecido». Antes y después sobre
+      las 85 sesiones: cambian 4, y en ninguna sale peor. Obsession 2025 (forzado castellano a 0 frente a 4516) sale igual.
+      Cubierto por `test_subtitle_classification.py::TestHeManLosForzadosDelBloque2`, de la Fase A a la Fase E.
     - **Completa elegida — NO siempre `biggest`** (Opción A): se incluye la **primera del disco** entre las completas
       "elegibles" — la de más paquetes suele ser la versión SDH (texto extra en momentos sin diálogo) y la primera la normal.
       Son **elegibles**: (a) las casi-idénticas a `biggest` (`ratio < 2.0`, ninguna puede ser un forzado disfrazado); **y**

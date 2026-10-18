@@ -437,3 +437,23 @@ class TestHeManLosForzadosDelBloque2(unittest.TestCase):
         por_indice = {self._indice(t.raw): m[n]
                       for n, t in enumerate(self.incluidas)}
         self.assertEqual(por_indice, {0: 13, 6: 19, self.FORZADO_ES: 27})
+
+    def test_recuperar_solo_el_segundo_le_da_el_suyo(self):
+        """Si el primer forzado castellano resulta ser el latino, lo que hará
+        el usuario es quitarlo y recuperar el segundo. Los dos tenían el MISMO
+        `raw` (Spanish, 30, 0) y la Fase E reconocía el segundo como el
+        primero: id 27 en vez de 29, el contenido de la pista que acababa de
+        quitar. Los separa el `orden` que pone la Fase A (Codex, revisión del
+        arreglo)."""
+        from phases.phase_e import _match_tracks_to_source
+        from models import IncludedSubtitleTrack
+        segundo = self.subs[self.FORZADO_ES_2].model_copy()   # como al persistir
+        incluida = IncludedSubtitleTrack(
+            position=0, raw=segundo, language_literal="Castellano",
+            subtitle_type="forced", label="Castellano Forzados (PGS)",
+            flag_default=False, flag_forced=True, selection_reason="recuperada")
+        tmap = {i: {"type": "subtitles", "codec": "", "language": l,
+                    "audio_channels": 0}
+                for i, l in zip(self.IDS, self.IDIOMAS)}
+        m = _match_tracks_to_source([incluida], self.IDS, tmap, disco=self.subs)
+        self.assertEqual(m, {0: 29})
