@@ -3608,9 +3608,9 @@ algo, con su test y su mutación:
   vivo lo matan y lo recogen (`_comunicar_o_matar`, el patrón de
   `firma._esperar`). `POST /api/mkv/apply` resuelve la ruta contra los roots
   como el resto, y `/mnt/isos` —montado `ro`, abrible desde el selector—
-  pide copia igual que la biblioteca. **Pendiente en el frontend**:
-  `_mkvFileIsInLibrary` (`tab2.js`) solo mira `/mnt/library/`, así que sobre
-  un descargado no ofrece la copia y enseña el 409.
+  pide copia igual que la biblioteca. El frontend la ofrece también
+  (`_mkvSitioDeSoloLectura`, `tab2.js`, `2972a0f`): solo miraba
+  `/mnt/library/`, así que sobre un descargado enseñaba el 409.
 - **Servicios y limpieza.** `redactar_claves` (en `settings_store`) tapa
   `key=`/`api_key=` en lo que se registra: un 429 de Drive dejaba la clave de
   Google en `docker logs`. La descarga de un bin tiene tope de inactividad y
