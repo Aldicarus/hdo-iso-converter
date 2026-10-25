@@ -985,6 +985,7 @@ function abrirDetalleDeTrabajo(ref) {
 const _DETALLE_POR_TIPO = {
   rip: 'rip', crear_serie: 'serie', fase_cmv40: 'cmv40',
   analisis_extendido: 'analisis_extendido', copia_biblioteca: 'copia_biblioteca',
+  combinar_mkv: 'combinar', medida_sincronia: 'sincronia_mux',
 };
 
 /** Cancela el trabajo activo, sea del tipo que sea.
@@ -1036,6 +1037,11 @@ function cancelarTrabajoActivo(trabajo) {
     },
     mkv:   () => (a.detalle === 'analisis_extendido'
                     ? _mkvQualityCancel(a.id) : cancelMkvApply()),
+    // Dos trabajos en la misma pestaña: la medida de sincronía (interactiva,
+    // con su clave `mux_sincronia:{id}`) y la combinación (en la cola).
+    mux:   () => (a.detalle === 'sincronia_mux'
+                    ? cancelarMedidaMux(String(a.id || '').replace(/^mux_sincronia:/, ''))
+                    : cancelarCombinacionMux(a.id)),
   };
   const accion = acciones[a.tab];
   if (!accion) {

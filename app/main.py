@@ -426,6 +426,19 @@ from routers import cmv40 as _cmv40_routes  # noqa: E402
 app.include_router(_cmv40_routes.router)
 _cmv40_routes.recuperar_sesiones_interrumpidas()
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  TAB 4 — COMBINAR MKV
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# El vídeo de un MKV con el audio, los subtítulos y los capítulos de otro. Sus
+# endpoints, la medida de sincronía y la combinación viven en
+# `routers/mux.py`; aquí solo se incluye y se recupera lo que un reinicio dejó
+# a medias, antes de aceptar peticiones.
+from routers import mux as _mux_routes  # noqa: E402
+
+app.include_router(_mux_routes.router)
+_mux_routes.recuperar_proyectos_interrumpidos()
+
 
 
 # ── Settings editables desde la UI ──────────────────────────────────────────

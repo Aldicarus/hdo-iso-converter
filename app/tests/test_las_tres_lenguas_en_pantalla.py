@@ -503,6 +503,13 @@ RESPUESTAS = {
 }
 
 
+def _proyectos_mux() -> dict:
+    """Ver `mux_payloads.proyectos_mux`: el mismo constructor que usa
+    `test_tab4_combinar`."""
+    from mux_payloads import proyectos_mux
+    return proyectos_mux()
+
+
 def _sonda(respuestas: dict) -> str:
     """El armazón: captura errores de JS y contesta a la red.
 
@@ -878,6 +885,37 @@ _CUERPO = """
                                     _renderFileBrowserRoots();
                                     const e = document.getElementById('file-browser-roots');
                                     return e ? e.innerHTML : ''; },
+    // ── Tab 4 (Combinar MKV): la lista, el panel en sus cinco estados, la
+    //    pestaña abierta de verdad y el modal de creación en sus dos vistas.
+    'tab4·lista':           () => { _muxLista = Object.values(X.mux); renderMuxLista();
+                                    const e = document.getElementById('mux-sidebar-list');
+                                    return e ? e.innerHTML : ''; },
+    'tab4·orden':           () => { toggleMuxSortDir();
+                                    const e = document.getElementById('mux-sort-dir');
+                                    return e ? e.outerHTML : ''; },
+    'tab4·lista_error':     () => { _muxPintarErrorDeLista();
+                                    const e = document.getElementById('mux-sidebar-list');
+                                    return e ? e.innerHTML : ''; },
+    'tab4·panel_decision':  () => _muxPanelHTML({id: X.mux.decision.id, datos: X.mux.decision}),
+    'tab4·panel_hecho':     () => _muxPanelHTML({id: X.mux.hecho.id, datos: X.mux.hecho}),
+    'tab4·panel_marcha':    () => _muxPanelHTML({id: X.mux.marcha.id, datos: X.mux.marcha}),
+    'tab4·panel_cola':      () => _muxPanelHTML({id: X.mux.cola.id, datos: X.mux.cola}),
+    'tab4·panel_midiendo':  () => _muxPanelHTML({id: X.mux.midiendo.id, datos: X.mux.midiendo}),
+    'tab4·abierto':         async () => { await abrirMux(X.mux.hecho.id, X.mux.hecho);
+                                    const e = document.getElementById('tab-panel-4');
+                                    return e ? e.innerHTML : ''; },
+    'tab4·nueva':           () => { abrirNuevaCombinacion();
+                                    _muxNueva.fuentes = [{ruta: '/mnt/library/Blade.Runner.2049.mkv',
+                                                          nombre: 'Blade.Runner.2049.mkv'}, null];
+                                    _muxPintarHuecos();
+                                    const e = document.getElementById('mux-nueva-modal');
+                                    return e ? e.innerHTML : ''; },
+    'tab4·nueva_leyendo':   () => { _muxNuevaVista('leyendo');
+                                    _muxPintarPasos({fuente: 1, paso: 'mediainfo'});
+                                    const e = document.getElementById('mux-nueva-modal');
+                                    const h = e ? e.innerHTML : '';
+                                    _muxNuevaVista('elegir'); closeModal('mux-nueva-modal');
+                                    return h; },
   };
   // ── El ámbito de las variables locales ─────────────────────────────
   //
@@ -946,8 +984,11 @@ def _pintar(idioma: str, previo: str = "") -> dict:
                             "filas": LOOKUP_REC_ROWS,
                             "probe": PROBE_SERIE,
                             "tmdbsearch": RESPUESTAS["/api/cmv40/tmdb-search"],
-                            "recientes": MKV_RECIENTES}))
+                            "recientes": MKV_RECIENTES,
+                            "mux": _proyectos_mux()}))
     respuestas = {**RESPUESTAS,
+                  "/api/mux": {"proyectos": list(_proyectos_mux().values())},
+                  "/api/mux/": _proyectos_mux()["hecho"],
                   "/api/cmv40/recommend": LOOKUP_REC,
                   "/api/cmv40/repo-rpus": LOOKUP_REPO,
                   "/api/cmv40/tmdb-lookup": LOOKUP_TMDB,
@@ -1194,7 +1235,7 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
             (SESION_CMV40, SESION_TAB1, DOVI_TAB2, TRABAJO, TRABAJO_COLA,
              RECIENTE, AJUSTES, LOOKUP_REC, LOOKUP_REPO, LOOKUP_TMDB,
              ANALISIS_MKV, MKV_RECIENTES, LOOKUP_REC_ROWS,
-             PROBE_SERIE, RESPUESTAS))}
+             PROBE_SERIE, RESPUESTAS, _proyectos_mux()))}
         return _palabras(crudo)
 
     def test_ninguna_palabra_sobrevive_al_cambio_de_idioma(self):

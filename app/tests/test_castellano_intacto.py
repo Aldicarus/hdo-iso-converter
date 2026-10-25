@@ -47,6 +47,13 @@ GOLDEN = APP_DIR / "tests" / "golden_castellano.json"
 # Ampliarla es una decisión, no un arreglo: si una frase desaparece sin entrada
 # aquí, el test falla y hace bien.
 EXCEPCIONES: dict[str, str] = {
+    # ── La aplicación pasa de tres pestañas a cuatro (2026-10-25, «Combinar
+    #    MKV»). Las dos frases que contaban las pestañas dejan de ser ciertas
+    #    y se reescriben con clave nueva: la clave llevaba el número dentro.
+    "Trabajo de las tres pestañas":
+        "el tooltip del pill «Todos» de la columna de trabajo dice hoy «Trabajo de todas las pestañas»",
+    "Ripeo a MKV (con series), edición de metadata, radiografía DV+HDR y upgrade Dolby Vision CMv4.0.":
+        "la descripción de la cabecera nombra también la combinación de MKV, en el orden de las pestañas",
     # ── El toast de «Aplicar corrección» prometía un número que no tiene
     #    (2026-09-25): desde que la Fase E se lanza en segundo plano, el
     #    endpoint contesta `{ok, started}` y el Δ nuevo no existe hasta que

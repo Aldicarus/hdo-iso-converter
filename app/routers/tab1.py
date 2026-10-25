@@ -341,8 +341,14 @@ async def reanudar_cola() -> None:
     También limpia de la cola los ids cuya sesión ya no existe — borrarla no
     tocaba `queue_state.json`.
     """
-    en_cola = list(queue_manager.get_status().get("queue") or [])
-    if not en_cola:
+    estado = queue_manager.get_status()
+    en_cola = list(estado.get("queue") or [])
+    # `queue` son SOLO los rips. Con nada más mirando eso, una cola con fases
+    # CMv4.0, trabajos de Tab 2 o combinaciones —y ningún rip— se quedaba
+    # dormida tras el reinicio hasta que alguien encolara otra cosa.
+    otros = [j for j in estado.get("jobs") or []
+             if j.get("tipo") != queue_manager_mod.TIPO_RIP]
+    if not en_cola and not otros:
         return
     vivas = [sid for sid in en_cola if load_session(sid) is not None]
     fantasmas = set(en_cola) - set(vivas)
@@ -353,8 +359,9 @@ async def reanudar_cola() -> None:
         await queue_manager.descartar(fantasmas)
         _logger.info("[Startup] %d id(s) de la cola sin sesión: descartados",
                      len(fantasmas))
-    if vivas:
-        _logger.info("[Startup] Reanudando la cola con %d trabajo(s)", len(vivas))
+    if vivas or otros:
+        _logger.info("[Startup] Reanudando la cola con %d trabajo(s)",
+                     len(vivas) + len(otros))
         asyncio.create_task(queue_manager._process())
 
 # Conexiones WebSocket activas: session_id → [WebSocket, ...]

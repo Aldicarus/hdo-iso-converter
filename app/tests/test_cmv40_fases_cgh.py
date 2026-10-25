@@ -250,13 +250,51 @@ class TestFaseGRemux(CmvPhaseCase):
         from phases.cmv40_pipeline import run_phase_g_remux
         return await run_phase_g_remux(session, self.log)
 
+    def _el_remux(self):
+        """La invocación de mkvmerge que ESCRIBE el MKV (`-o`). Desde el
+        2026-10-25 la fase lee además, con `mkvmerge -J`, la cadencia del
+        origen y la del MKV final, así que «la única llamada a mkvmerge» dejó
+        de ser el remux."""
+        escriben = [c for c in self.tb.find("mkvmerge") if c.has("-o")]
+        self.assertEqual(len(escriben), 1, escriben)
+        return escriben[0]
+
+    async def test_el_remux_conserva_la_cadencia_del_contenedor_del_origen(self):
+        # Un origen a 24 fps en el CONTENEDOR (el MKV de «Combinar MKV»
+        # retimado, o un WEB-DL sin cadencia en el VUI). El HEVC en bruto no
+        # lo sabe: mkvmerge tomaría la del bitstream y el audio del origen se
+        # iría desincronizando un 0,1 %.
+        self.tb.define_mkv("source.mkv", tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H",
+             "dimensions": "3840x2160", "fps": 24.0},
+            {"type": "audio", "codec": "TrueHD Atmos", "language": "spa", "channels": 8}])
+        session = self.prepare(artifacts=("source_injected.hevc",),
+                               injected_props=INJ_FEL_V40)
+        await self.run_g(session)
+        self.assertEqual(self._el_remux().opt("--default-duration"),
+                         f"0:{round(1e9 / 24.0)}ns")
+
+    async def test_si_el_mkv_final_no_la_conserva_se_para(self):
+        # Un mkvmerge que no aplicara la duración: la fase lo ve en el MKV
+        # recién escrito y no lo da por bueno (la Fase H solo cuenta frames).
+        self.tb.define_mkv("source.mkv", tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H",
+             "dimensions": "3840x2160", "fps": 24.0}])
+        self.tb._scenario["default_duration_ignorada"] = True
+        self.tb._flush()
+        session = self.prepare(artifacts=("source_injected.hevc",),
+                               injected_props=INJ_FEL_V40)
+        with self.assertRaises(RuntimeError) as cm:
+            await self.run_g(session)
+        self.assertIn("41666667", str(cm.exception))
+
     async def test_drop_in_no_ejecuta_dovi_mux(self):
         session = self.prepare(artifacts=("source_injected.hevc",),
                                injected_props=INJ_FEL_V40)
         await self.run_g(session)
         self.assertFalse(self.tb.ran("dovi_tool", "mux"),
                          "el stream drop-in ya es dual-layer íntegro")
-        mkv = self.tb.one("mkvmerge")
+        mkv = self._el_remux()
         self.assertIn("source_injected.hevc", " ".join(mkv.argv))
 
     async def test_p7_fel_combina_bl_con_el_inyectada(self):
@@ -268,7 +306,7 @@ class TestFaseGRemux(CmvPhaseCase):
         self.assertEqual(mux.opt_name("--bl"), "BL.hevc")
         self.assertEqual(mux.opt_name("--el"), "EL_injected.hevc")
         self.assertEqual(mux.opt_name("-o"), "DV_dual.hevc")
-        mkv = self.tb.one("mkvmerge")
+        mkv = self._el_remux()
         self.assertIn("DV_dual.hevc", " ".join(mkv.argv))
 
     async def test_single_layer_no_ejecuta_dovi_mux(self):
@@ -282,7 +320,7 @@ class TestFaseGRemux(CmvPhaseCase):
                 await self.run_g(session)
                 self.assertFalse(self.tb.ran("dovi_tool", "mux"))
                 self.assertIn("BL_injected.hevc",
-                              " ".join(self.tb.one("mkvmerge").argv))
+                              " ".join(self._el_remux().argv))
 
     async def test_escribe_a_output_con_sufijo_tmp(self):
         session = self.prepare(artifacts=("source_injected.hevc",),
@@ -297,7 +335,7 @@ class TestFaseGRemux(CmvPhaseCase):
         session = self.prepare(artifacts=("source_injected.hevc",),
                                injected_props=INJ_FEL_V40)
         await self.run_g(session)
-        mkv = self.tb.one("mkvmerge")
+        mkv = self._el_remux()
         self.assertTrue(mkv.has("--no-video"))
         self.assertIn(session.source_mkv_path, mkv.argv)
 
@@ -318,7 +356,7 @@ class TestFaseGRemux(CmvPhaseCase):
                     target_props=tgt, trust_ok=trust, artifacts=arts,
                     injected_props=INJ_P8_V40)
                 await self.run_g(session)
-                self.assertEqual(self.tb.one("mkvmerge").opt("--track-name"),
+                self.assertEqual(self._el_remux().opt("--track-name"),
                                  f"0:{esperado}")
 
     async def test_adelanta_el_rpu_de_validacion_solo_en_la_rama_merge(self):

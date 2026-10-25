@@ -833,6 +833,148 @@ def cmv40_session_id_base(source_mkv_path: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  TAB 4 — Combinar MKV
+# ══════════════════════════════════════════════════════════════════════
+#
+# Un proyecto por fichero en `/config/mux/{id}.json`. En un SUBDIRECTORIO a
+# propósito: el listado de Tab 1 hace `glob("*.json")` sobre la raíz y uno de
+# estos se colaría como sesión (lo pararía el guard del `id`, pero después de
+# leerlo y parsearlo en cada listado), que es la trampa del sidecar
+# `.progress` de CMv4.0.
+
+MUX_DIR = CONFIG_DIR / "mux"
+
+# Un id que llega en la URL acaba en una ruta: sin separadores ni `..`.
+_ID_MUX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,150}$")
+
+
+def _mux_path(project_id: str) -> Path | None:
+    if not _ID_MUX.match(project_id or "") or ".." in project_id:
+        return None
+    return MUX_DIR / f"{project_id}.json"
+
+
+def save_mux_project(project) -> None:
+    """Persiste un proyecto de combinación (atómico)."""
+    project.updated_at = datetime.now(timezone.utc)
+    path = _mux_path(project.id)
+    if path is None:
+        raise ValueError(project.id)
+    _atomic_write_json(path, project.model_dump_json(indent=2))
+
+
+def load_mux_project(project_id: str):
+    """El proyecto, o None si no existe (o si el id no es uno válido)."""
+    from models import MuxProject
+    path = _mux_path(project_id)
+    if path is None or not path.exists():
+        return None
+    return MuxProject.model_validate(json.loads(path.read_text(encoding="utf-8")))
+
+
+def delete_mux_project(project_id: str) -> bool:
+    """Borra el JSON del proyecto. No toca el MKV combinado ni los orígenes."""
+    path = _mux_path(project_id)
+    if path is None or not path.exists():
+        return False
+    path.unlink()
+    with _mux_summary_lock:
+        _mux_summary_by_file.pop(path.name, None)
+    return True
+
+
+def make_mux_project_id(nombre: str) -> str:
+    """'mux_{título}_{año}_{timestamp}', con `_2`, `_3`… si ya existe."""
+    stem = Path(nombre or "").stem
+    m = re.match(r"^(.+?)\s*\((\d{4})\)", stem)
+    if m:
+        titulo, anio = m.group(1).strip(), m.group(2)
+    else:
+        titulo, anio = stem, "0000"
+    titulo = re.sub(r"[^\w]", "_", titulo, flags=re.ASCII)[:40].strip("_") or "mkv"
+    base = f"mux_{titulo}_{anio}_{int(datetime.now(timezone.utc).timestamp())}"
+    pid, n = base, 2
+    while (MUX_DIR / f"{pid}.json").exists():
+        pid, n = f"{base}_{n}", n + 1
+    return pid
+
+
+# El resumen de la columna izquierda, cacheado por fichero con invalidación
+# por `stat` (el patrón de los otros dos listados). Se vacían el log, el log
+# de cada ejecución y la lista de pistas de cada fuente —es lo que pesa: un
+# remux con 48 pistas—; lo que la tarjeta y el relato necesitan de ellas se
+# deja calculado en `_resumen` antes de vaciarlas.
+_mux_summary_lock = threading.Lock()
+_mux_summary_by_file: dict[str, tuple[int, int, dict]] = {}
+
+
+def _resumen_de_mux(data: dict) -> dict:
+    from models import MuxProject
+    from phases import mux_plan
+    try:
+        plan = mux_plan.plan(MuxProject.model_validate(data))
+        data["_plan"] = {"puede_combinar": plan["puede_combinar"],
+                         "motivos": plan["motivos"],
+                         "retimar_video": plan["retimar_video"]}
+    except Exception:                               # noqa: BLE001
+        data["_plan"] = None
+    data["output_log"] = []
+    for rec in data.get("historial") or []:
+        if isinstance(rec, dict):
+            rec["output_log"] = []
+    for f in data.get("fuentes") or []:
+        if isinstance(f, dict):
+            f["n_pistas"] = len(f.get("pistas") or [])
+            f["pistas"] = []
+            f["capitulos"] = []
+    s = data.get("sincronia")
+    if isinstance(s, dict):
+        s["puntos"] = []
+    return data
+
+
+def list_mux_projects_summary() -> list[dict]:
+    """Los proyectos de combinación, más recientes primero, sin lo pesado.
+
+    Los dicts devueltos son los del caché: los consumidores NO deben
+    mutarlos (mismo contrato que `list_sessions_summary`)."""
+    with _mux_summary_lock:
+        if not MUX_DIR.exists():
+            _mux_summary_by_file.clear()
+            return []
+        entradas = []
+        for path in MUX_DIR.glob("*.json"):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            entradas.append((st.st_mtime, path, st.st_mtime_ns, st.st_size))
+        entradas.sort(key=lambda e: e[0], reverse=True)
+        vistos, out = set(), []
+        for _mt, path, mtime_ns, size in entradas:
+            vistos.add(path.name)
+            cache = _mux_summary_by_file.get(path.name)
+            if cache and cache[0] == mtime_ns and cache[1] == size:
+                out.append(cache[2])
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception as e:                  # noqa: BLE001
+                logger.warning("Proyecto de combinación ilegible, omitido: %s — %s",
+                               path.name, e)
+                _mux_summary_by_file.pop(path.name, None)
+                continue
+            if not isinstance(data, dict) or "id" not in data:
+                continue
+            data = _resumen_de_mux(data)
+            _mux_summary_by_file[path.name] = (mtime_ns, size, data)
+            out.append(data)
+        for viejo in [n for n in _mux_summary_by_file if n not in vistos]:
+            del _mux_summary_by_file[viejo]
+        return out
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  TAB 2 — Cache de análisis de MKV (basic + quality)
 # ══════════════════════════════════════════════════════════════════════
 #

@@ -40,6 +40,16 @@
         ]
       ]
     },
+    "DELETE /api/mux/{project_id}": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": []
+    },
     "DELETE /api/queue/{session_id}": {
       "body": [],
       "params": [
@@ -307,6 +317,24 @@
           false
         ]
       ]
+    },
+    "GET /api/mux": {
+      "params": [],
+      "body": []
+    },
+    "GET /api/mux/create/progress": {
+      "params": [],
+      "body": []
+    },
+    "GET /api/mux/{project_id}": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": []
     },
     "GET /api/queue": {
       "body": [],
@@ -800,6 +828,70 @@
       "body": [],
       "params": []
     },
+    "POST /api/mux/create": {
+      "params": [
+        [
+          "job",
+          "query",
+          false
+        ]
+      ],
+      "body": [
+        "application/json"
+      ]
+    },
+    "POST /api/mux/{project_id}/cancelar": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": []
+    },
+    "POST /api/mux/{project_id}/ejecutar": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": []
+    },
+    "POST /api/mux/{project_id}/medir": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": []
+    },
+    "POST /api/mux/{project_id}/medir/cancelar": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": []
+    },
+    "POST /api/mux/{project_id}/tmdb-refresh": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": [
+        "application/json"
+      ]
+    },
     "POST /api/queue/reorder": {
       "body": [
         "application/json"
@@ -905,6 +997,18 @@
         "application/json"
       ],
       "params": []
+    },
+    "PUT /api/mux/{project_id}": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": [
+        "application/json"
+      ]
     },
     "PUT /api/sessions/{session_id}": {
       "body": [

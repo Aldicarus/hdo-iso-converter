@@ -41,7 +41,7 @@ FUNCIONES = (
 )
 CONSTANTES = (
     "const _AVISO_INTERVALO_MS", "const _AVISO_PREF", "const _AVISO_SONIDO_PREF",
-    "const _AVISO_NOMBRES",
+    "const _AVISO_NOMBRES", "const PESTANAS",
 )
 
 

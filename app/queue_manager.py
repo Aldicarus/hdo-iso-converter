@@ -50,13 +50,14 @@ TIPO_FASE_CMV40 = "fase_cmv40"
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
 TIPO_SERIE = "crear_serie"
+TIPO_COMBINAR = "combinar_mkv"
 
 
 @dataclass(frozen=True)
 class TrabajoEnCola:
     """Una entrada de la cola. Tiene que poder serializarse entera."""
 
-    tab: str        # "rip" | "mkv" | "cmv40" (los tab_id de workload)
+    tab: str        # "rip" | "mkv" | "cmv40" | "mux" (los tab_id de workload)
     tipo: str       # uno de los TIPO_* de arriba
     clave: str      # id con el que se identifica: session id, audit id…
     que: str = ""   # descripción legible para la UI

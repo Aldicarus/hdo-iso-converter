@@ -258,6 +258,7 @@ class TestNingunNodoDejaDeLeerseEnOscuro(unittest.TestCase):
     SIN_TEXTO = {
         "tab2·orden": "es un botón de un solo icono: no tiene texto",
         "tab3·orden": "es un botón de un solo icono: no tiene texto",
+        "tab4·orden": "es un botón de un solo icono: no tiene texto",
         # Estas dos necesitan estado que el fixture no arma. Están aquí para
         # que el número sólo pueda BAJAR: si alguien añade una pantalla que
         # no mide nada, este test lo dice.

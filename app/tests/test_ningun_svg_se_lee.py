@@ -89,14 +89,14 @@ setTimeout(() => {
       {tipo: 'cmv40', id: 'c1', nombre: 'Supergirl (2026).mkv'}));
   pinta('recomendacion', () => _renderCMv40RecommendationCard(window.__S, 'p1'));
   setTimeout(() => {
-    // Con las TRES pestañas visibles: un panel oculto mide 0 y el barrido lo
+    // Con TODAS las pestañas visibles: un panel oculto mide 0 y el barrido lo
     // saltaría — que es justo lo que dejó pasar el botón de la franja navy.
     // Los paneles se ocultan con `style="display:none"` INLINE y por id, no
     // con una clase: hay que ir por los ids reales o el barrido mide 0 y se
     // salta justo lo que hay que mirar.
-    ['tab-panel-1', 'tab-panel-2', 'tab-panel-3',
-     'sidebar-tab-1', 'sidebar-tab-2', 'sidebar-tab-3',
-     'subtab-bar', 'cmv40-subtab-bar', 'mkv-action-bar'].forEach(id => {
+    ['tab-panel-1', 'tab-panel-2', 'tab-panel-3', 'tab-panel-4',
+     'sidebar-tab-1', 'sidebar-tab-2', 'sidebar-tab-3', 'sidebar-tab-4',
+     'subtab-bar', 'cmv40-subtab-bar', 'mkv-action-bar', 'mux-subtab-bar'].forEach(id => {
       const e = document.getElementById(id);
       if (e) { e.style.display = 'block'; e.style.visibility = 'visible'; }
     });

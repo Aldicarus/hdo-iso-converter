@@ -741,7 +741,8 @@ class TestElEndpoint(ApiTestCase):
         """El dashboard no debería traducir entre dos vocabularios."""
         import workload
         self.assertEqual(
-            {historial.TAB_RIP, historial.TAB_MKV, historial.TAB_CMV40},
+            {historial.TAB_RIP, historial.TAB_MKV, historial.TAB_CMV40,
+             historial.TAB_MUX},
             set(workload.TAB_IDS.values()))
 
 

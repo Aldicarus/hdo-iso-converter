@@ -101,6 +101,10 @@ SE_REGISTRAN_EN_SU_TASK = {
     # La Fase B desde Drive: contesta `{started: true}` y la descarga corre en
     # el wrapper de fase, que la registra como interactiva (2026-10-17).
     "POST /api/cmv40/{session_id}/target-rpu-from-drive",
+    # La medida de sincronía de «Combinar MKV»: contesta `{started: true}` y
+    # la medida corre en una task que se registra ella misma, con la película
+    # y el cancelar, como un pre-flight.
+    "POST /api/mux/{project_id}/medir",
 }
 
 

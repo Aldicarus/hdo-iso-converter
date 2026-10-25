@@ -80,6 +80,9 @@ NOMBRE_PROPIO = {
         "«The disc has Dolby Vision»: de las tres palabras largas, dos son el "
         "nombre comercial y van juntas al final, así que el heurístico de "
         "proporción las toma por Title Case",
+    "relato.mux_hecho_dv":
+        "«The video has Dolby Vision», la gemela de la de arriba en «Combinar "
+        "MKV»: el mismo nombre comercial al final",
 
     "tab1.pistas_capitulos_subtitulos_pgs_y_dolby":
         "la lista acaba en «Dolby Vision», que es nombre comercial; antes no "

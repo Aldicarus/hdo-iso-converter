@@ -86,13 +86,14 @@ CLASE_DIFERIDO = "diferido"
 TAB_RIP = "💿 Blu-Ray ISO → MKV"
 TAB_MKV = "✏️ Consultar / Editar MKV"
 TAB_CMV40 = "✨ Upgrade Dolby Vision CMv4.0"
+TAB_MUX = "🔀 Combinar MKV"
 
 # Y las mismas tres traducidas, que es lo que se le enseña. Las constantes de
 # arriba siguen siendo el ID —`TAB_IDS` las indexa y la UI compara contra
 # ellas— así que no pueden cambiar de idioma; el rótulo se resuelve al
 # pintarlo, porque un módulo se importa una vez y congelaría el idioma.
 _CLAVE_DE_TAB = {TAB_RIP: 'workload.tab_rip', TAB_MKV: 'workload.tab_mkv',
-                 TAB_CMV40: 'workload.tab_cmv40'}
+                 TAB_CMV40: 'workload.tab_cmv40', TAB_MUX: 'workload.tab_mux'}
 
 
 def rotulo_de_tab(tab: str) -> str:
@@ -106,7 +107,7 @@ def rotulo_de_tab(tab: str) -> str:
 # Las etiquetas de arriba son para leerlas; esto es para compararlas. La UI
 # necesita saber de qué pestaña es un trabajo, y hacerlo contra el literal con
 # emoji la ata a un texto que existe para poder cambiarse.
-TAB_IDS = {TAB_RIP: "rip", TAB_MKV: "mkv", TAB_CMV40: "cmv40"}
+TAB_IDS = {TAB_RIP: "rip", TAB_MKV: "mkv", TAB_CMV40: "cmv40", TAB_MUX: "mux"}
 
 
 @dataclass(frozen=True)
@@ -403,6 +404,9 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/cmv40/{session_id}/inject":            CLASE_DIFERIDO,  # Fase F
     "POST /api/cmv40/{session_id}/remux":             CLASE_DIFERIDO,  # Fase G
     "POST /api/cmv40/{session_id}/validate":          CLASE_DIFERIDO,  # Fase H
+    # Tab 4: la combinación entera es UN trabajo de la cola (sus tres fases
+    # van seguidas: no hay nada que decidir entre ellas).
+    "POST /api/mux/{project_id}/ejecutar":            CLASE_DIFERIDO,
 
     # ── Trabajo INTERACTIVO: pesado con el usuario delante. Se ve, no bloquea.
     "POST /api/analyze":                    CLASE_INTERACTIVO,  # Fase A+B del disco
@@ -431,6 +435,13 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/cmv40/cleanup/bulk":         CLASE_INTERACTIVO,
     "POST /api/cleanup/execute":            CLASE_INTERACTIVO,
     "POST /api/cmv40/{session_id}/reset-to/{target_phase}": CLASE_INTERACTIVO,
+    # Tab 4. Leer los dos MKV al crear el proyecto: ~25 s con el usuario
+    # delante, como abrir un MKV en Tab 2.
+    "POST /api/mux/create":                 CLASE_INTERACTIVO,
+    # La medida de sincronía: ~20 s leyendo ~2 GB. Fire-and-forget como los
+    # pre-flight, y por lo mismo NO va a la cola: esperar a un rip de 40
+    # minutos para medir 20 segundos dejaría el proyecto parado sin motivo.
+    "POST /api/mux/{project_id}/medir":     CLASE_INTERACTIVO,
 
     # ── LIGERO: todo lo demás. Navegación, metadata, red y ediciones O(1).
     #    No se registra.
@@ -521,4 +532,14 @@ CLASE_POR_RUTA: dict[str, str] = {
     "POST /api/cmv40/{session_id}/override-recommendation": CLASE_LIGERO,
     "POST /api/cmv40/{session_id}/acknowledge-critical-gates": CLASE_LIGERO,
     "POST /api/cmv40/{session_id}/verify-artifacts": CLASE_LIGERO,
+    # Tab 4
+    "GET /api/mux":                         CLASE_LIGERO,
+    "GET /api/mux/create/progress":         CLASE_LIGERO,
+    "GET /api/mux/{project_id}":            CLASE_LIGERO,
+    "PUT /api/mux/{project_id}":            CLASE_LIGERO,
+    "DELETE /api/mux/{project_id}":         CLASE_LIGERO,
+    "POST /api/mux/{project_id}/cancelar":  CLASE_LIGERO,
+    "POST /api/mux/{project_id}/medir/cancelar": CLASE_LIGERO,
+    # Una búsqueda en TMDb y un save: red, no disco del NAS.
+    "POST /api/mux/{project_id}/tmdb-refresh": CLASE_LIGERO,
 }

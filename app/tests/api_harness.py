@@ -101,6 +101,9 @@ class ApiTestCase(unittest.TestCase):
             (storage, "CONFIG_DIR", self.config_dir),
             (storage, "CMV40_DIR", self.cmv40_dir),
             (storage, "MKV_AUDIT_DIR", self.config_dir / "mkv_audits"),
+            # Los proyectos de «Combinar MKV»: `CONFIG_DIR / "mux"`, resuelto
+            # al importar como los dos de arriba.
+            (storage, "MUX_DIR", self.config_dir / "mux"),
             # Misma trampa que `settings_store`: el índice del sidebar de
             # CMv4.0 se resuelve en el import (`CONFIG_DIR / "…​.idx"`), así
             # que redirigir `storage.CONFIG_DIR` no lo mueve. En el Mac fallaba

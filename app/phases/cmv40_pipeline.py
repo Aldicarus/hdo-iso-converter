@@ -4924,11 +4924,23 @@ async def run_phase_g_remux(
             except BaseException:
                 pass
 
+    # La cadencia del MKV ORIGEN, en la duración exacta de un frame. El HEVC
+    # en bruto solo trae la del bitstream (VUI), y mkvmerge la toma de ahí:
+    # en un MKV cuyo contenedor y bitstream no dicen lo mismo —uno retimado
+    # en «Combinar MKV» a la cadencia de su audio, o un WEB-DL sin cadencia
+    # en el VUI— la Fase G le cambiaba el ritmo al vídeo y el audio del
+    # origen se desincronizaba, en verde: la Fase H cuenta frames, no
+    # duración. Medido el 2026-10-25: mkvmerge 88 retima el contenedor pero
+    # no reescribe el VUI del HEVC ni con `--fix-bitstream-timing-information`.
+    duracion_frame = await _duracion_de_frame_del_origen(session)
+    cadencia = (["--default-duration", f"0:{duracion_frame}ns"]
+                if duracion_frame else [])
     try:
         rc = await _run_streaming([
             MKVMERGE_BIN, "--gui-mode", "-o", str(output_mkv),
             "--title", title,
             "--track-name", f"0:{video_track_name}",
+            *cadencia,
             str(hevc_for_mkv),
             "--no-video", session.source_mkv_path,
         ], log_callback=log_callback, proc_callback=proc_callback,
@@ -4943,6 +4955,12 @@ async def run_phase_g_remux(
     if rc not in (0, 1):
         await _parar_el_adelanto()
         raise RuntimeError(tr('cmv40_pipeline.mkvmerge_fallo_codigo', rc=rc))
+    if duracion_frame:
+        real = await _duracion_de_frame(str(output_mkv))
+        if real is not None and abs(real - duracion_frame) > 2:
+            await _parar_el_adelanto()
+            raise RuntimeError(tr('cmv40_pipeline.cadencia_distinta_del_origen',
+                                  origen=duracion_frame, real=real))
 
     # Recoger el extract-rpu adelantado. A estas alturas suele estar hecho
     # (240 s de media contra 460 s de remux); si no, se le espera aquí, que es
@@ -5162,6 +5180,29 @@ async def _comprobar_pistas_del_origen(session, salida_json: str,
     if final != origen:
         raise RuntimeError(tr('cmv40_pipeline.mkv_final_pierde_pistas',
                               a=final[0], s=final[1], a0=origen[0], s0=origen[1]))
+
+
+async def _duracion_de_frame(mkv: str) -> int | None:
+    """La `default_duration` (ns) de la primera pista de vídeo de un MKV, o
+    None si no la declara (vídeo de cadencia variable) o no se puede leer."""
+    try:
+        rc, out, _ = await _run([MKVMERGE_BIN, "-J", mkv], timeout=120)
+        if rc not in (0, 1):
+            return None
+        for t in (json.loads(out) or {}).get("tracks") or []:
+            if t.get("type") == "video":
+                dd = (t.get("properties") or {}).get("default_duration")
+                return int(dd) if dd else None
+    except (OSError, ValueError, TypeError, RuntimeError, asyncio.TimeoutError):
+        return None
+    return None
+
+
+async def _duracion_de_frame_del_origen(session) -> int | None:
+    """La del MKV origen del proyecto (ver la Fase G)."""
+    if not session.source_mkv_path or not Path(session.source_mkv_path).exists():
+        return None
+    return await _duracion_de_frame(session.source_mkv_path)
 
 
 def _publicar_sin_pisar(origen: Path, destino: Path, nombre: str) -> bool:

@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 TAB_RIP = "rip"
 TAB_MKV = "mkv"
 TAB_CMV40 = "cmv40"
+TAB_MUX = "mux"
 
 # Tipos de trabajo. Lo que distingue a dos trabajos de la misma pestaña.
 TIPO_RIP = "rip"
@@ -103,6 +104,10 @@ def motivo_interrumpido() -> str:
     return tr('historial.motivo_interrumpido')
 TIPO_ANALISIS_EXTENDIDO = "analisis_extendido"
 TIPO_COPIA_BIBLIOTECA = "copia_biblioteca"
+# Tab 4: la combinación (de la cola) y la medida de sincronía (en paralelo,
+# como un pre-flight).
+TIPO_COMBINAR_MKV = "combinar_mkv"
+TIPO_MEDIDA_SINCRONIA = "medida_sincronia"
 
 # Un registro son ~250 bytes. Con el peor caso realista (un trabajo cada media
 # hora, día y noche) el tope tarda año y medio en llegar; cuando llega, el

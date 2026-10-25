@@ -7,8 +7,8 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23007AFF' stroke-width='1.6'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='2.5'/></svg>">
   <!-- Lo primero de todo: aplica el tema antes de que se pinte nada.
        Bloqueante a propósito; ver `/api/tema.js` en `main.py`. -->
-  <script src="/api/tema.js?v=20261018b"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20261018b">
+  <script src="/api/tema.js?v=20261025a"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20261025a">
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -23,7 +23,7 @@
       <span class="brand-uhd">UHD</span>
       <span class="brand-name">Blu-ray Toolkit</span>
       <span class="brand-desc-sep"></span>
-      <span class="brand-desc" data-i18n="ui.ripeo_a_mkv_con_series_edicion"></span>
+      <span class="brand-desc" data-i18n="ui.ripeo_upgrade_combinacion_y_edicion"></span>
     </div>
 
     <div class="header-right">
@@ -46,15 +46,20 @@
   </header>
 
   <!-- ═══ TAB BAR ══════════════════════════════════════════════════ -->
-  <!-- Orden visual: 1) ISO→MKV   2) Upgrade DV   3) Editar props.
+  <!-- Orden visual: 1) ISO→MKV   2) Upgrade DV   3) Combinar   4) Editar props.
        Los IDs/switchTab(N) siguen referenciando al panel correspondiente
-       (1=Crear, 2=Editar, 3=CMv4.0). Solo cambia el orden visual + labels. -->
+       (1=Crear, 2=Editar, 3=CMv4.0, 4=Combinar). Solo cambia el orden visual
+       + labels: las tres que producen un MKV van primero y la que lo
+       inspecciona, al final. -->
   <nav id="tab-bar">
     <button class="tab active" onclick="switchTab(1)" id="tab-btn-1" data-i18n-tip="ui.convierte_un_iso_uhd_blu_ray">
       <span class="tab-icon" data-icono="disco"></span> <span data-i18n="ui.blu_ray_iso_mkv"></span>
     </button>
     <button class="tab" onclick="switchTab(3)" id="tab-btn-3" data-i18n-tip="ui.inyecta_rpu_dolby_vision_cmv4_0">
       <span class="tab-icon" data-icono="curva"></span> <span data-i18n="ui.upgrade_dolby_vision_cmv4_0"></span>
+    </button>
+    <button class="tab" onclick="switchTab(4)" id="tab-btn-4" data-i18n-tip="ui.junta_el_video_de_un_mkv">
+      <span class="tab-icon" data-icono="combinar"></span> <span data-i18n="ui.combinar_mkv"></span>
     </button>
     <button class="tab" onclick="switchTab(2)" id="tab-btn-2" data-i18n-tip="ui.inspecciona_metadata_detallada_codecs_hdr_dolby">
       <span class="tab-icon" data-icono="lapiz"></span> <span data-i18n="ui.consultar_editar_mkv"></span>
@@ -240,6 +245,51 @@
 
       </div>
 
+      <!-- Sidebar Tab 4: Combinar MKV. El mismo armazón que las otras tres:
+           primario arriba, cabecera con contador, búsqueda, ordenación,
+           filtros y tarjetas. El quinto pill existe porque aquí hay un estado
+           que en un rip no: la medida de sincronía puede pedir una decisión
+           antes de combinar, y es lo que se viene a buscar. -->
+      <div id="sidebar-tab-4" style="display:none">
+
+        <div class="sidebar-new-project-area">
+          <button class="btn btn-primary btn-md sidebar-new-project-btn" onclick="abrirNuevaCombinacion()" data-i18n-tip="ui.elige_el_mkv_que_pone_la">
+            <span data-icono="combinar"></span> <span data-i18n="ui.nueva_combinacion"></span>
+          </button>
+        </div>
+
+        <div class="sidebar-sessions-header">
+          <span class="sidebar-section-title"><span data-icono="combinar"></span> <span data-i18n="ui.combinaciones"></span></span>
+          <span class="sessions-count" id="mux-count">0</span>
+        </div>
+        <div class="sidebar-search-wrap">
+          <span class="sidebar-search-icon" data-icono="lupa"></span>
+          <input type="text" id="mux-sidebar-search" class="sidebar-search-input"
+            oninput="renderMuxLista()" data-i18n-tip="ui.filtra_por_nombre_ignorando_mayusculas_y" data-i18n-ph="ui.buscar_proyecto">
+        </div>
+
+        <div class="sidebar-controls">
+          <div class="sidebar-sort-row">
+            <select id="mux-sidebar-sort" class="sidebar-sort-select" onchange="renderMuxLista()" data-i18n-tip="ui.criterio_de_ordenacion">
+              <option value="modified" data-i18n="ui.modificado"></option>
+              <option value="name" data-i18n="ui.nombre"></option>
+              <option value="status" data-i18n="ui.estado"></option>
+            </select>
+            <button class="sidebar-sort-dir-btn" id="mux-sort-dir" onclick="toggleMuxSortDir()" data-i18n-tip="ui.alternar_ascendente_descendente"><span data-icono="flechaAbajo"></span></button>
+          </div>
+          <div class="sidebar-status-filters">
+            <button class="sb-filter-pill active" data-filter="all" onclick="onMuxFiltro(this)" data-i18n="ui.todos" data-i18n-tip="ui.todos"></button>
+            <button class="sb-filter-pill" data-filter="pending" onclick="onMuxFiltro(this)" data-i18n-tip="ui.sin_combinar"><span data-icono="combinar"></span></button>
+            <button class="sb-filter-pill" data-filter="decision" onclick="onMuxFiltro(this)" data-i18n-tip="ui.pendientes_de_decision"><span data-icono="aviso"></span></button>
+            <button class="sb-filter-pill" data-filter="done" onclick="onMuxFiltro(this)" data-i18n-tip="ui.completados"><span data-icono="check"></span></button>
+            <button class="sb-filter-pill" data-filter="error" onclick="onMuxFiltro(this)" data-i18n-tip="ui.con_error"><span data-icono="cruz"></span></button>
+          </div>
+        </div>
+
+        <div id="mux-sidebar-list"></div>
+
+      </div>
+
     </aside>
 
     <!-- ── PANEL PRINCIPAL ──────────────────────────────────────── -->
@@ -356,6 +406,34 @@
 
       </div>
 
+      <!-- ── TAB 4: Combinar MKV ──
+           La franja navy con las sub-pestañas de las combinaciones abiertas y
+           el contenido debajo, como en CMv4.0. Un solo contenedor con scroll
+           y los paneles dentro (ver `guardarScrollDePanel`). -->
+      <div id="tab-panel-4" style="display:none">
+
+        <div id="mux-subtab-bar">
+          <div class="subtab-projects-area" id="mux-subtab-projects-area">
+            <button class="subtab-scroll-btn subtab-scroll-left" id="mux-subtab-scroll-left"
+              onclick="scrollMuxSubtabProjects('left')" data-i18n-tip="ui.desplazar_pestanas_a_la_izquierda">‹</button>
+            <div class="subtab-projects" id="mux-subtab-projects"></div>
+            <button class="subtab-scroll-btn subtab-scroll-right" id="mux-subtab-scroll-right"
+              onclick="scrollMuxSubtabProjects('right')" data-i18n-tip="ui.desplazar_pestanas_a_la_derecha">›</button>
+          </div>
+        </div>
+
+        <div id="mux-subtab-content" style="overflow-y:auto; flex:1; min-height:0">
+          <div id="mux-empty-state" class="empty-state-full">
+            <div class="empty-state-icon" data-icono="combinar"></div>
+            <div class="empty-state-title" data-i18n="ui.combinar_mkv"></div>
+            <div class="empty-state-desc" data-i18n="ui.junta_la_imagen_de_un_mkv"></div>
+            <button class="btn btn-primary btn-md" onclick="abrirNuevaCombinacion()"
+              style="margin-top:16px"><span data-icono="combinar"></span> <span data-i18n="ui.nueva_combinacion"></span></button>
+          </div>
+        </div>
+
+      </div>
+
     </main>
 
     <!-- ── COLUMNA DE TRABAJO ───────────────────────────────────────
@@ -394,9 +472,10 @@
            documentada a la regla de iconografía de la columna, y hay un test
            que comprueba que siguen coincidiendo con los de #tab-bar. -->
       <div class="workbar-pills">
-        <button class="wb-pill active" data-tab="all" onclick="onWorkbarPill(this)" data-i18n="ui.todos" data-i18n-tip="ui.trabajo_de_las_tres_pestanas"></button>
+        <button class="wb-pill active" data-tab="all" onclick="onWorkbarPill(this)" data-i18n="ui.todos" data-i18n-tip="ui.trabajo_de_todas_las_pestanas"></button>
         <button class="wb-pill" data-tab="rip" onclick="onWorkbarPill(this)" data-i18n-tip="ui.solo_blu_ray_iso_mkv"><span data-icono="disco"></span></button>
         <button class="wb-pill" data-tab="cmv40" onclick="onWorkbarPill(this)" data-i18n-tip="ui.solo_upgrade_dolby_vision_cmv4_0"><span data-icono="curva"></span></button>
+        <button class="wb-pill" data-tab="mux" onclick="onWorkbarPill(this)" data-i18n-tip="ui.solo_combinar_mkv"><span data-icono="combinar"></span></button>
         <button class="wb-pill" data-tab="mkv" onclick="onWorkbarPill(this)" data-i18n-tip="ui.solo_consultar_editar_mkv"><span data-icono="lapiz"></span></button>
       </div>
 
@@ -1112,6 +1191,31 @@
      lo hace ya el propio backend al abrir el proyecto); esto es para el
      noveno —un nombre que TMDb no reconoce— y para corregir un match que
      apuntó a otra película del mismo título. -->
+<!-- ═══ MODAL: Nueva combinación (Tab 4) ══════════════════════════════
+     Dos huecos —el MKV que pone la imagen y el que pone el audio, los
+     subtítulos y los capítulos— y un botón para intercambiarlos. Al pulsar
+     «Leer los dos MKV» el mismo modal pasa a enseñar la lectura paso a paso
+     (unos 25 s con el pool tranquilo); el proyecto se abre al terminar y la
+     sincronía se mide sola, en segundo plano. Lo pinta `mux.js`. -->
+<div class="modal-overlay" id="mux-nueva-modal" onclick="if (event.target === this) cerrarNuevaCombinacion()">
+  <div class="modal-box mux-nueva-box">
+    <div class="modal-title"><span data-icono="combinar"></span> <span data-i18n="ui.nueva_combinacion"></span></div>
+    <div class="modal-sub" id="mux-nueva-sub" data-i18n="ui.elige_los_dos_mkv_el_video"></div>
+    <div id="mux-nueva-huecos" class="mux-nueva-huecos"></div>
+    <div id="mux-nueva-pasos" class="mux-nueva-pasos" style="display:none"></div>
+    <div id="mux-nueva-error" class="banner error" style="display:none">
+      <span class="banner-icon"><span data-icono="aviso"></span></span>
+      <span id="mux-nueva-error-texto"></span>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" id="mux-nueva-cancelar" onclick="cerrarNuevaCombinacion()" data-i18n="ui.cancelar"></button>
+      <button class="btn btn-primary btn-sm" id="mux-nueva-crear" onclick="crearCombinacion()" disabled>
+        <span data-icono="combinar"></span> <span data-i18n="ui.leer_los_dos_mkv"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="ficha-modal" onclick="onModalOverlayClick(event,'ficha-modal')">
   <!-- Calcado al de «Consulta rápida»: comparte la caja
        `.cmv40-lookup-modal-box`, que es flex en columna con `padding: 0`
@@ -1536,7 +1640,7 @@
              POSITIVO (`test_atribucion_tmdb.py`) que falla si desaparecen del
              marcado o si aparecen como valor en cualquiera de los catálogos. -->
         <a class="lic-tmdb" href="https://www.themoviedb.org/" target="_blank" rel="noreferrer">
-          <img src="/static/img/tmdb.svg?v=20261018b" alt="The Movie Database (TMDB)" width="180" height="13">
+          <img src="/static/img/tmdb.svg?v=20261025a" alt="The Movie Database (TMDB)" width="180" height="13">
         </a>
         <p class="lic-literal">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
         <p class="lic-literal">This product uses MediaInfo library, Copyright (c) 2002-2026 MediaArea.net SARL.</p>
@@ -1590,15 +1694,16 @@
 <!-- El catálogo ANTES de todo: un `<script src>` clásico es síncrono, así
      que `tr()` ya funciona cuando se parsean las constantes de módulo.
      El idioma lo decide el servidor, que es donde vive el ajuste. -->
-<script src="/api/i18n/catalogo.js?v=20261018b"></script>
-<script src="/static/i18n.js?v=20261018b"></script>
-<script src="/static/core.js?v=20261018b"></script>
-<script src="/static/workbar.js?v=20261018b"></script>
-<script src="/static/settings.js?v=20261018b"></script>
-<script src="/static/cmv40_modals.js?v=20261018b"></script>
-<script src="/static/tab1.js?v=20261018b"></script>
-<script src="/static/tab2.js?v=20261018b"></script>
-<script src="/static/tab3.js?v=20261018b"></script>
-<script src="/static/browser.js?v=20261018b"></script>
+<script src="/api/i18n/catalogo.js?v=20261025a"></script>
+<script src="/static/i18n.js?v=20261025a"></script>
+<script src="/static/core.js?v=20261025a"></script>
+<script src="/static/workbar.js?v=20261025a"></script>
+<script src="/static/settings.js?v=20261025a"></script>
+<script src="/static/cmv40_modals.js?v=20261025a"></script>
+<script src="/static/tab1.js?v=20261025a"></script>
+<script src="/static/tab2.js?v=20261025a"></script>
+<script src="/static/tab3.js?v=20261025a"></script>
+<script src="/static/mux.js?v=20261025a"></script>
+<script src="/static/browser.js?v=20261025a"></script>
 </body>
 </html>

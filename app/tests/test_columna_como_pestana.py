@@ -550,8 +550,10 @@ class TestLosPillsSonLosDeLasPestanas(unittest.TestCase):
         tabs = dict(re.findall(
             r'onclick="switchTab\((\d)\)".*?<span class="tab-icon" '
             r'data-icono="(\w+)"', h, re.S))
-        # switchTab(1)=ISO→MKV (rip) · (2)=Editar (mkv) · (3)=CMv4.0
-        esperado = {"rip": tabs["1"], "mkv": tabs["2"], "cmv40": tabs["3"]}
+        # switchTab(1)=ISO→MKV (rip) · (2)=Editar (mkv) · (3)=CMv4.0 ·
+        # (4)=Combinar (mux)
+        esperado = {"rip": tabs["1"], "mkv": tabs["2"], "cmv40": tabs["3"],
+                    "mux": tabs["4"]}
         pills = dict(re.findall(
             r'data-tab="([a-z0-9]+)"[^>]*>\s*<span data-icono="(\w+)"',
             h[h.index('<div class="workbar-pills">'):], re.S))

@@ -197,6 +197,10 @@ FUERA_DEL_CATALOGO_BACKEND: dict[str, str] = {
         "`workload.rotulo_de_tab()`, del catálogo. Las otras dos etiquetas de "
         "pestaña no salen aquí solo porque no llevan ninguna palabra "
         "castellana dentro.",
+    "🔀 Combinar MKV":
+        "`workload.TAB_MUX`, el ID de la cuarta pestaña: lo mismo que "
+        "`TAB_MKV` justo encima. El rótulo que se enseña es "
+        "`workload.tab_mux`, del catálogo.",
 }
 
 

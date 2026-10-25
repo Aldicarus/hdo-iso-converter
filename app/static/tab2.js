@@ -2802,6 +2802,10 @@ const ISO639_MAP = {
   kor:'Korean', dut:'Dutch', nld:'Dutch', rus:'Russian', pol:'Polish', cze:'Czech',
   ces:'Czech', hun:'Hungarian', swe:'Swedish', nor:'Norwegian', dan:'Danish',
   fin:'Finnish', tur:'Turkish', tha:'Thai', ara:'Arabic', heb:'Hebrew', hin:'Hindi',
+  // Los que el catálogo ya sabe nombrar (`idioma.*`) y faltaban aquí: sin
+  // ellos una pista catalana salía como «cat».
+  cat:'Catalan', hrv:'Croatian', scr:'Croatian', gre:'Greek', ell:'Greek',
+  rum:'Romanian', ron:'Romanian', slo:'Slovak', slk:'Slovak', ukr:'Ukrainian',
   und:'Undetermined',
 };
 

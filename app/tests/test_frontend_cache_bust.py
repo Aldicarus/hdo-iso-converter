@@ -48,8 +48,8 @@ class TestCacheBust(unittest.TestCase):
         self.assertIn("style.css", ficheros, "style.css debe cargarse con ?v=")
         js = sorted(f for f in ficheros if f.endswith(".js"))
         self.assertEqual(js, ["browser.js", "cmv40_modals.js", "core.js",
-                              "i18n.js", "settings.js", "tab1.js", "tab2.js",
-                              "tab3.js", "workbar.js"],
+                              "i18n.js", "mux.js", "settings.js", "tab1.js",
+                              "tab2.js", "tab3.js", "workbar.js"],
                          "faltan piezas del JS en index.html (o hay de más)")
 
     def test_el_catalogo_del_idioma_hereda_el_token(self):

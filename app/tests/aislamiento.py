@@ -26,6 +26,7 @@ def directorios_aislados(prefijo: str = "aislado_"):
         (storage, "CMV40_DIR", config / "cmv40"),
         (storage, "_CMV40_INDICE", config / "cmv40_summary.idx"),
         (storage, "MKV_AUDIT_DIR", config / "mkv_audits"),
+        (storage, "MUX_DIR", config / "mux"),
         (paths, "CONFIG_DIR", config),
     ]
     originales = [(m, a, getattr(m, a)) for m, a, _ in cambios]

@@ -320,7 +320,8 @@ class FakeToolbox:
 
     def define_mkv(self, name: str, *, tracks: list[dict] | None = None,
                    title: str = "", duration_s: float = 7200.0,
-                   playlist_size: int | None = None) -> None:
+                   playlist_size: int | None = None,
+                   attachments: list[dict] | None = None) -> None:
         """Las pistas que `mkvmerge -J` reportará para un MKV.
 
         Cada pista es un dict con `type` ("video"/"audio"/"subtitles") y los
@@ -361,6 +362,31 @@ class FakeToolbox:
         self._scenario.setdefault("mkvs", {})[name] = {
             "tracks": tracks, "title": title, "duration_s": duration_s,
             "playlist_size": playlist_size,
+            # `[{id, file_name, content_type, size}]`, como en el `-J` real.
+            "attachments": list(attachments or []),
+        }
+        self._flush()
+
+    def define_linea_de_tiempo(self, name: str, *, alfa: float = 1.0,
+                               beta_s: float = 0.0, semilla: int = 7,
+                               pistas: dict | None = None) -> None:
+        """Cómo suena la película en un fichero, para el `ffmpeg` falso.
+
+        La película es una serie de sucesos (golpes, arranques de frase) que
+        sale de `semilla`; dos ficheros con la misma semilla son la MISMA
+        película. Cada fichero la oye en su línea de tiempo: el suceso del
+        instante τ suena en `alfa·τ + beta_s`. `pistas` cambia la línea de
+        UNA pista de audio (`{posición entre las de audio: {alfa, beta_s}}`):
+        es una pista desfasada dentro de su propio release.
+
+        Con esto `ffmpeg -ss T -t D -i F -map 0:a:N … -f s16le pipe:1`
+        devuelve audio de verdad —ráfagas en sus instantes— y la medida de
+        sincronía de «Combinar MKV» se puede ejecutar en un test, con el
+        desfase que el test haya declarado.
+        """
+        self._scenario.setdefault("lineas", {})[name] = {
+            "alfa": alfa, "beta_s": beta_s, "semilla": semilla,
+            "pistas": {str(k): v for k, v in (pistas or {}).items()},
         }
         self._flush()
 
@@ -1600,7 +1626,8 @@ def mediainfo(sc):
 
 
 def mkvextract(sc):
-    """`mkvextract <mkv> chapters --simple`: capítulos en formato OGM."""
+    """`mkvextract <mkv> chapters --simple`: capítulos en formato OGM; sin
+    `--simple` y con un fichero de salida, el XML de Matroska ahí."""
     positional = [a for a in ARGV if not a.startswith("-") and a != "chapters"]
     name = Path(positional[0]).name if positional else ""
     caps = sc.get("chapters", {}).get(name, [])
@@ -1608,6 +1635,19 @@ def mkvextract(sc):
         escritos = read_props(positional[0], sc).get("chapters")
         if escritos is not None:
             caps = escritos
+    if "--simple" not in ARGV and len(positional) >= 2:
+        from xml.sax.saxutils import escape
+        atomos = "".join(
+            "<ChapterAtom><ChapterUID>%d</ChapterUID>"
+            "<ChapterTimeStart>%s000000</ChapterTimeStart><ChapterFlagHidden>0</ChapterFlagHidden>"
+            "<ChapterDisplay><ChapterString>%s</ChapterString>"
+            "<ChapterLanguage>und</ChapterLanguage></ChapterDisplay></ChapterAtom>"
+            % (i, ts, escape(titulo)) for i, (ts, titulo) in enumerate(caps, start=1))
+        Path(positional[1]).write_text(
+            '<?xml version="1.0"?>\n<Chapters>' +
+            ("<EditionEntry>%s</EditionEntry>" % atomos if caps else "") +
+            "</Chapters>\n", encoding="utf-8")
+        return 0
     for i, (ts, titulo) in enumerate(caps, start=1):
         sys.stdout.write(f"CHAPTER{i:02d}={ts}\n")
         sys.stdout.write(f"CHAPTER{i:02d}NAME={titulo}\n")
@@ -1826,6 +1866,8 @@ def ffmpeg(sc):
             and not Path(entrada).exists():
         sys.stderr.write("%s: No such file or directory\n" % entrada)
         return 1
+    if opt("-f") == "s16le":
+        return _ffmpeg_pcm(sc, entrada)
     props = read_props(entrada, sc)
     # `-map` sobre un m2ts con sus vídeos declarados. El fake lo ignoraba y
     # devolvía la EL saliera el stream que saliera, así que ningún test podía
@@ -1927,6 +1969,63 @@ def ffmpeg(sc):
                 int(seg // 3600), int((seg % 3600) // 60), seg % 60,
             ))
         sys.stderr.flush()
+    return 0
+
+
+def _ffmpeg_pcm(sc, entrada):
+    """`-ss T -t D -i F -map 0:a:N -ac 1 -ar SR -f s16le pipe:1`: el audio de
+    la película en ese tramo, como lo oye ESE fichero.
+
+    Ráfagas de 15 ms en los instantes de los sucesos de la película
+    (`define_linea_de_tiempo`), cada una con su amplitud. El de un MKV que
+    hizo el mux falso suena en la línea de su pista —la del origen con el
+    `--sync` aplicado—, que es lo que deja comprobar que la combinación los
+    puso en su sitio. Una pista que no existe falla como el real.
+    """
+    import array as _array, math as _math, random as _random
+    sr = int(opt("-ar") or 4000)
+    desde = float(opt("-ss") or 0.0)
+    dur = float(opt("-t") or 30.0)
+    mapa = opt("-map") or "0:a:0"
+    try:
+        n = int(mapa.split(":")[-1]) if ":a:" in mapa else 0
+    except ValueError:
+        n = 0
+    props = read_props(entrada, sc) if entrada else {}
+    pistas = props.get("tracks")
+    if pistas is not None:
+        audio = [t for t in pistas if t.get("type") == "audio"]
+        if n >= len(audio):
+            sys.stderr.write("Stream map '%s' matches no streams.\n" % mapa)
+            return 234
+        linea = audio[n].get("linea") or _lineas_del_fichero(entrada, sc)
+    else:
+        spec = sc.get("mkvs", {}).get(Path(entrada).name) or {}
+        audio = [t for t in spec.get("tracks") or [] if t.get("type") == "audio"]
+        if spec and n >= len(audio):
+            sys.stderr.write("Stream map '%s' matches no streams.\n" % mapa)
+            return 234
+        base = _lineas_del_fichero(entrada, sc)
+        linea = base["pistas"].get(str(n), base)
+    alfa = float(linea.get("alfa", 1.0))
+    beta = float(linea.get("beta_s", 0.0))
+    rnd = _random.Random(int(linea.get("semilla", 7)))
+    muestras = _array.array("h", bytes(2 * int(dur * sr)))
+    rafaga = int(0.015 * sr)
+    tau = 0.0
+    while True:
+        tau += rnd.expovariate(3.0)
+        amp = rnd.uniform(0.3, 1.0)
+        t = alfa * tau + beta
+        if t > desde + dur + 1:
+            break
+        k0 = int(round((t - desde) * sr))
+        if k0 + rafaga < 0 or k0 >= len(muestras):
+            continue
+        for k in range(max(0, k0), min(len(muestras), k0 + rafaga)):
+            muestras[k] = int(20000 * amp * _math.sin(2 * _math.pi * 440 * (k - k0) / sr))
+    sys.stdout.buffer.write(muestras.tobytes())
+    sys.stdout.buffer.flush()
     return 0
 
 
@@ -2057,6 +2156,7 @@ _CON_VALOR = {
     "--cropping", "--attach-file", "--attachment-name", "--attachment-mime-type",
     "--chapter-language", "--chapter-charset", "--ui-language", "--track-tags",
     "--identification-format", "-F",
+    "--fix-bitstream-timing-information", "--chapter-sync", "-y", "-m",
 }
 _SIN_VIDEO = ("--no-video", "-D")
 _SIN_AUDIO = ("--no-audio", "-A")
@@ -2109,6 +2209,9 @@ def _pistas_del_mux(entradas, sc):
                                     "dimensions": "3840x2160", "fps": 23.976}]})
             del_fichero = [dict(t, id=t.get("id", i)) for i, t in enumerate(spec["tracks"])]
         nombres = _por_id(op.get("--track-name"))
+        duraciones = _por_id(op.get("--default-duration"))
+        sincros = _por_id(op.get("--sync") or op.get("-y"))
+        lineas = _lineas_del_fichero(ruta, sc)
         idiomas = _por_id(op.get("--language"))
         por_defecto = _por_id(op.get("--default-track") or op.get("--default-track-flag"))
         forzadas = _por_id(op.get("--forced-track") or op.get("--forced-display-flag"))
@@ -2130,6 +2233,30 @@ def _pistas_del_mux(entradas, sc):
                 nueva["default"] = por_defecto[t["id"]] in ("yes", "1", "true")
             if t["id"] in forzadas:
                 nueva["forced"] = forzadas[t["id"]] in ("yes", "1", "true")
+            if t["id"] in duraciones and not sc.get("default_duration_ignorada"):
+                fps_nuevo = _fps_de_duracion(duraciones[t["id"]])
+                if fps_nuevo:
+                    fps_viejo = float(nueva.get("fps") or 23.976)
+                    nueva["fps"] = fps_nuevo
+                    if nueva.get("frames"):
+                        nueva["track_duration_s"] = nueva["frames"] / fps_nuevo
+                    nueva["retimado_de"] = fps_viejo
+            if t["id"] in sincros:
+                nueva["sync"] = sincros[t["id"]]
+            if tipo == "audio":
+                n_audio = sum(1 for x in del_fichero[:del_fichero.index(t)]
+                              if x["type"] == "audio")
+                base = lineas["pistas"].get(str(n_audio), lineas)
+                alfa, beta = float(base.get("alfa", 1.0)), float(base.get("beta_s", 0.0))
+                if t["id"] in sincros:
+                    d, _, factor = sincros[t["id"]].partition(",")
+                    f = 1.0
+                    if factor:
+                        num, _, den = factor.partition("/")
+                        f = float(num) / float(den or 1)
+                    alfa, beta = alfa * f, beta * f + float(d) / 1000.0
+                nueva["linea"] = {"alfa": alfa, "beta_s": beta,
+                                  "semilla": lineas.get("semilla", 7)}
             nueva["_origen"] = [fi, t["id"]]
             if tipo == "video" and ruta_video is None:
                 ruta_video = ruta
@@ -2148,6 +2275,53 @@ def _pistas_del_mux(entradas, sc):
         t["id"] = i
         t.pop("_origen", None)
     return pistas, ruta_video
+
+
+def _lineas_del_fichero(ruta, sc):
+    """La línea de tiempo con la que suena un fichero (`define_linea_de_tiempo`
+    para un origen; las de cada pista en un MKV que hizo el mux falso)."""
+    base = {"alfa": 1.0, "beta_s": 0.0, "semilla": 7, "pistas": {}}
+    decl = (sc.get("lineas") or {}).get(Path(ruta).name)
+    if decl:
+        base.update(decl)
+    return base
+
+
+def _fps_de_duracion(valor):
+    """El valor de `--default-duration`: «24p», «24000/1001p», «41666896ns»."""
+    v = str(valor).strip()
+    try:
+        if v.endswith("ns"):
+            return 1e9 / float(v[:-2])
+        if v.endswith("p") or v.endswith("fps"):
+            v = v[:-1] if v.endswith("p") else v[:-3]
+            num, _, den = v.partition("/")
+            return float(num) / float(den or 1)
+    except (ValueError, ZeroDivisionError):
+        return None
+    return None
+
+
+def _adjuntos_del_mux(entradas, sc):
+    """Los adjuntos del MKV de salida: los de cada entrada salvo
+    `--no-attachments`, o solo los ids de `--attachments`."""
+    out = []
+    for ruta, op in entradas:
+        if "--no-attachments" in op or "-M" in op:
+            continue
+        spec = sc.get("mkvs", {}).get(Path(ruta).name) or {}
+        propios = list(spec.get("attachments") or [])
+        elegidos = [v for f in ("--attachments", "-m") for v in op.get(f, [])]
+        if elegidos:
+            ids = {int(x.split(":")[0]) for v in elegidos for x in str(v).split(",")
+                   if x.split(":")[0].strip().isdigit()}
+            propios = [a for a in propios if int(a.get("id", -1)) in ids]
+        out += propios
+    for i, a in enumerate(out, start=1):
+        a = dict(a)
+        a["id"] = i
+        out[i - 1] = a
+    return out
 
 
 def _capitulos_del_mux(entradas, sc):
@@ -2233,8 +2407,15 @@ def mkvmerge(sc):
             # mkvmerge no las trae.
             if t.get("frames") is not None:
                 props["tag_number_of_frames"] = str(int(t["frames"]))
-            if t.get("track_duration_s"):
-                seg = float(t["track_duration_s"])
+            seg = t.get("track_duration_s")
+            if not seg and t["type"] == "video" and t.get("frames") and t.get("fps"):
+                # mkvmerge escribe SIEMPRE la duración en las estadísticas de
+                # la pista: un vídeo CFR dura sus frames a su cadencia. Sin
+                # esto, la comprobación de duración de «Combinar MKV» no tenía
+                # con qué comparar y un vídeo sin retimar pasaba por ahí.
+                seg = int(t["frames"]) / float(t["fps"])
+            if seg:
+                seg = float(seg)
                 props["tag_duration"] = "%02d:%02d:%012.9f" % (
                     int(seg // 3600), int(seg % 3600 // 60), seg % 60)
             if t.get("channels"):
@@ -2243,6 +2424,23 @@ def mkvmerge(sc):
                 props["audio_sampling_frequency"] = t["sample_rate"]
             if t.get("multiplexed_tracks"):
                 props["multiplexed_tracks"] = t["multiplexed_tracks"]
+            # Lo que lee «Combinar MKV». El real lo emite siempre que el MKV
+            # lo hizo mkvmerge: la etiqueta IETF, el codec_id, lo que ocupa la
+            # pista y QUIÉN escribió las estadísticas (sin eso, el recuento
+            # de frames no se da por fiable).
+            for clave, destino in (("language_ietf", "language_ietf"),
+                                   ("codec_id", "codec_id")):
+                if t.get(clave):
+                    props[destino] = t[clave]
+            if t.get("bytes") is not None:
+                props["tag_number_of_bytes"] = str(int(t["bytes"]))
+            if t.get("frames") is not None or t.get("bytes") is not None:
+                props["tag__statistics_writing_app"] = t.get(
+                    "statistics_app", "mkvmerge v88.0 ('All I Know') 64-bit")
+            if t.get("commentary"):
+                props["flag_commentary"] = True
+            if t.get("minimum_timestamp_ns") is not None:
+                props["minimum_timestamp"] = int(t["minimum_timestamp_ns"])
             # `number`: el mkvmerge real lo emite siempre. En un MPEG-TS es el
             # PID —4113 la BL de todos los discos del NAS— y en un MKV, el
             # número de pista. Es lo que deja ver qué pista OCULTÓ mkvmerge:
@@ -2285,9 +2483,13 @@ def mkvmerge(sc):
         if lista is not None:
             propiedades["playlist"] = True
             propiedades["playlist_file"] = lista
+        adjuntos = del_fichero.get("attachments")
+        if adjuntos is None:
+            adjuntos = spec.get("attachments") or []
         sys.stdout.write(json.dumps({
             "container": {"supported": True, "properties": propiedades},
             "tracks": out,
+            "attachments": adjuntos,
             # Como el real: `[{"num_entries": N}]` por edición, `[]` sin
             # capítulos. Los escritos con mkvpropedit ganan al escenario.
             "chapters": _capitulos_del_j(positional[-1] if positional else "", name,
@@ -2321,6 +2523,7 @@ def mkvmerge(sc):
         props.pop("chapters", None)
         if caps is not None:
             props["chapters"] = caps
+        props["attachments"] = _adjuntos_del_mux(entradas, sc)
         if opt("--title") is not None:
             props["title"] = opt("--title")
         produce(out, props)

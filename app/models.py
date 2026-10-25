@@ -2005,3 +2005,234 @@ class CMv40Session(BaseModel):
 
         return self
 
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  TAB 4 — COMBINAR MKV (el vídeo de un MKV + el audio y los subtítulos
+#  de otro)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Un proyecto de combinación tiene DOS fuentes con papeles fijos: la [0] da el
+# vídeo y la [1] el resto (audio, subtítulos, capítulos). El papel no es un
+# adorno: decide qué línea de tiempo manda cuando las cadencias no coinciden
+# (ver `phases/mux_plan.py`), y por eso no se guarda como una lista de N
+# ficheros intercambiables.
+#
+# Se persiste en `/config/mux/{id}.json`. Va en un subdirectorio a propósito:
+# el listado de Tab 1 hace `glob("*.json")` sobre la raíz de `/config`, y un
+# proyecto de aquí suelto ahí se colaría como sesión (lo pararía el guard del
+# `id`, pero después de leerlo y parsearlo en cada listado).
+
+class MuxPistaOrigen(BaseModel):
+    """Una pista de una de las dos fuentes, tal como la cuenta `mkvmerge -J`."""
+
+    id: int
+    """El id de mkvmerge. En un MKV es también el índice del stream para
+    ffmpeg, que es como lo decodifica la medida de sincronía."""
+
+    tipo: Literal["video", "audio", "subtitles"]
+    codec: str = ""
+    codec_id: str = ""
+    """'A_TRUEHD', 'S_TEXT/UTF8', 'S_TEXT/ASS'… El de un ASS es lo que dice
+    si los adjuntos (las fuentes tipográficas) hacen falta."""
+
+    idioma: str = ""
+    """ISO 639-2 ('spa'), el que usa el resto de la app."""
+
+    idioma_ietf: str = ""
+    """BCP 47 ('es', 'es-419'). Es el único que distingue el castellano del
+    latino cuando el nombre de la pista no lo dice."""
+
+    nombre: str = ""
+    por_defecto: bool = False
+    forzada: bool = False
+    comentario: bool = False
+    sordos: bool = False
+    canales: int | None = None
+    resolucion: str = ""
+    formato_comercial: str = ""
+    """De MediaInfo: 'Dolby Digital Plus with Dolby Atmos'. mkvmerge no
+    distingue un E-AC-3 con Atmos de uno sin."""
+
+    bytes: int = 0
+    """Lo que ocupa en el fichero: la etiqueta de estadísticas de mkvmerge,
+    o el `StreamSize` de MediaInfo si el MKV no la trae."""
+
+    bps: int = 0
+    frames: int = 0
+    default_duration_ns: int = 0
+
+
+class MuxAdjunto(BaseModel):
+    """Un adjunto del Matroska: una fuente para un ASS, una carátula…"""
+
+    id: int
+    nombre: str = ""
+    mime: str = ""
+    tamano: int = 0
+
+
+class MuxVideo(BaseModel):
+    """Lo que interesa del vídeo de una fuente, resumido."""
+
+    codec: str = ""
+    resolucion: str = ""
+    cadencia_num: int = 0
+    cadencia_den: int = 1
+    frames: int = 0
+    pistas: int = 0
+    """Cuántas pistas de vídeo trae: 2 en un MKV antiguo con la capa de
+    mejora en una pista aparte. Van siempre juntas."""
+
+    hdr: str = ""
+    """El `HDR_Format` de MediaInfo tal cual ('Dolby Vision / SMPTE ST 2086')."""
+
+    modo_cadencia: str = ""
+    """El `FrameRate_Mode` de MediaInfo: 'CFR', 'VFR' o vacío si no lo dice.
+    Retimar el vídeo es escribir UNA duración de frame para todo él, y eso
+    solo vale para una cadencia fija."""
+
+    dv_profile: int = 0
+    dv_el: str = ""
+    dv_cm: str = ""
+
+
+class MuxFuente(BaseModel):
+    """Uno de los dos MKV, leído al crear el proyecto."""
+
+    ruta: str
+    nombre: str
+    tamano: int = 0
+    huella: dict | None = None
+    """`storage.compute_mkv_fingerprint` al leerlo. Si al combinar ya no es
+    la misma, el fichero cambió y lo leído no lo describe."""
+
+    duracion_s: float = 0.0
+    titulo_contenedor: str = ""
+    video: MuxVideo = Field(default_factory=MuxVideo)
+    pistas: list[MuxPistaOrigen] = []
+    capitulos: list[Chapter] = []
+    adjuntos: list[MuxAdjunto] = []
+
+
+class MuxPista(BaseModel):
+    """Una pista del MKV final. La lista va EN EL ORDEN del MKV final."""
+
+    fuente: int
+    """0 = el MKV del vídeo, 1 = el del audio y los subtítulos."""
+
+    id: int
+    nombre: str = ""
+    por_defecto: bool = False
+    forzada: bool = False
+
+
+class MuxPunto(BaseModel):
+    """Un punto de la medida de sincronía."""
+
+    t_a: float
+    """Segundo del MKV del vídeo donde arranca la ventana."""
+
+    t_b: float | None = None
+    desfase_ms: float | None = None
+    """(dónde está en el otro) − (dónde está en el del vídeo), del mismo
+    sonido. Negativo: el otro lo tiene antes."""
+
+    r: float = 0.0
+    contraste: float = 0.0
+    valido: bool = False
+    error: str | None = None
+
+
+class MuxSincronia(BaseModel):
+    """La medida de sincronía entre las dos fuentes, y lo que se concluyó.
+
+    Describe lo MEDIDO: qué hacer con ello lo decide el plan
+    (`phases/mux_plan.py`), que se calcula al servir y no se guarda.
+    """
+
+    estado: Literal["midiendo", "medida", "error", "cancelada"] = "midiendo"
+    pista_a: int | None = None
+    pista_b: int | None = None
+    veredicto: str = ""
+    alfa_num: int = 1
+    alfa_den: int = 1
+    beta_ms: int = 0
+    dispersion_ms: float | None = None
+    pendiente_ppm: float | None = None
+    salto_entre: list[int] | None = None
+    n_validos: int = 0
+    n_puntos: int = 0
+    puntos: list[MuxPunto] = []
+    huellas: list[dict | None] = []
+    """Las huellas de las dos fuentes cuando se midió: una medida de otros
+    ficheros no vale para estos."""
+
+    progreso: list[int] | None = None
+    """[hechos, total] mientras se mide."""
+
+    medido_en: datetime | None = None
+    error: str | None = None
+
+
+class MuxEjecucion(BaseModel):
+    """Una pasada de la combinación, para el historial del proyecto."""
+
+    run_number: int
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str = "error"
+    error_message: str | None = None
+    output_mkv_path: str | None = None
+    fases: dict[str, float | None] = {}
+    output_log: list[str] = []
+    validacion: dict | None = None
+
+
+class MuxProject(BaseModel):
+    """Un proyecto de la pestaña «Combinar MKV»."""
+
+    id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    fuentes: list[MuxFuente]
+    """Exactamente dos: [0] el MKV del vídeo, [1] el del resto."""
+
+    pistas: list[MuxPista] = []
+    """Lo que va al MKV final además del vídeo, en su orden."""
+
+    capitulos_de: Literal["video", "resto", "ninguno"] = "resto"
+    adjuntos: list[dict] = []
+    """`[{fuente, id}]` de los adjuntos que se copian."""
+
+    titulo: str = ""
+    """El título del contenedor. Vacío = el nombre del MKV sin la extensión."""
+
+    nombre_salida: str = ""
+    nombre_manual: bool = False
+
+    pareja: list[int] | None = None
+    """`[id_a, id_b]`: las pistas con las que medir, si el usuario eligió
+    otras que las de `mux_sync.pareja_de_referencia`."""
+
+    sincronia: MuxSincronia | None = None
+    acepta_riesgo: bool = False
+    """Combinar aunque la medida no cuadre o no concluya. Lo pone el usuario
+    con un diálogo delante; se borra al volver a medir."""
+
+    retraso_manual_ms: int | None = None
+    """El retraso de las pistas del otro MKV cuando la medida no concluye."""
+
+    tmdb_info: dict | None = None
+
+    status: str = "pending"
+    """pending · queued · running · done · error"""
+
+    error_message: str | None = None
+    last_cancelled_at: datetime | None = None
+    output_mkv_path: str | None = None
+    output_log: list[str] = []
+    historial: list[MuxEjecucion] = []
+    validacion: dict | None = None
+    """La comprobación del último MKV combinado (Fase C)."""

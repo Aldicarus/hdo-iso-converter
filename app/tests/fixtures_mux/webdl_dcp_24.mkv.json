@@ -1,0 +1,211 @@
+{
+ "attachments": [],
+ "chapters": [
+  {
+   "num_entries": 36
+  }
+ ],
+ "container": {
+  "properties": {
+   "container_type": 17,
+   "duration": 6106752000000,
+   "is_providing_timestamps": true,
+   "timestamp_scale": 1000000,
+   "writing_application": "mkvmerge v64.0.0 ('Willows') 64-bit"
+  },
+  "recognized": true,
+  "supported": true,
+  "type": "Matroska"
+ },
+ "errors": [],
+ "file_name": "/mnt/isos/webdl_dcp_24.mkv",
+ "identification_format_version": 20,
+ "tracks": [
+  {
+   "codec": "HEVC/H.265/MPEG-H",
+   "id": 0,
+   "properties": {
+    "codec_id": "V_MPEGH/ISO/HEVC",
+    "codec_private_length": 132,
+    "default_duration": 41666666,
+    "default_track": true,
+    "display_dimensions": "3840x2076",
+    "display_unit": 0,
+    "enabled_track": true,
+    "forced_track": false,
+    "language": "und",
+    "language_ietf": "und",
+    "minimum_timestamp": 0,
+    "num_index_entries": 2322,
+    "number": 1,
+    "packetizer": "mpegh_p2_video",
+    "pixel_dimensions": "3840x2076",
+    "tag__statistics_tags": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES",
+    "tag__statistics_writing_app": "mkvmerge v64.0.0 ('Willows') 64-bit",
+    "tag_bps": "23942743",
+    "tag_duration": "01:41:46.750000000",
+    "tag_number_of_bytes": "18276543581",
+    "tag_number_of_frames": "146562"
+   },
+   "type": "video"
+  },
+  {
+   "codec": "TrueHD Atmos",
+   "id": 1,
+   "properties": {
+    "audio_channels": 8,
+    "audio_sampling_frequency": 48000,
+    "codec_id": "A_TRUEHD",
+    "codec_private_length": 0,
+    "default_track": true,
+    "enabled_track": true,
+    "forced_track": true,
+    "language": "spa",
+    "language_ietf": "es",
+    "minimum_timestamp": 0,
+    "num_index_entries": 0,
+    "number": 2,
+    "tag__statistics_tags": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES",
+    "tag__statistics_writing_app": "mkvmerge v64.0.0 ('Willows') 64-bit",
+    "tag_bps": "4499420",
+    "tag_duration": "01:41:46.750000000",
+    "tag_number_of_bytes": "3434604656",
+    "tag_number_of_frames": "7328100",
+    "track_name": "Castellano TrueHD Atmos 7.1-DCP"
+   },
+   "type": "audio"
+  },
+  {
+   "codec": "E-AC-3",
+   "id": 2,
+   "properties": {
+    "audio_channels": 8,
+    "audio_sampling_frequency": 48000,
+    "codec_id": "A_EAC3",
+    "codec_private_length": 0,
+    "default_duration": 32000000,
+    "default_track": false,
+    "enabled_track": true,
+    "forced_track": false,
+    "language": "spa",
+    "language_ietf": "es",
+    "minimum_timestamp": 0,
+    "num_index_entries": 0,
+    "number": 3,
+    "tag__statistics_tags": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES",
+    "tag__statistics_writing_app": "mkvmerge v64.0.0 ('Willows') 64-bit",
+    "tag_bps": "640000",
+    "tag_duration": "01:41:46.752000000",
+    "tag_number_of_bytes": "488540160",
+    "tag_number_of_frames": "190836",
+    "track_name": "Castellano DD+ 7.1 @ 640 kbps"
+   },
+   "type": "audio"
+  },
+  {
+   "codec": "E-AC-3",
+   "id": 3,
+   "properties": {
+    "audio_channels": 8,
+    "audio_sampling_frequency": 48000,
+    "codec_id": "A_EAC3",
+    "codec_private_length": 0,
+    "default_duration": 32000000,
+    "default_track": false,
+    "enabled_track": true,
+    "forced_track": false,
+    "language": "cat",
+    "language_ietf": "ca",
+    "minimum_timestamp": 0,
+    "num_index_entries": 0,
+    "number": 4,
+    "tag__statistics_tags": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES",
+    "tag__statistics_writing_app": "mkvmerge v64.0.0 ('Willows') 64-bit",
+    "tag_bps": "640000",
+    "tag_duration": "01:41:46.752000000",
+    "tag_number_of_bytes": "488540160",
+    "tag_number_of_frames": "190836",
+    "track_name": "Catalán DD+ 5.1 @ 640 kbps"
+   },
+   "type": "audio"
+  },
+  {
+   "codec": "E-AC-3",
+   "id": 4,
+   "properties": {
+    "audio_channels": 6,
+    "audio_sampling_frequency": 48000,
+    "codec_id": "A_EAC3",
+    "codec_private_length": 0,
+    "default_duration": 32000000,
+    "default_track": false,
+    "enabled_track": true,
+    "forced_track": false,
+    "language": "eng",
+    "language_ietf": "en",
+    "minimum_timestamp": 0,
+    "num_index_entries": 0,
+    "number": 5,
+    "tag__statistics_tags": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES",
+    "tag__statistics_writing_app": "mkvmerge v64.0.0 ('Willows') 64-bit",
+    "tag_bps": "768000",
+    "tag_duration": "01:41:46.752000000",
+    "tag_number_of_bytes": "586248192",
+    "tag_number_of_frames": "190836",
+    "track_name": "Inglés DD+ 5.1 @ 768 kbps"
+   },
+   "type": "audio"
+  },
+  {
+   "codec": "SubRip/SRT",
+   "id": 5,
+   "properties": {
+    "codec_id": "S_TEXT/UTF8",
+    "codec_private_length": 0,
+    "default_track": false,
+    "enabled_track": true,
+    "encoding": "UTF-8",
+    "forced_track": false,
+    "language": "spa",
+    "language_ietf": "es",
+    "num_index_entries": 1535,
+    "number": 6,
+    "tag__statistics_tags": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES",
+    "tag__statistics_writing_app": "mkvmerge v64.0.0 ('Willows') 64-bit",
+    "tag_bps": "58",
+    "tag_duration": "01:37:44.958000000",
+    "tag_number_of_bytes": "43119",
+    "tag_number_of_frames": "1535",
+    "text_subtitles": true,
+    "track_name": "Castellano Completos [Planos]"
+   },
+   "type": "subtitles"
+  },
+  {
+   "codec": "SubRip/SRT",
+   "id": 6,
+   "properties": {
+    "codec_id": "S_TEXT/UTF8",
+    "codec_private_length": 0,
+    "default_track": false,
+    "enabled_track": true,
+    "encoding": "UTF-8",
+    "forced_track": false,
+    "language": "eng",
+    "language_ietf": "en",
+    "num_index_entries": 2220,
+    "number": 7,
+    "tag__statistics_tags": "BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES",
+    "tag__statistics_writing_app": "mkvmerge v64.0.0 ('Willows') 64-bit",
+    "tag_bps": "84",
+    "tag_duration": "01:39:44.916000000",
+    "tag_number_of_bytes": "62925",
+    "tag_number_of_frames": "2220",
+    "text_subtitles": true,
+    "track_name": "Inglés Completos (PGS)"
+   },
+   "type": "subtitles"
+  }
+ ],
+ "warnings": []
+}

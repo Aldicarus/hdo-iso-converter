@@ -71,6 +71,10 @@ RESPONDEN_AL_INSTANTE = {
         "mediana de 2 s sobre los proyectos del NAS (p90 10 s)",
     "POST /api/cmv40/{session_id}/target-rpu-from-drive":
         "mediana de 3 s sobre los proyectos del NAS (p90 10 s)",
+    "POST /api/mux/{project_id}/medir":
+        "responde {started}; la medida va en su task y el panel lee su avance del proyecto",
+    "POST /api/mux/{project_id}/ejecutar":
+        "encola la combinación y devuelve el proyecto; el progreso va por /api/trabajos",
 }
 
 # `apiFetch('<url>'|`<url>`, {…}[, timeout])`. Se captura hasta el `)` que

@@ -573,6 +573,12 @@ function _runRecoveryTasks() {
     }
   }
 
+  // ── Tab 4 — las combinaciones abiertas. No hay WebSocket: lo que corre
+  // se lee por REST, y al volver basta con volver a leer.
+  if (typeof refrescarMuxAbiertos === 'function') {
+    try { refrescarMuxAbiertos(); } catch (_) {}
+  }
+
   // ── Tab 1 — sessions list + queue + executionWs ──────────────
   if (typeof loadSessions === 'function') {
     try { loadSessions(); } catch (_) {}
@@ -710,32 +716,35 @@ const TooltipManager = (() => {
 //  TAB SWITCHING
 // ═══════════════════════════════════════════════════════════════════
 
+/** Los números internos de las pestañas. NO es el orden visual: ver la nota
+ *  de `#tab-bar` en `index.html`. */
+const PESTANAS = [1, 2, 3, 4];
+
 /**
  * Cambia el tab activo del header y actualiza sidebar + panel principal.
- * @param {number} n - Número de tab (1, 2 o 3).
+ * @param {number} n - Número de tab (1, 2, 3 o 4).
  */
 function switchTab(n) {
   currentTab = n;
 
   // Activar por ID, no por posición: el orden visual de los tabs no coincide
   // con su numeración interna (Tab 3 está visualmente en la posición 2).
-  [1, 2, 3].forEach(i => {
+  PESTANAS.forEach(i => {
     const btn = document.getElementById(`tab-btn-${i}`);
     if (btn) btn.classList.toggle('active', i === n);
   });
 
-  // Las tres pestañas tienen columna izquierda. Tab 2 la tuvo vacía mucho
+  // Todas las pestañas tienen columna izquierda. Tab 2 la tuvo vacía mucho
   // tiempo y aquí se ocultaba el #sidebar entero para que ocupara todo el
   // ancho; desde que lista los MKVs analizados, ya no.
-  [1, 2, 3].forEach(i => {
+  PESTANAS.forEach(i => {
     const el = document.getElementById(`sidebar-tab-${i}`);
     if (el) el.style.display = i === n ? '' : 'none';
   });
-  [1, 2, 3].forEach(i => {
+  PESTANAS.forEach(i => {
     const el = document.getElementById(`tab-panel-${i}`);
     if (!el) return;
-    if (i !== n) { el.style.display = 'none'; return; }
-    el.style.display = (i === 1) ? 'flex' : (i === 2) ? 'flex' : (i === 3) ? 'flex' : 'block';
+    el.style.display = i === n ? 'flex' : 'none';
   });
 
   // Refrescar sidebar Tab 3 al entrar. Reset del flag de auto-resume:
@@ -762,6 +771,8 @@ function switchTab(n) {
   if (n === 2 && typeof refrescarMkvRecientes === 'function') {
     refrescarMkvRecientes();
   }
+  // Tab 4: la lista se pide al entrar, por lo mismo que en Tab 2 y Tab 3.
+  if (n === 4 && typeof refrescarMuxLista === 'function') refrescarMuxLista();
 }
 
 /** Dónde estaba leyendo el usuario en la pestaña de proyecto que deja.
@@ -938,6 +949,7 @@ const _SUBTAB_SCROLLERS = [
   { areaId: 'subtab-projects-area',       scrollId: 'subtab-projects',       leftId: 'subtab-scroll-left',       rightId: 'subtab-scroll-right'       },
   { areaId: 'cmv40-subtab-projects-area', scrollId: 'cmv40-subtab-projects', leftId: 'cmv40-subtab-scroll-left', rightId: 'cmv40-subtab-scroll-right' },
   { areaId: 'mkv-subtab-projects-area',   scrollId: 'mkv-subtab-projects',   leftId: 'mkv-subtab-scroll-left',   rightId: 'mkv-subtab-scroll-right'   },
+  { areaId: 'mux-subtab-projects-area',   scrollId: 'mux-subtab-projects',   leftId: 'mux-subtab-scroll-left',   rightId: 'mux-subtab-scroll-right'   },
 ];
 
 /** Comprueba overflow horizontal de un scroller y activa/desactiva sus chevrones. */
@@ -971,6 +983,7 @@ function _scrollSubtabContainer(scrollId, direction) {
 function scrollSubtabProjects(direction)      { _scrollSubtabContainer('subtab-projects', direction); }
 function scrollCmv40SubtabProjects(direction) { _scrollSubtabContainer('cmv40-subtab-projects', direction); }
 function scrollMkvSubtabProjects(direction)   { _scrollSubtabContainer('mkv-subtab-projects', direction); }
+function scrollMuxSubtabProjects(direction)   { _scrollSubtabContainer('mux-subtab-projects', direction); }
 
 /** Instala wheel→horizontal + listeners de scroll/resize en todos los scrollers. Idempotente. */
 function _installSubtabScrollBindings() {
@@ -1517,9 +1530,9 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 const _AVISO_INTERVALO_MS = 20000;
 const _AVISO_PREF = 'hdo_avisar_fin_trabajo';
 const _AVISO_SONIDO_PREF = 'hdo_avisar_con_sonido';
-const _AVISO_NOMBRES = { 1: 'Blu-Ray ISO → MKV', 2: tr('core.editar_mkv'), 3: 'Upgrade CMv4.0' };
+const _AVISO_NOMBRES = { 1: 'Blu-Ray ISO → MKV', 2: tr('core.editar_mkv'), 3: 'Upgrade CMv4.0', 4: tr('core.combinar_mkv') };
 
-let _avisoTrabajosPrevios = null;   // {1,2,3} → bool, foto al ocultarse
+let _avisoTrabajosPrevios = null;   // {1,2,3,4} → bool, foto al ocultarse
 let _avisoTimer = null;
 let _avisoTituloOriginal = null;
 let _avisoParpadeoTimer = null;
@@ -1573,7 +1586,7 @@ async function pedirPermisoNotificaciones() {
  * el servidor lo refleje.
  */
 async function _leerTrabajosActivos() {
-  const estado = { 1: false, 2: false, 3: false };
+  const estado = { 1: false, 2: false, 3: false, 4: false };
   estado[1] = !!(queueState && (queueState.running ||
                                 (queueState.queue && queueState.queue.length)));
   const st = await apiFetch('/api/trabajos', { silent: true }).catch(() => null);
@@ -1591,6 +1604,7 @@ async function _leerTrabajosActivos() {
   estado[1] = estado[1] || tabs.has('rip');
   estado[2] = tabs.has('mkv');
   estado[3] = tabs.has('cmv40');
+  estado[4] = tabs.has('mux');
   return estado;
 }
 
@@ -1657,7 +1671,7 @@ async function _avisoTick() {
   catch (_) { return; }   // red caída: se reintenta en el siguiente tick
   if (!ahora) return;     // tampoco una respuesta fallida: no se sabe nada
   let quedaAlguno = false;
-  for (const tab of [1, 2, 3]) {
+  for (const tab of PESTANAS) {
     if (_avisoTrabajosPrevios && _avisoTrabajosPrevios[tab] && !ahora[tab]) {
       avisarFinDeTrabajo(tab);
     } else if (ahora[tab]) {
@@ -1694,7 +1708,7 @@ async function _instalarVigilanciaDeFin() {
       const foto = await _leerTrabajosActivos();
       // Lo que pasó mientras volvía la foto manda sobre ella.
       if (turno !== f.turno || !document.hidden || _avisoTimer) return;
-      if (!foto || ![1, 2, 3].some(t => foto[t])) return;   // nada que vigilar
+      if (!foto || !PESTANAS.some(t => foto[t])) return;   // nada que vigilar
       _avisoTrabajosPrevios = foto;
       _avisoTimer = setInterval(_avisoTick, _AVISO_INTERVALO_MS);
     } catch (_) { /* si falla, simplemente no se vigila esta vez */ }
@@ -1831,7 +1845,7 @@ function tarjetaDeProyecto(o) {
 // guiones bajos, donde no hay heurística que valga— y para corregir un match
 // que apuntó a otra película del mismo título.
 
-let _fichaDestino = null;   // { tipo: 'rip'|'cmv40', id, nombre }
+let _fichaDestino = null;   // { tipo: 'rip'|'cmv40'|'mux', id, nombre }
 let _fichaCandidatos = [];
 
 /** Abre el selector, con el título del proyecto ya escrito. */
@@ -1931,19 +1945,23 @@ async function elegirFicha(i) {
   const c = _fichaCandidatos[i];
   if (!c || !_fichaDestino) return;
   const { tipo, id } = _fichaDestino;
-  const url = tipo === 'cmv40'
-    ? `/api/cmv40/${id}/tmdb-refresh`
-    : `/api/sessions/${id}/tmdb-refresh`;
+  const url = tipo === 'cmv40' ? `/api/cmv40/${id}/tmdb-refresh`
+            : tipo === 'mux'   ? `/api/mux/${id}/tmdb-refresh`
+            : `/api/sessions/${id}/tmdb-refresh`;
   const r = await apiFetch(url, {
     method: 'POST', body: JSON.stringify({ tmdb_id: c.tmdb_id }),
   });
-  if (!r || !r.updated) { showToast(tr('core.no_se_pudo_guardar_la_ficha'), 'error'); return; }
+  // El de una combinación contesta `ok` y el proyecto entero; los otros dos,
+  // `updated`.
+  if (!r || !(r.updated || r.ok)) { showToast(tr('core.no_se_pudo_guardar_la_ficha'), 'error'); return; }
   closeModal('ficha-modal');
   showToast(tr('core.ficha_de_guardada', {title_en: c.title_es || c.title_en}), 'success');
   // Repintar donde se ve: la cabecera del proyecto abierto y la columna.
   if (tipo === 'cmv40') {
     if (typeof refreshCMv40Sidebar === 'function') refreshCMv40Sidebar();
     if (typeof _refreshCMv40Session === 'function') _refreshCMv40Session(id);
+  } else if (tipo === 'mux') {
+    if (typeof muxTrasCambiarFicha === 'function') muxTrasCambiarFicha(id, r);
   } else {
     if (typeof loadSessions === 'function') loadSessions();
     if (typeof refreshOpenProjectState === 'function') refreshOpenProjectState(id);
@@ -2071,6 +2089,20 @@ const GLIFOS = {
   // Crear algo. Dos de las «estrellitas» no eran de CMv4.0 sino del botón de
   // crear los proyectos de una serie, y ahí lo que se quiere decir es esto.
   mas: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8.2v7.6M8.2 12h7.6"/>',
+  // Dos ramas que entran por la izquierda y salen en una flecha: combinar dos
+  // MKV en uno. En vertical —el «merge» de un control de versiones— a 14 px
+  // se leía como un muñequito; tumbada se lee como lo que es, un flujo que
+  // se junta. Comparado en lámina con dos rectángulos encajando.
+  combinar: '<path d="M3.5 6h2.8c4.2 0 4.7 6 8.4 6h5.8"/><path d="M3.5 18h2.8c4.2 0 4.7-6 8.4-6"/>'
+          + '<path d="m17.4 8.8 3.2 3.2-3.2 3.2"/>',
+  // Dos ondas iguales, una corrida respecto a la otra: el mismo sonido en
+  // los dos MKV, desplazado. Con dos líneas y dos marcas se confundía con
+  // `ajustes` (los deslizadores).
+  sincronia: '<path d="M2.8 8c1.4-2.6 2.8-2.6 4.2 0s2.8 2.6 4.2 0 2.8-2.6 4.2 0 2.8 2.6 4.2 0"/>'
+           + '<path d="M5.8 16c1.4-2.6 2.8-2.6 4.2 0s2.8 2.6 4.2 0 2.8-2.6 4.2 0"/>',
+  // Dos flechas en sentidos opuestos: intercambiar los dos MKV de una
+  // combinación (el del vídeo pasa a dar el audio, y al revés).
+  intercambiar: '<path d="M7 4.5v14.2m0 0-3-3m3 3 3-3"/><path d="M17 19.5V5.3m0 0-3 3m3-3 3 3"/>',
 
   // ── Acciones ───────────────────────────────────────────────────────────
   lapiz: '<path d="M4.5 19.5h3.2L19 8.2a1.7 1.7 0 0 0 0-2.4l-.8-.8a1.7 1.7 0 0 0-2.4 0L4.5 16.3z"/>'
@@ -2239,7 +2271,7 @@ function distintivoDeIdioma(codigo) {
  *  en la cola y en el historial, así que el color sale de ahí y no se puede
  *  desincronizar de nada.
  */
-const _TONO_POR_TAB = { rip: 'azul', mkv: 'turquesa', cmv40: 'naranja' };
+const _TONO_POR_TAB = { rip: 'azul', mkv: 'turquesa', cmv40: 'naranja', mux: 'morado' };
 
 /** Por TIPO de trabajo: el glifo dice QUÉ se está haciendo. */
 const _GLIFOS_TRABAJO = {
@@ -2250,6 +2282,8 @@ const _GLIFOS_TRABAJO = {
   copia_biblioteca:   _svg(GLIFOS.bandeja),
   preflight:          _svg(GLIFOS.escudo),
   fase_cmv40:         _svg(GLIFOS.curva),
+  combinar_mkv:       _svg(GLIFOS.combinar),
+  medida_sincronia:   _svg(GLIFOS.sincronia),
 };
 
 /** Por ESTADO: dice en qué punto está. */
