@@ -4215,10 +4215,10 @@
   ]
  },
  {
-  "id": "T4-50 cada doblaje se compara con la de referencia, no con el suyo",
+  "id": "T4-50 los doblajes se comparan con dos puntos y no concluyen",
   "fichero": "app/phases/mux_pipeline.py",
-  "viejo": "            mismas = [q.id for q in _del_mismo_idioma(video, origen_b.get(p.id))][:2]\n",
-  "nuevo": "            mismas = []\n",
+  "viejo": "                    duracion_s=duracion_de_video(video), alfa=alfa,\n                    al_lanzar=al_lanzar)\n",
+  "nuevo": "                    duracion_s=duracion_de_video(video), alfa=alfa,\n                    al_lanzar=al_lanzar,\n                    puntos=None if p is ref else mux_sync.PUNTOS_FINALES[1:3])\n",
   "modulos": [
    "test_mux_endpoints"
   ]
@@ -4235,8 +4235,8 @@
  {
   "id": "T4-52 se sigue probando tras una medida que concluye",
   "fichero": "app/phases/mux_pipeline.py",
-  "viejo": "            usada = id_a\n            if r[\"ok\"] is not None:\n                break\n",
-  "nuevo": "            usada = id_a\n",
+  "viejo": "            if r[\"ok\"] is not None:\n                break\n            _comprobar_cancelado(cancelado)\n",
+  "nuevo": "            _comprobar_cancelado(cancelado)\n",
   "modulos": [
    "test_mux_endpoints"
   ]
@@ -4273,6 +4273,42 @@
   "fichero": "app/tests/cmv40_harness.py",
   "viejo": "             (_random.Random(_zlib.crc32(f\"{semilla}:{doblaje}\".encode())), 3.0, (0.4, 1.0)))",
   "nuevo": "             (_random.Random(semilla + 1), 3.0, (0.4, 1.0)))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-57 las otras pistas de A van antes que la de referencia",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            contra = [pareja[0]] + mismas\n",
+  "nuevo": "            contra = mismas + [pareja[0]]\n",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-58 unos puntos que no coinciden cuentan como medida",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            if p.id != pareja[1] and r[\"ok\"] is not None and not _puntos_coinciden(r):\n                r = dict(r, ok=None, residuo_max_ms=None)\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-59 el motivo sale aunque A tenga pistas de su idioma",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "        if r[\"ok\"] is None and p.id != pareja[1] and not mismas:",
+  "nuevo": "        if r[\"ok\"] is None and p.id != pareja[1]:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-60 la pista de la medida también se prueba contra otras",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "        if p.id == pareja[1]:\n            contra, mismas = [pareja[0]], []\n        else:",
+  "nuevo": "        if False:\n            contra, mismas = [pareja[0]], []\n        else:",
   "modulos": [
    "test_mux_endpoints"
   ]

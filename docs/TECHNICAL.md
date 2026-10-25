@@ -400,7 +400,7 @@ Retiming is container-only: mkvmerge does not rewrite the HEVC VUI, and the Dolb
 
 1. **Source check** — both files still there and unchanged, the output name free, enough room in Output.
 2. **Track combining** — one `mkvmerge` into a `.mkv.tmp`, never under the final name.
-3. **Check and save** — the combined file read back against the plan: every track, the video's frame rate, frame count and duration (the proof that it was retimed), the chapters to the millisecond, the attachments, the Dolby Vision of the final file and the sync of every audio track from B against A — each dub against the track of the same dub in A when A has one, because two different dubs do not correlate. If it all matches, it is published without overwriting anything; if not, the `.mkv.tmp` stays for inspection.
+3. **Check and save** — the combined file read back against the plan: every track, the video's frame rate, frame count and duration (the proof that it was retimed), the chapters to the millisecond, the attachments, the Dolby Vision of the final file and the sync of every audio track from B against A's reference track, at four points: a different dub only correlates through the music and effects, and two points were not enough. If it all matches, it is published without overwriting anything; if not, the `.mkv.tmp` stays for inspection.
 
 ### The interface (`static/mux.js`)
 

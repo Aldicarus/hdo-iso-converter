@@ -746,20 +746,26 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
         n = _salida_de_audio(proyecto, p)
         if n is None:
             continue
-        # Contra qué pista de A se compara. La de la medida, contra la suya.
-        # Cada una de las demás, contra la de SU doblaje en A si la hay: dos
-        # doblajes no correlan —el diálogo es otro—, y compararlas todas con
-        # la de referencia dejaba sin medir justo el doblaje por el que se
-        # combina (la prueba real de Toy Story 5, 2026-10-25: el castellano
-        # contra el inglés de A no concluye y A traía su castellano). Hasta
-        # dos candidatas, y la de referencia como último recurso, que a veces
-        # concluye por la música y los efectos.
+        # Contra qué pista de A se compara. Medido en el NAS con Toy Story 5
+        # (2026-10-25), y no es lo que parecía:
+        #
+        # - la de REFERENCIA de A primero, y con los cuatro puntos: es la que
+        #   la medida alineó con el vídeo. Un doblaje contra ella correla poco
+        #   —solo la música y los efectos: r ≈ 0,1-0,2—, así que con dos puntos
+        #   no concluía nunca y los tres doblajes salían «no se pudo medir»;
+        #   con cuatro, los tres concluyen a ~6 ms, lo mismo que la referencia;
+        # - las demás pistas de A NO valen como primera opción: cada una trae
+        #   su propio desfase dentro de A (el DD 5.1 inglés del disco va
+        #   ~50 ms del TrueHD) y la etiqueta no garantiza el doblaje (su `es`
+        #   no correla con el castellano del otro: es otro doblaje). Solo si
+        #   la de referencia no concluye, hasta dos del mismo idioma, la de la
+        #   misma etiqueta primero.
         if p.id == pareja[1]:
-            contra, sin_doblaje = [pareja[0]], False
+            contra, mismas = [pareja[0]], []
         else:
-            mismas = [q.id for q in _del_mismo_idioma(video, origen_b.get(p.id))][:2]
-            sin_doblaje = not mismas
-            contra = mismas + ([pareja[0]] if pareja[0] not in mismas else [])
+            mismas = [q.id for q in _del_mismo_idioma(video, origen_b.get(p.id))
+                      if q.id != pareja[0]][:2]
+            contra = [pareja[0]] + mismas
         r = {"ok": None, "puntos": [], "residuo_max_ms": None}
         usada = None
         for id_a in contra:
@@ -770,12 +776,17 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
                 r = await mux_sync.comprobar(
                     video.ruta, a_n, str(trabajo), n,
                     duracion_s=duracion_de_video(video), alfa=alfa,
-                    al_lanzar=al_lanzar,
-                    puntos=None if p is ref else mux_sync.PUNTOS_FINALES[1:3])
+                    al_lanzar=al_lanzar)
             except Exception as e:                          # noqa: BLE001
                 _logger.warning("[mux] comprobación de sincronía final fallida: %s", e)
                 r = {"ok": None, "puntos": [], "residuo_max_ms": None}
             usada = id_a
+            # La de la medida es una sola comparación y estricta. En las demás,
+            # unos puntos válidos que no coinciden entre sí son una medida que
+            # no concluye: con una correlación tan floja, un pico casual da un
+            # residuo de un segundo y se leería como «desfasada».
+            if p.id != pareja[1] and r["ok"] is not None and not _puntos_coinciden(r):
+                r = dict(r, ok=None, residuo_max_ms=None)
             if r["ok"] is not None:
                 break
             _comprobar_cancelado(cancelado)
@@ -791,13 +802,22 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
                      if r.get("residuo_max_ms") is not None else None),
             "contra": usada,
             "puntos": r["puntos"]}
-        if r["ok"] is None and sin_doblaje:
-            # Sin medida, y sin una pista de su doblaje en A con la que
+        if r["ok"] is None and p.id != pareja[1] and not mismas:
+            # Sin medida, y sin otra pista de su idioma en A con la que
             # compararla: decirlo, que «no se pudo medir» a secas parece un
             # fallo del MKV.
             check["motivo"] = "sin_mismo_doblaje"
         checks.append(check)
     return checks
+
+
+def _puntos_coinciden(r: dict) -> bool:
+    """¿Los puntos válidos de una comprobación dicen lo mismo? Sus residuos
+    caben en la tolerancia de la comprobación entre el mayor y el menor. Un
+    desfase de verdad desplaza todos los puntos a la vez; un pico casual, uno."""
+    residuos = [q["residuo_ms"] for q in r.get("puntos") or []
+                if q.get("valido") and q.get("residuo_ms") is not None]
+    return len(residuos) >= 2 and max(residuos) - min(residuos) <= mux_sync.RESIDUO_FINAL_MAX_MS
 
 
 def _del_mismo_idioma(fuente: MuxFuente, o: MuxPistaOrigen | None) -> list[MuxPistaOrigen]:

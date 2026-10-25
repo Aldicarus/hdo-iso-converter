@@ -253,6 +253,110 @@ class TestEjecutar(MuxCase):
         self.assertEqual(r.status_code, 409)
 
 
+class TestContraQueSeComparaCadaAudio(MuxCase):
+    """La decisión de la comprobación final, con `mux_sync.comprobar` simulado:
+    qué pista de A se prueba para cada audio del otro, en qué orden y cuándo
+    se para. Determinista, a diferencia de la correlación de verdad."""
+
+    def setUp(self):
+        super().setUp()
+        from phases import mux_pipeline, mux_plan, mux_sync
+        self.pipe, self.plan, self.sync = mux_pipeline, mux_plan, mux_sync
+        self.llamadas = []
+        self.respuestas = {}
+        original = mux_sync.comprobar
+
+        async def falso(ruta_ref, audio_ref, ruta_final, audio_final, **kw):
+            self.llamadas.append((audio_ref, audio_final))
+            return self.respuestas.get((audio_ref, audio_final), self._no_concluye())
+        mux_sync.comprobar = falso
+        self.addCleanup(setattr, mux_sync, "comprobar", original)
+
+    @staticmethod
+    def _concluye(res=3.0):
+        puntos = [{"valido": True, "residuo_ms": res}, {"valido": True, "residuo_ms": res + 1}]
+        return {"ok": abs(res) + 1 <= 40, "puntos": puntos, "residuo_max_ms": abs(res) + 1}
+
+    @staticmethod
+    def _no_concluye():
+        return {"ok": None, "puntos": [{"valido": True, "residuo_ms": 2.0}], "residuo_max_ms": None}
+
+    @staticmethod
+    def _dispares():
+        # Dos puntos válidos que no dicen lo mismo: uno es un pico casual.
+        puntos = [{"valido": True, "residuo_ms": 3.0}, {"valido": True, "residuo_ms": 950.0}]
+        return {"ok": False, "puntos": puntos, "residuo_max_ms": 950.0}
+
+    def _comprobar(self, quitar_de_a=(), anadir_a=()):
+        p = self.crear()
+        self.con_medida(p["id"])
+        q = self.storage.load_mux_project(p["id"])
+        if quitar_de_a:
+            q.fuentes[0].pistas = [x for x in q.fuentes[0].pistas if x.id not in quitar_de_a]
+        q.fuentes[0].pistas.extend(anadir_a)
+        checks = asyncio.run(self.pipe._comprobar_sincronia_final(
+            q, self.plan.plan(q), self.tmp / "final.mkv", None, None))
+        return {c["pista"]: c for c in checks}
+
+    # Posiciones de audio. En A: 0 inglés (la de la medida), 1 latino, 2
+    # castellano. En el MKV final: 0 y 1 los castellanos del otro, 2 su inglés.
+
+    def test_la_de_la_medida_es_una_comparacion_y_estricta(self):
+        # Aunque A traiga otra pista en su idioma (aquí, un segundo inglés): la
+        # medida se hizo contra una, y es contra esa contra la que se juzga.
+        from models import MuxPistaOrigen
+        otro_ingles = MuxPistaOrigen(id=5, tipo="audio", idioma="eng", idioma_ietf="en", canales=6)
+        checks = self._comprobar(anadir_a=[otro_ingles])
+        self.assertEqual([ll for ll in self.llamadas if ll[1] == 2], [(0, 2)])
+        self.assertIsNone(checks[4]["ok"])
+        self.assertNotIn("motivo", checks[4])
+
+    def test_primero_la_de_referencia_y_si_concluye_no_se_sigue(self):
+        self.respuestas = {(0, 0): self._concluye(), (0, 1): self._concluye()}
+        checks = self._comprobar()
+        self.assertEqual([ll for ll in self.llamadas if ll[1] in (0, 1)], [(0, 0), (0, 1)])
+        self.assertEqual((checks[2]["ok"], checks[2]["contra"]), (True, 1))
+
+    def test_si_no_concluye_se_prueba_su_idioma_la_misma_etiqueta_primero(self):
+        # El castellano de A (`es`) antes que el latino (`es-419`), y en
+        # cuanto uno concluye se para.
+        self.respuestas = {(2, 0): self._concluye()}
+        checks = self._comprobar()
+        self.assertEqual([ll for ll in self.llamadas if ll[1] == 0], [(0, 0), (2, 0)])
+        self.assertEqual((checks[2]["ok"], checks[2]["contra"]), (True, 4))
+        self.assertNotIn("motivo", checks[2])
+
+    def test_puntos_que_no_coinciden_no_son_una_medida(self):
+        # Un pico casual en una correlación floja no es «desfasada 950 ms».
+        self.respuestas = {(0, 0): self._dispares(), (2, 0): self._dispares(), (1, 0): self._dispares()}
+        checks = self._comprobar()
+        c = checks[2]
+        self.assertIsNone(c["ok"], c)
+        self.assertTrue(c["aviso"])
+        self.assertIsNone(c["real"])
+        self.assertEqual([ll for ll in self.llamadas if ll[1] == 0], [(0, 0), (2, 0), (1, 0)])
+
+    def test_un_desfase_que_todos_los_puntos_ven_si_es_una_medida(self):
+        self.respuestas = {(0, 0): self._concluye(600.0)}
+        checks = self._comprobar()
+        c = checks[2]
+        self.assertIsNone(c["ok"], "un aviso no cuenta como fallo")
+        self.assertTrue(c["aviso"])
+        self.assertEqual(c["real"], "601.0 ms")
+        self.assertEqual([ll for ll in self.llamadas if ll[1] == 0], [(0, 0)])
+
+    def test_sin_otra_pista_de_su_idioma_se_dice_por_que(self):
+        checks = self._comprobar(quitar_de_a=(2, 4))
+        self.assertEqual(checks[2].get("motivo"), "sin_mismo_doblaje", checks[2])
+        self.assertEqual(checks[2]["contra"], 1)
+        self.assertEqual([ll for ll in self.llamadas if ll[1] == 0], [(0, 0)])
+
+    def test_con_su_idioma_en_a_y_sin_medida_no_se_inventa_el_motivo(self):
+        checks = self._comprobar()
+        self.assertIsNone(checks[2]["ok"])
+        self.assertNotIn("motivo", checks[2])
+
+
 class TestCombinar(MuxCase):
 
     def test_el_caso_real_sale_retimado_sincronizado_y_firmado(self):
@@ -334,12 +438,11 @@ class TestCombinar(MuxCase):
         # número, no como «no se pudo medir».
         self.assertGreater(float(avisos[0]["real"].split()[0]), 400, avisos[0])
 
-    def test_cada_doblaje_se_compara_con_el_suyo_en_a(self):
-        # Los dos castellanos del otro contra el castellano de A, y no contra
-        # el inglés de la medida: dos doblajes no correlan (el diálogo es
-        # otro) y así quedaban sin medir justo las pistas por las que se
-        # combina. El latino de A comparte idioma y es otro doblaje: va
-        # detrás del de la misma etiqueta, y aquí ni se llega a probar.
+    def test_cada_doblaje_se_compara_con_la_de_referencia_y_concluye(self):
+        # Los castellanos del otro contra la de REFERENCIA de A (inglés), con
+        # los cuatro puntos: correlan solo por la música y los efectos, y con
+        # cuatro puntos concluyen, como en el NAS. Las otras pistas de A no
+        # hacen falta, y no se prueban: traen sus propios desfases.
         p = self.crear()
         self.con_medida(p["id"])
         q = self.combinar(p["id"])
@@ -349,40 +452,33 @@ class TestCombinar(MuxCase):
         for c in pistas.values():
             self.assertTrue(c["ok"], c)
             self.assertFalse(c["aviso"], c)
-            self.assertEqual(c["contra"], 4, "se comparó con otra pista que la castellana de A")
+            self.assertEqual(c["contra"], 1, c)
+            self.assertLessEqual(float(c["real"].split()[0]), 40)
         # Por el NOMBRE del fichero: la ruta que llega a ffmpeg es la resuelta
         # (en el Mac, /private/var), y comparándola entera esto no casaba nunca.
         del_video = lambda mapa: [x for x in self.tb.find("ffmpeg")
                                   if Path(x.opt("-i") or "").name == self.video.name
                                   and x.opt("-map") == mapa]
-        self.assertTrue(del_video("0:a:2"), "no se comparó con el castellano de A")
-        self.assertEqual(del_video("0:a:1"), [], "se probó el doblaje latino antes que el castellano")
+        self.assertTrue(del_video("0:a:0"))
+        self.assertEqual(del_video("0:a:1") + del_video("0:a:2"), [],
+                         "se probaron otras pistas de A sin hacer falta")
 
-    def test_un_doblaje_que_a_no_trae_se_dice_por_que(self):
-        # Sin castellano en A no hay con qué comparar el del otro: se intenta
-        # con la de referencia (a veces concluye por la música y los efectos)
-        # y, si no concluye, se dice el motivo en vez de «no se pudo medir».
-        self.tb.define_mkv(self.video.name, duration_s=FRAMES / FPS_BD, tracks=[
-            {"id": 0, "type": "video", "codec": "HEVC/H.265/MPEG-H", "dimensions": "3840x2160",
-             "fps": FPS_BD, "frames": FRAMES, "bytes": 5_000_000, "track_name": "HEVC DV P7 FEL CMv4.0"},
-            {"id": 1, "type": "audio", "codec": "TrueHD Atmos", "language": "eng",
-             "language_ietf": "en", "channels": 8, "default": True, "bytes": 300_000},
-        ])
-        p = self.crear()
-        self.con_medida(p["id"])
-        q = self.combinar(p["id"])
-        self.assertEqual(q.status, "done", q.error_message)
-        pistas = [c for c in q.validacion["checks"] if c["id"] == "sincronia_pista"]
-        self.assertEqual(len(pistas), 2)
-        for c in pistas:
-            self.assertIsNone(c["ok"], c)
-            self.assertTrue(c["aviso"])
-            self.assertEqual(c.get("motivo"), "sin_mismo_doblaje", c)
-            self.assertEqual(c["contra"], 1)
-        # La de referencia sí: inglés contra inglés.
-        ref = [c for c in q.validacion["checks"] if c["id"] == "sincronia"][0]
-        self.assertTrue(ref["ok"], ref)
-        self.assertNotIn("motivo", ref)
+    def test_el_ffmpeg_falso_distingue_doblajes(self):
+        # Lo que hace falta para que lo de arriba signifique algo: dos
+        # doblajes correlan poco —solo la música y los efectos—, como en el
+        # NAS (r ≈ 0,1-0,2), y el mismo doblaje mucho (r ≈ 0,7-0,9).
+        from phases import mux_sync
+        dur = FRAMES / FPS_BD
+
+        def r_medio(audio_a, audio_b):
+            res = asyncio.run(mux_sync.comprobar(str(self.video), audio_a, str(self.resto), audio_b,
+                                                 duracion_s=dur, alfa=Fraction(1000, 1001)))
+            return sum(q["r"] for q in res["puntos"]) / len(res["puntos"])
+
+        self.assertGreater(r_medio(0, 2), 0.5, "inglés contra inglés")
+        self.assertLess(r_medio(0, 0), 0.25, "inglés contra castellano")
+        self.assertLess(r_medio(1, 0), 0.25, "latino contra castellano: otro doblaje")
+        self.assertGreater(r_medio(2, 0), 0.5, "castellano contra castellano")
 
     def test_un_origen_que_cambio_no_se_combina(self):
         p = self.crear()

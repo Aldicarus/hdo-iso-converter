@@ -1961,17 +1961,32 @@ combinación a mano no comprueba:
   de la pareja de referencia puede tumbar el trabajo; las demás avisan (una
   pista desfasada dentro de su propio release no la arregla combinar), y con
   el riesgo aceptado ninguna tumba nada.
-  - **Cada doblaje se compara con el SUYO en A** (`_del_mismo_idioma`: el de
-    la misma etiqueta IETF primero, hasta dos, y la de referencia como último
-    recurso), y el check dice contra cuál (`contra`). Compararlos todos con
-    la de referencia dejaba sin medir justo el doblaje por el que se combina:
-    en la prueba real de Toy Story 5 (2026-10-25) el inglés cuadró a 5,9 ms y
-    los dos castellanos y el catalán salieron «no se pudo medir», con A
-    trayendo su castellano. Dos doblajes no correlan —el diálogo es otro—:
-    r ≈ 0,1 y contraste ≈ 1,5 contra r ≈ 0,7 y contraste ≈ 10 del mismo.
-  - Sin una pista de su doblaje en A (el catalán) y sin medida, el check
-    lleva `motivo: "sin_mismo_doblaje"` y la interfaz lo dice: «no se pudo
-    medir» a secas parece un fallo del MKV.
+  - **Cada audio de B se compara primero con la de REFERENCIA de A, y con
+    los cuatro puntos** —la que la medida alineó con el vídeo—, y el check
+    dice contra cuál (`contra`). Lo decidieron las medidas de la prueba real
+    de Toy Story 5 (2026-10-25), no la intuición, que iba al revés:
+    - con DOS puntos, como se hacía, un doblaje contra la referencia inglesa
+      no concluía nunca: dos doblajes correlan solo por la música y los
+      efectos (r ≈ 0,1-0,2, contraste ≈ 1,5-2,5, la mitad de los puntos
+      válidos), y los dos castellanos y el catalán —justo lo que se
+      combinaba— salían «no se pudo medir». Con cuatro, los tres concluyen
+      a ~6 ms, lo mismo que la referencia (5,9);
+    - compararlos con «su» doblaje en A parecía lo natural y **no vale como
+      primera opción**: el `es` del disco no correla con el castellano del
+      WEB-DL (r ≈ 0,08 en los cuatro puntos: es otro doblaje con la misma
+      etiqueta), y cada pista de A trae su propio desfase dentro de A —el DD
+      5.1 inglés del disco va ~50 ms del TrueHD—, que se leería como un
+      desfase del otro. Solo si la de referencia no concluye se prueban
+      hasta dos de su idioma, la de la misma etiqueta IETF primero
+      (`_del_mismo_idioma`).
+  - **Unos puntos válidos que no coinciden entre sí no son una medida**
+    (`_puntos_coinciden`): con una correlación tan floja, un pico casual da
+    un residuo de un segundo y se leería como «desfasada». Un desfase de
+    verdad desplaza todos los puntos a la vez. No se aplica a la pista de la
+    medida, que es una comparación y estricta.
+  - Sin otra pista de su idioma en A y sin medida, el check lleva `motivo:
+    "sin_mismo_doblaje"` y la interfaz lo dice: «no se pudo medir» a secas
+    parece un fallo del MKV.
   - **El `ffmpeg` falso suena en dos capas**: la música y los efectos, comunes
     a todos los doblajes, y el diálogo, de cada uno (`language_ietf`, o el
     idioma). Con una sola, dos idiomas correlaban como el mismo y ningún
@@ -3580,7 +3595,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **474 mutaciones** en
+de entonces seguían en verde. Hoy hay **478 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:
