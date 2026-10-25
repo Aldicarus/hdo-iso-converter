@@ -345,7 +345,8 @@ window.addEventListener('load', () => setTimeout(async function () {
     p._sortables[0].options.onStart();
     p._sortables[0].options.onEnd({});
     await espera(30);
-    return {antes: d.pistas, puts: puts().map(x => x.body)};
+    return {antes: d.pistas, puts: puts().map(x => x.body), tipos: Object.fromEntries(
+      d.fuentes.flatMap((f, i) => f.pistas.map(q => [`${i}:${q.id}`, q.tipo])))};
   });
 
   // ── Lo que se está escribiendo sobrevive a un repintado ──────────────
@@ -397,6 +398,463 @@ window.addEventListener('load', () => setTimeout(async function () {
     const pedidas = window.__pet.map(p => p.url);
     return {viva_cuerpo: viva.cuerpo, vieja_sin_detalle: vieja.sinDetalle, vieja_cuerpo: vieja.cuerpo,
             pedidas};
+  });
+
+  // ═══ La revisión de Codex del 2026-10-25: el orden de las peticiones ═══
+  // Una respuesta que llega tarde. `v` puede ser una función: se evalúa al
+  // contestar, que es cuando un servidor de verdad la compondría.
+  const tarde = (ms, v) => new Promise(r => setTimeout(
+    () => r(typeof v === 'function' ? v() : v), ms));
+
+  // «Combinar» espera a que lo último que se tocó esté guardado.
+  await caso('combinar_espera', async () => {
+    const d = copia(D.listo); d.id = 'mxA1';
+    const ev = [];
+    const srv = servidor(d);
+    manejador = (m, url, body) => {
+      ev.push(m + (url.endsWith('/ejecutar') ? ' ejecutar' : ''));
+      const r = srv(m, url, body);
+      if (m === 'PUT') return tarde(120, () => { ev.push('fin PUT'); return r; });
+      return r;
+    };
+    await abrirMux(d.id, d);
+    ev.length = 0;
+    fila('mxA1', '1:3').querySelector('.track-actions button').click();   // PUT en vuelo
+    const t = document.getElementById('mux-mxA1-titulo');
+    t.value = 'Title A';
+    muxTituloContenedor('mxA1', t);                                         // espera detrás
+    await muxCombinar('mxA1');
+    await espera(30);
+    const p = _muxProyecto('mxA1');
+    if (p && p._timer) { clearTimeout(p._timer); p._timer = null; }
+    return {ev};
+  });
+
+  // Lo guardado puede cambiar el plan: entonces no se pide lo que el servidor rechazaría.
+  await caso('combinar_con_plan_nuevo', async () => {
+    const d = copia(D.listo); d.id = 'mxA3';
+    manejador = servidor(d, {PUT: (url, body, actual) => {
+      actual.plan = Object.assign(copia(actual.plan), {puede_combinar: false});
+      return tarde(60, () => copia(actual));
+    }});
+    await abrirMux(d.id, d);
+    fila('mxA3', '1:3').querySelector('.track-actions button').click();
+    await muxCombinar('mxA3');
+    await espera(30);
+    const boton = document.getElementById('mux-combinar-mxA3');
+    return {pedidas: window.__pet.map(x => `${x.m} ${x.url}`),
+            boton_deshabilitado: !!(boton && boton.disabled)};
+  });
+
+  // Borrar espera a lo que se estaba guardando.
+  await caso('borrar_espera_guardado', async () => {
+    const d = copia(D.listo); d.id = 'mxA4';
+    const ev = [];
+    manejador = (m, url, body) => {
+      ev.push(m);
+      if (m === 'PUT') return tarde(120, () => { ev.push('fin PUT'); return Object.assign(copia(d), body); });
+      if (m === 'DELETE') return {ok: true};
+      if (url === '/api/mux') return {proyectos: []};
+      return copia(d);
+    };
+    await abrirMux(d.id, d);
+    _muxLista = [copia(d)];
+    ev.length = 0;
+    const t = document.getElementById('mux-mxA4-titulo');
+    t.value = 'Title Z';
+    muxTituloContenedor('mxA4', t);
+    borrarMux('mxA4');
+    document.getElementById('confirm-ok-btn').click();
+    await espera(300);
+    return {ev: ev.filter(x => x !== 'GET'), abierto: !!_muxProyecto('mxA4')};
+  });
+
+  await caso('combinar_tras_rechazo', async () => {
+    const d = copia(D.listo); d.id = 'mxA2';
+    manejador = (m) => (m === 'PUT' ? tarde(80, null) : copia(d));
+    await abrirMux(d.id, d);
+    fila('mxA2', '1:3').querySelector('.track-actions button').click();
+    await muxCombinar('mxA2');
+    await espera(30);
+    return {pedidas: window.__pet.map(x => `${x.m} ${x.url}`)};
+  });
+
+  // Dos lecturas: la que salió antes y vuelve después no pisa a la otra.
+  await caso('dos_lecturas', async () => {
+    const d = copia(D.listo); d.id = 'mxB0';
+    await abrirMux(d.id, d);
+    const p = _muxProyecto('mxB0');
+    let n = 0;
+    manejador = (m) => {
+      if (m !== 'GET') return null;
+      n += 1;
+      return n === 1 ? tarde(200, () => Object.assign(copia(d), {nombre_salida: 'Older.mkv'}))
+                     : tarde(20, () => Object.assign(copia(d), {nombre_salida: 'Newer.mkv'}));
+    };
+    const primera = _muxLeer(p);
+    await espera(10);
+    await _muxLeer(p);
+    await primera; await espera(20);
+    return {datos: p.datos.nombre_salida};
+  });
+
+  // Un GET que sale MIENTRAS vuela un PUT y vuelve después de él.
+  await caso('get_cruzado', async () => {
+    const d = copia(D.listo); d.id = 'mxB1';
+    await abrirMux(d.id, d);
+    const p = _muxProyecto('mxB1');
+    manejador = (m, url, body) => {
+      if (m === 'PUT') return tarde(100, () => Object.assign(copia(d),
+        {nombre_salida: body.nombre_salida, nombre_manual: true}));
+      if (m === 'GET') return tarde(250, () => Object.assign(copia(d), {nombre_salida: 'Old name.mkv'}));
+      return null;
+    };
+    const el = document.getElementById('mux-mxB1-nombre');
+    el.value = 'New name.mkv';
+    const guardado = muxNombreSalida('mxB1', el);
+    await espera(20);
+    const lectura = _muxLeer(p);
+    await guardado; await lectura; await espera(20);
+    return {datos: p.datos.nombre_salida, pantalla: document.getElementById('mux-mxB1-nombre').value};
+  });
+
+  // Un GET que vuelve con el PUT todavía en vuelo.
+  await caso('get_durante_put', async () => {
+    const d = copia(D.listo); d.id = 'mxB2';
+    await abrirMux(d.id, d);
+    const p = _muxProyecto('mxB2');
+    manejador = (m, url, body) => {
+      if (m === 'PUT') return tarde(300, () => Object.assign(copia(d),
+        {nombre_salida: body.nombre_salida, nombre_manual: true}));
+      if (m === 'GET') return tarde(60, () => Object.assign(copia(d), {nombre_salida: 'Old name.mkv'}));
+      return null;
+    };
+    const el = document.getElementById('mux-mxB2-nombre');
+    el.value = 'New name.mkv';
+    const guardado = muxNombreSalida('mxB2', el);
+    await espera(10);
+    _muxLeer(p);
+    await espera(150);                           // el GET ya volvió; el PUT, no
+    const durante = document.getElementById('mux-mxB2-nombre').value;
+    await guardado; await espera(20);
+    return {durante, despues: document.getElementById('mux-mxB2-nombre').value};
+  });
+
+  // La respuesta de «Combinar» es más nueva que un GET que ya volaba.
+  await caso('post_y_get_viejo', async () => {
+    const d = copia(D.listo); d.id = 'mxC1';
+    await abrirMux(d.id, d);
+    const p = _muxProyecto('mxC1');
+    manejador = (m, url) => {
+      if (m === 'GET') return tarde(200, () => copia(d));                // lee `pending`
+      if (m === 'POST' && url.endsWith('/ejecutar')) return Object.assign(copia(d), {status: 'queued'});
+      return null;
+    };
+    const lectura = _muxLeer(p);
+    await espera(20);
+    await muxCombinar('mxC1');
+    await lectura; await espera(20);
+    const sigue = !!p._timer;
+    if (p._timer) { clearTimeout(p._timer); p._timer = null; }
+    const boton = document.querySelector('#mux-cuerpo-mxC1 .project-action-bar button');
+    return {status: p.datos.status, sigue_leyendo: sigue, boton_deshabilitado: !!(boton && boton.disabled)};
+  });
+
+  await caso('ficha_y_get_viejo', async () => {
+    const d = copia(D.listo); d.id = 'mxQ1';
+    await abrirMux(d.id, d);
+    const p = _muxProyecto('mxQ1');
+    manejador = (m, url) => (url === '/api/mux' ? {proyectos: []}
+                             : m === 'GET' ? tarde(150, () => copia(d)) : null);
+    const lectura = _muxLeer(p);
+    await espera(20);
+    const poster = 'https://image.tmdb.org/t/p/w342/poster.jpg';
+    muxTrasCambiarFicha('mxQ1', Object.assign(copia(d),
+      {tmdb_info: Object.assign(copia(d.tmdb_info), {poster_url: poster})}));
+    await lectura; await espera(20);
+    return {poster: (p.datos.tmdb_info || {}).poster_url, esperado: poster};
+  });
+
+  // Cerrar la pestaña no tira lo que esperaba detrás de un guardado.
+  await caso('cerrar_con_pendiente', async () => {
+    const d = copia(D.listo); d.id = 'mxD1';
+    manejador = (m, url, body) => (m === 'PUT' ? tarde(100, () => Object.assign(copia(d), body)) : copia(d));
+    await abrirMux(d.id, d);
+    const el = document.getElementById('mux-mxD1-titulo');
+    el.value = 'Title D';
+    muxTituloContenedor('mxD1', el);              // PUT en vuelo
+    muxCapitulosDe('mxD1', 'video');              // espera detrás
+    cerrarMux('mxD1');
+    await espera(300);
+    return {puts: puts().map(p => p.body)};
+  });
+
+  // Y reabrirla espera a ese guardado antes de leer.
+  await caso('reabrir_tras_cerrar', async () => {
+    const d = copia(D.listo); d.id = 'mxD2';
+    const ev = [];
+    manejador = (m, url, body) => {
+      ev.push(m);
+      if (m === 'PUT') return tarde(120, () => { ev.push('fin PUT'); return Object.assign(copia(d), body); });
+      return Object.assign(copia(d), {titulo: 'Title E'});
+    };
+    await abrirMux(d.id, d);
+    ev.length = 0;
+    const el = document.getElementById('mux-mxD2-titulo');
+    el.value = 'Title E';
+    muxTituloContenedor('mxD2', el);
+    cerrarMux('mxD2');
+    await abrirMux('mxD2');
+    await espera(20);
+    const r = {ev, titulo: document.getElementById('mux-mxD2-titulo').value};
+    cerrarMux('mxD2');
+    return r;
+  });
+
+  // Pulsar un botón con un nombre a medio editar: el `change` salta en el
+  // `mousedown` y el navegador solo genera el `click` si el botón sigue ahí.
+  await caso('clic_tras_editar', async () => {
+    const d = copia(D.listo); d.id = 'mxF1';
+    manejador = servidor(d);
+    await abrirMux(d.id, d);
+    const input = document.getElementById('mux-mxF1-pista-1-2');
+    const boton = fila('mxF1', '1:2').querySelector('.flag-pill');
+    const antes = !!d.pistas.find(p => p.fuente === 1 && p.id === 2).por_defecto;
+    input.value = 'Renamed while clicking'; marcarTocado(input);
+    boton.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, composed: true}));
+    input.dispatchEvent(new Event('change'));
+    boton.dispatchEvent(new PointerEvent('pointerup', {bubbles: true, composed: true}));
+    // El `click` lo genera el navegador DESPUÉS del `pointerup`, y solo si el
+    // botón sigue en la página: por eso se mira aquí y no antes.
+    const conectado = boton.isConnected;
+    if (conectado) boton.click();
+    await espera(80);
+    const ultimo = puts().slice(-1)[0];
+    const pista = ultimo && ultimo.body.pistas.find(p => p.fuente === 1 && p.id === 2);
+    return {conectado, antes, pista: pista || null,
+            pantalla: document.getElementById('mux-mxF1-pista-1-2').value};
+  });
+
+  // «Medir con esta pareja» con la pareja que ya estaba guardada.
+  await caso('medir_misma_pareja', async () => {
+    const d = copia(D.listo); d.id = 'mxG1';
+    d.pareja = [d.sincronia.pista_a, d.sincronia.pista_b];
+    manejador = (m, url) => (url.endsWith('/medir') ? {started: true} : copia(d));
+    await abrirMux(d.id, d);
+    await muxCambiarPareja('mxG1');
+    const misma = window.__pet.map(x => `${x.m} ${x.url}`);
+    window.__pet = [];
+    const sel = document.getElementById('mux-mxG1-pareja-b');
+    const otra = [...sel.options].map(o => o.value).find(v => Number(v) !== d.pareja[1]);
+    sel.value = otra;
+    await muxCambiarPareja('mxG1');
+    return {misma, otra: window.__pet.map(x => ({m: x.m, url: x.url, body: x.body})),
+            pareja_otra: [d.pareja[0], Number(otra)]};
+  });
+
+  // La lista que vuela no pisa lo que llegó de un guardado ni resucita lo borrado.
+  await caso('lista_vieja', async () => {
+    const d = copia(D.listo); d.id = 'mxH1';
+    const otro = copia(D.hecho); otro.id = 'mxH2';
+    let estado = {mxH1: Object.assign(copia(d), {nombre_salida: 'Old list.mkv'}), mxH2: copia(otro)};
+    _muxLista = Object.values(estado).map(copia);
+    _muxListaCargada = true;
+    await abrirMux(d.id, estado.mxH1);
+    await abrirMux(otro.id, otro);
+    manejador = (m, url, body) => {
+      if (m === 'GET' && url === '/api/mux') {
+        const foto = Object.values(estado).map(copia);       // lo que hay AL PEDIR
+        return tarde(200, {proyectos: foto});
+      }
+      if (m === 'PUT') {
+        estado.mxH1 = Object.assign(copia(estado.mxH1), {nombre_salida: body.nombre_salida, nombre_manual: true});
+        return copia(estado.mxH1);
+      }
+      return null;
+    };
+    const lista = refrescarMuxLista();             // sale ANTES y vuelve DESPUÉS
+    await espera(10);
+    const el = document.getElementById('mux-mxH1-nombre');
+    el.value = 'New list.mkv';
+    await muxNombreSalida('mxH1', el);
+    delete estado.mxH2;
+    _muxProyectoBorrado(_muxProyecto('mxH2'));     // el 404 de un GET
+    await lista;
+    await espera(20);
+    const tarjeta = document.getElementById('mux-sidebar-list').textContent;
+    const r = {nombres: Object.fromEntries(_muxLista.map(x => [x.id, x.nombre_salida])),
+               tarjeta_nueva: tarjeta.includes('New list'), tarjeta_vieja: tarjeta.includes('Old list')};
+    cerrarMux('mxH1');
+    return r;
+  });
+
+  await caso('nombre_vacio', async () => {
+    const d = copia(D.listo); d.id = 'mxI1';
+    manejador = servidor(d);
+    await abrirMux(d.id, d);
+    const el = document.getElementById('mux-mxI1-nombre');
+    el.value = '   '; marcarTocado(el);
+    await muxNombreSalida('mxI1', el);
+    return {puts: puts().length, valor: el.value, original: d.nombre_salida};
+  });
+
+  // ── Lo que las mutaciones de la revisión encontraron sin test ─────────
+  await caso('dos_ediciones', async () => {
+    const d = copia(D.listo); d.id = 'mxJ1';
+    let enVuelo = 0, max = 0;
+    manejador = (m, url, body) => {
+      if (m !== 'PUT') return copia(d);
+      enVuelo += 1; max = Math.max(max, enVuelo);
+      return tarde(80, () => { enVuelo -= 1; return Object.assign(copia(d), body); });
+    };
+    await abrirMux(d.id, d);
+    const t = document.getElementById('mux-mxJ1-titulo');
+    t.value = 'T1'; muxTituloContenedor('mxJ1', t);
+    muxCapitulosDe('mxJ1', 'video');
+    const t2 = document.getElementById('mux-mxJ1-titulo');
+    t2.value = 'T2'; muxTituloContenedor('mxJ1', t2);
+    await _muxEsperarGuardado(_muxProyecto('mxJ1'));
+    await espera(20);
+    return {max, puts: puts().map(p => p.body)};
+  });
+
+  await caso('lee_mientras_mide', async () => {
+    const d = copia(D.midiendo); d.id = 'mxK1';
+    manejador = () => Object.assign(copia(d),
+      {sincronia: Object.assign(copia(d.sincronia), {progreso: [5, 7]})});
+    await abrirMux(d.id, d);
+    await espera(_MUX_POLL_MS + 400);
+    const gets = window.__pet.filter(x => x.m === 'GET' && x.url === '/api/mux/mxK1').length;
+    cerrarMux('mxK1');
+    return {gets};
+  });
+
+  await caso('aceptar_riesgo_habilita', async () => {
+    const d = copia(D.decision); d.id = 'mxL1';
+    manejador = servidor(d, {PUT: (url, body, actual) => {
+      // El plan lo recalcula el servidor: aceptar el riesgo lo deja combinar.
+      if (body.acepta_riesgo) actual.plan = Object.assign(copia(actual.plan), {puede_combinar: true});
+      return copia(actual);
+    }});
+    await abrirMux(d.id, d);
+    const antes = document.getElementById('mux-combinar-mxL1').disabled;
+    document.querySelector('#mux-cuerpo-mxL1 .mux-motivos-pie button').click();
+    document.getElementById('confirm-ok-btn').click();
+    await espera(40);
+    return {antes, despues: document.getElementById('mux-combinar-mxL1').disabled};
+  });
+
+  await caso('en_cola_bloquea', async () => {
+    const d = copia(D.cola); d.id = 'mxM1';
+    await abrirMux(d.id, d);
+    const c = document.getElementById('mux-cuerpo-mxM1');
+    const p = _muxProyecto('mxM1');
+    const r = {campos: [...c.querySelectorAll('input.track-label-input, #mux-mxM1-nombre, #mux-mxM1-titulo')]
+                 .map(i => i.disabled),
+               marcas: [...c.querySelectorAll('.flag-pill')].map(b => b.disabled),
+               quitar: [...c.querySelectorAll('.track-actions button')].map(b => b.disabled),
+               capitulos: [...c.querySelectorAll('.mux-modos button')].map(b => b.disabled),
+               sortables: (p._sortables || []).length};
+    if (p._timer) { clearTimeout(p._timer); p._timer = null; }
+    cerrarMux('mxM1');
+    return r;
+  });
+
+  await caso('retraso_manual', async () => {
+    const d = copia(D.decision); d.id = 'mxN1';
+    manejador = servidor(d);
+    await abrirMux(d.id, d);
+    const campo = () => document.getElementById('mux-mxN1-retraso');
+    campo().value = '+250'; await muxRetrasoManual('mxN1', campo());
+    campo().value = '-80 ms'; await muxRetrasoManual('mxN1', campo());
+    const antes = puts().length;
+    campo().value = 'abc'; await muxRetrasoManual('mxN1', campo());
+    return {puts: puts().map(p => p.body), sin_guardar: puts().length === antes,
+            restaurado: campo().value};
+  });
+
+  await caso('adjunto', async () => {
+    const d = copia(D.listo); d.id = 'mxO1';
+    manejador = servidor(d);
+    await abrirMux(d.id, d);
+    const caja = () => document.querySelector('#mux-cuerpo-mxO1 .mux-adjunto input');
+    if (!caja()) return {fallo: 'sin adjuntos que marcar'};
+    const antes = caja().checked;
+    caja().checked = true; caja().dispatchEvent(new Event('change'));
+    await espera(30);
+    caja().checked = false; caja().dispatchEvent(new Event('change'));
+    await espera(30);
+    return {antes, puts: puts().map(p => p.body)};
+  });
+
+  await caso('progreso_ajeno', async () => {
+    abrirNuevaCombinacion();
+    _muxNueva.fuentes = [{ruta: '/mnt/library/a.mkv', nombre: 'a.mkv'},
+                         {ruta: '/mnt/isos/b.mkv', nombre: 'b.mkv'}];
+    _muxPintarHuecos();
+    manejador = (m, url) => {
+      if (m === 'POST') return new Promise(() => {});        // la lectura no acaba en el caso
+      if (url.startsWith('/api/mux/create/progress'))
+        return {activo: true, job: 'otra-pestana', fuente: 1, paso: 'mediainfo'};
+      return null;
+    };
+    crearCombinacion();
+    await espera(900);
+    const hechos = document.querySelectorAll('#mux-nueva-pasos .mux-paso-hecho').length;
+    const pedidos = window.__pet.filter(p => p.url.startsWith('/api/mux/create/progress')).length;
+    _muxNueva.leyendo = false;
+    if (_muxNueva.timer) { clearTimeout(_muxNueva.timer); _muxNueva.timer = null; }
+    closeModal('mux-nueva-modal');
+    return {hechos, pedidos};
+  });
+
+  // Una creación que falla y otra que empieza mientras aún volvían sus respuestas.
+  await caso('creacion_vieja', async () => {
+    abrirNuevaCombinacion();
+    _muxNueva.fuentes = [{ruta: '/mnt/library/a.mkv', nombre: 'a.mkv'},
+                         {ruta: '/mnt/isos/b.mkv', nombre: 'b.mkv'}];
+    _muxPintarHuecos();
+    let posts = 0, job1 = '', progresos = 0;
+    manejador = (m, url) => {
+      if (m === 'POST') {
+        posts += 1;
+        if (posts === 1) {
+          job1 = new URL(url, 'http://x').searchParams.get('job');
+          return tarde(450, null);                          // la primera falla
+        }
+        return new Promise(() => {});                       // la segunda sigue leyendo
+      }
+      if (url.startsWith('/api/mux/create/progress')) {
+        progresos += 1;
+        if (progresos === 1) return tarde(900, () => ({activo: true, job: job1, fuente: 1, paso: 'mediainfo'}));
+        if (progresos === 2) return tarde(600, () => ({activo: false, job: job1, error: 'stale error'}));
+        return new Promise(() => {});
+      }
+      return null;
+    };
+    const primera = crearCombinacion();
+    await espera(500);                                      // la primera ya falló
+    crearCombinacion();                                     // empieza la segunda
+    await espera(800);                                      // vuelven las respuestas de la primera
+    const r = {posts,
+               leyendo: _muxNueva.leyendo,
+               pasos_visibles: document.getElementById('mux-nueva-pasos').style.display !== 'none',
+               huecos_visibles: document.getElementById('mux-nueva-huecos').style.display !== 'none',
+               hechos: document.querySelectorAll('#mux-nueva-pasos .mux-paso-hecho').length,
+               error: document.getElementById('mux-nueva-error-texto').textContent};
+    await primera;
+    _muxNueva.leyendo = false;
+    if (_muxNueva.timer) { clearTimeout(_muxNueva.timer); _muxNueva.timer = null; }
+    closeModal('mux-nueva-modal');
+    return r;
+  });
+
+  await caso('comillas', async () => {
+    const d = copia(D.listo); d.id = 'mxP1';
+    const pista = d.pistas.find(p => p.fuente === 1 && p.id === 2);
+    pista.nombre = 'Doblaje "DCP" <7.1> & más';
+    await abrirMux(d.id, d);
+    return {valor: document.getElementById('mux-mxP1-pista-1-2').value, esperado: pista.nombre};
   });
 
   out.errores = window.__errores || [];
@@ -588,8 +1046,13 @@ class TestLaPestanaCombinarEnChrome(unittest.TestCase):
         c = self.caso("reordenar")
         self.assertEqual(len(c["puts"]), 1)
         nuevo = [(p["fuente"], p["id"]) for p in c["puts"][0]["pistas"]]
-        audio = [(p["fuente"], p["id"]) for p in c["antes"]][:4]
-        self.assertEqual(nuevo[:4], [audio[-1]] + audio[:-1])
+        antes = [(p["fuente"], p["id"]) for p in c["antes"]]
+        audio = [k for k in antes if c["tipos"][f"{k[0]}:{k[1]}"] == "audio"]
+        self.assertGreaterEqual(len(audio), 2)
+        self.assertEqual(nuevo[:len(audio)], [audio[-1]] + audio[:-1])
+        # Y la lista ENTERA: los subtítulos siguen detrás, todos y en su orden.
+        self.assertEqual(len(nuevo), len(antes))
+        self.assertEqual(nuevo[len(audio):], antes[len(audio):])
 
     def test_lo_que_se_escribe_sobrevive_al_repintado(self):
         c = self.caso("anclaje")
@@ -611,6 +1074,140 @@ class TestLaPestanaCombinarEnChrome(unittest.TestCase):
         self.assertEqual(c["hechas"], 3)
         # Un timeout no es «se borró»: el armazón conserva la vista buena.
         self.assertEqual(c["caido"], {"sinDatos": True})
+
+    # ── La revisión de Codex del 2026-10-25 ──────────────────────────────
+
+    def test_combinar_espera_a_que_lo_tocado_este_guardado(self):
+        """Quitar una pista y pulsar «Combinar» encolaba la selección de
+        antes: el POST salía con el PUT en vuelo, o con otro esperando
+        detrás, y el MKV llevaba la pista quitada."""
+        c = self.caso("combinar_espera")
+        self.assertEqual(c["ev"], ["PUT", "fin PUT", "PUT", "fin PUT", "POST ejecutar"])
+
+    def test_combinar_no_pide_lo_que_el_plan_nuevo_no_deja(self):
+        c = self.caso("combinar_con_plan_nuevo")
+        self.assertFalse(any(p.endswith("/ejecutar") for p in c["pedidas"]), c["pedidas"])
+        self.assertTrue(c["boton_deshabilitado"])
+
+    def test_borrar_espera_a_lo_que_se_estaba_guardando(self):
+        c = self.caso("borrar_espera_guardado")
+        self.assertEqual(c["ev"], ["PUT", "fin PUT", "DELETE"])
+        self.assertFalse(c["abierto"])
+
+    def test_combinar_no_encola_si_el_servidor_rechazo_un_cambio(self):
+        c = self.caso("combinar_tras_rechazo")
+        self.assertFalse(any(p.endswith("/ejecutar") for p in c["pedidas"]), c["pedidas"])
+        self.assertEqual(c["pedidas"], ["PUT /api/mux/mxA2", "GET /api/mux/mxA2"])
+
+    def test_de_dos_lecturas_gana_la_que_salio_despues(self):
+        self.assertEqual(self.caso("dos_lecturas")["datos"], "Newer.mkv")
+
+    def test_un_get_que_se_cruza_con_un_put_no_lo_deshace(self):
+        c = self.caso("get_cruzado")
+        self.assertEqual(c["datos"], "New name.mkv")
+        self.assertEqual(c["pantalla"], "New name.mkv")
+
+    def test_un_get_que_vuelve_con_el_put_en_vuelo_no_se_aplica(self):
+        c = self.caso("get_durante_put")
+        self.assertEqual(c["durante"], "New name.mkv")
+        self.assertEqual(c["despues"], "New name.mkv")
+
+    def test_la_respuesta_de_combinar_gana_a_un_get_que_ya_volaba(self):
+        c = self.caso("post_y_get_viejo")
+        self.assertEqual(c["status"], "queued")
+        self.assertTrue(c["sigue_leyendo"], "el poll se paró con el proyecto en cola")
+        self.assertTrue(c["boton_deshabilitado"])
+
+    def test_la_ficha_nueva_gana_a_un_get_que_ya_volaba(self):
+        c = self.caso("ficha_y_get_viejo")
+        self.assertEqual(c["poster"], c["esperado"])
+
+    def test_cerrar_la_pestana_no_tira_lo_que_esperaba_guardarse(self):
+        c = self.caso("cerrar_con_pendiente")
+        self.assertEqual(c["puts"], [{"titulo": "Title D"}, {"capitulos_de": "video"}])
+
+    def test_reabrirla_espera_al_guardado_antes_de_leer(self):
+        c = self.caso("reabrir_tras_cerrar")
+        self.assertEqual(c["ev"], ["PUT", "fin PUT", "GET"])
+        self.assertEqual(c["titulo"], "Title E")
+
+    def test_un_clic_tras_editar_un_nombre_no_se_pierde(self):
+        """El `change` del nombre salta en el `mousedown` del botón: si ese
+        repintado lo sustituye, el navegador no genera el `click`."""
+        c = self.caso("clic_tras_editar")
+        self.assertTrue(c["conectado"], "el repintado sustituyó el botón a mitad del clic")
+        self.assertIsNotNone(c["pista"])
+        self.assertEqual(c["pista"]["nombre"], "Renamed while clicking")
+        self.assertEqual(c["pista"]["por_defecto"], not c["antes"])
+        self.assertEqual(c["pantalla"], "Renamed while clicking")
+
+    def test_medir_con_la_pareja_guardada_mide(self):
+        c = self.caso("medir_misma_pareja")
+        self.assertEqual(c["misma"], ["POST /api/mux/mxG1/medir", "GET /api/mux/mxG1"])
+        self.assertEqual([(p["m"], p["body"]) for p in c["otra"]],
+                         [("PUT", {"pareja": c["pareja_otra"]})])
+
+    def test_la_lista_que_vuela_no_pisa_lo_nuevo_ni_resucita_lo_borrado(self):
+        c = self.caso("lista_vieja")
+        self.assertEqual(c["nombres"].get("mxH1"), "New list.mkv")
+        self.assertNotIn("mxH2", c["nombres"])
+        self.assertTrue(c["tarjeta_nueva"])
+        self.assertFalse(c["tarjeta_vieja"])
+
+    def test_un_nombre_vacio_no_se_guarda_ni_se_queda_a_la_vista(self):
+        c = self.caso("nombre_vacio")
+        self.assertEqual(c["puts"], 0)
+        self.assertEqual(c["valor"], c["original"])
+
+    def test_un_guardado_a_la_vez_y_lo_que_espera_se_junta(self):
+        c = self.caso("dos_ediciones")
+        self.assertEqual(c["max"], 1, "dos PUT a la vez pueden guardarse en orden inverso")
+        self.assertEqual(c["puts"], [{"titulo": "T1"}, {"capitulos_de": "video", "titulo": "T2"}])
+
+    def test_mientras_mide_se_sigue_leyendo(self):
+        self.assertGreaterEqual(self.caso("lee_mientras_mide")["gets"], 1)
+
+    def test_aceptar_el_riesgo_habilita_combinar_con_el_plan_del_servidor(self):
+        c = self.caso("aceptar_riesgo_habilita")
+        self.assertTrue(c["antes"])
+        self.assertFalse(c["despues"], "el botón siguió con el plan de antes de aceptar")
+
+    def test_en_cola_no_se_edita_nada(self):
+        c = self.caso("en_cola_bloquea")
+        for clave in ("campos", "marcas", "quitar", "capitulos"):
+            self.assertTrue(c[clave], f"no hay {clave} que mirar")
+            self.assertTrue(all(c[clave]), f"{clave} editables con el proyecto en cola: {c[clave]}")
+        self.assertEqual(c["sortables"], 0)
+
+    def test_el_retraso_a_mano_conserva_el_signo(self):
+        c = self.caso("retraso_manual")
+        self.assertEqual(c["puts"], [{"retraso_manual_ms": 250}, {"retraso_manual_ms": -80}])
+        # Lo que no es un número no se guarda como 0: el campo vuelve a lo que había.
+        self.assertTrue(c["sin_guardar"])
+        self.assertEqual(c["restaurado"], "-80")
+
+    def test_un_adjunto_se_marca_y_se_desmarca(self):
+        c = self.caso("adjunto")
+        self.assertFalse(c["antes"])
+        self.assertEqual(c["puts"], [{"adjuntos": [{"fuente": 0, "id": 1}]}, {"adjuntos": []}])
+
+    def test_el_progreso_de_otra_creacion_no_se_pinta(self):
+        c = self.caso("progreso_ajeno")
+        self.assertGreaterEqual(c["pedidos"], 1)
+        self.assertEqual(c["hechos"], 0)
+
+    def test_una_creacion_vieja_no_pinta_sobre_la_nueva(self):
+        c = self.caso("creacion_vieja")
+        self.assertEqual(c["posts"], 2)
+        self.assertTrue(c["leyendo"])
+        self.assertTrue(c["pasos_visibles"], "el error de la primera devolvió el modal a la selección")
+        self.assertFalse(c["huecos_visibles"])
+        self.assertEqual(c["hechos"], 0, "se pintaron los pasos de la primera creación")
+        self.assertEqual(c["error"], "")
+
+    def test_un_nombre_con_comillas_llega_entero_al_campo(self):
+        c = self.caso("comillas")
+        self.assertEqual(c["valor"], c["esperado"])
 
     def test_el_detalle_de_la_medida(self):
         c = self.caso("detalle_medida")

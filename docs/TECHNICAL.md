@@ -5,15 +5,16 @@
 > [!NOTE]
 > The technical names (the GitHub repository and the Docker image `ghcr.io/aldicarus/hdo-iso-converter:latest`) are kept so that existing deployments do not break. The public name, and the one shown in the UI, is **UHD Blu-ray Toolkit**.
 
-## Three tools in one
+## Four tools in one
 
-The internal panel IDs (`tab-panel-1/2/3`) are kept for historical compatibility. The visual order and the UI labels are:
+The internal panel IDs (`tab-panel-1/2/3/4`) are kept for historical compatibility. The visual order and the UI labels are:
 
 | Pos. | UI label | What it is for |
 |---|----------|---|
 | 1 | 💿 **Blu-ray ISO → MKV** | Rips a UHD Blu-ray to MKV from three kinds of source (ISO, BDMV folder or M2TS files), keeping Dolby Vision FEL. A mandatory Movie / TV show toggle. TV shows are mapped to episodes through TMDb, with one session per episode. |
-| 2 | 🔬 **Inspect / Edit MKV** | Deep inspection of an MKV (commercial codec names, real bitrate, HDR10, the full Dolby Vision mastering chain, frame-by-frame L1 luminance profile). In-place editing of track names, flags and chapters with no re-encoding (instant, through `mkvpropedit`). |
-| 3 | ✨ **Dolby Vision CMv4.0 upgrade** | A pipeline that injects a CMv4.0 RPU (from DoviTools or other sources) into an MKV that carries the original Blu-ray's CMv2.9, adding the L8-L11 tone-mapping metadata. Quick pre-flight of the bin, a Keep / Inject decision model based on how much colorist work the L8 really carries, frame-by-frame visual sync, and an auto-pipeline that survives the client being closed. |
+| 2 | ✨ **Dolby Vision CMv4.0 upgrade** | A pipeline that injects a CMv4.0 RPU (from DoviTools or other sources) into an MKV that carries the original Blu-ray's CMv2.9, adding the L8-L11 tone-mapping metadata. Quick pre-flight of the bin, a Keep / Inject decision model based on how much colorist work the L8 really carries, frame-by-frame visual sync, and an auto-pipeline that survives the client being closed. |
+| 3 | 🔀 **Combine MKV** | The picture of one MKV (the remux, with its Dolby Vision FEL) with the audio, subtitles and chapters of another (a WEB-DL with the dub the disc lacks). The sync is measured from the sound at seven points of the movie, and when the two run at different frame rates the video is retimed in the container, with no re-encoding. |
+| 4 | 🔬 **Inspect / Edit MKV** | Deep inspection of an MKV (commercial codec names, real bitrate, HDR10, the full Dolby Vision mastering chain, frame-by-frame L1 luminance profile). In-place editing of track names, flags and chapters with no re-encoding (instant, through `mkvpropedit`). |
 
 ## Quick start
 
@@ -371,6 +372,42 @@ Useful to calibrate the classifier's thresholds or to decide which historical jo
 
 ---
 
+## The "Combine MKV" tab
+
+The picture of one MKV (**A**) with the audio, subtitles and chapters of another (**B**). The case that started it: a UHD remux at **23.976 fps** and a WEB-DL at **24.000 fps**. Muxed as they are, the audio drifts by 0.1 %: −0.30 s at minute 5, −3.00 s at minute 50, **−5.76 s at minute 97**. Nothing in the files says so — their durations differ because of the credits, and the chapters do not show it — so the tab measures before it combines.
+
+### Measuring the sync (`phases/mux_sync.py`)
+
+- One audio track from each file (the same language when there is one), seven 30 s windows between 5 % and 88 % of the movie, decoded to mono at 4 kHz and reduced to a 100 Hz onset envelope — independent of the codec, the level and the mix.
+- Normalised cross-correlation by FFT, in pure Python. Two anchor points search ±60 s; the rest search ±6 s around where the anchors' rate puts them, with a wide retry for a cut.
+- B's envelope is rescaled to A's timeline before correlating, so a 23.976/24 pair does not smear the peak.
+- A straight line d(T) = (α − 1)·T + β through the valid points gives the verdict: `en_sincronia`, `retraso` (constant offset), `otro_ritmo` (the frame rates explain it), `deriva` (a rate nobody declares), `montaje_distinto` (a jump: a different cut) or `no_concluyente`.
+
+On the real case: different rate, α = 0.999006491, final frame rate **23.999868 fps**, β = 3 ms (below 10 ms it is noise), spread 4.5 ms, 7/7 points, in 18 s.
+
+### The plan (`phases/mux_plan.py`, pure)
+
+| situation | what happens |
+|---|---|
+| same rate | B's tracks are shifted by −β (`--sync`) |
+| different rates, audio only from B | **A's video is retimed** to its frame rate / α (`--default-duration`); A's other tracks are stretched by α |
+| different rates, audio only from A | B's tracks are brought to A's timeline (factor 1/α) |
+| different rates, audio from both | not combined: audio cannot be stretched without re-encoding |
+
+Retiming is container-only: mkvmerge does not rewrite the HEVC VUI, and the Dolby Vision RPU and the FEL go through untouched. A variable-frame-rate video, or one whose base and enhancement layers sit in tracks with different frame durations, is never retimed. A different cut, a drift nobody declares or an inconclusive measurement can be combined anyway, but only after the user accepts it in a dialog.
+
+### Three phases in one queue turn (`phases/mux_pipeline.py`)
+
+1. **Source check** — both files still there and unchanged, the output name free, enough room in Output.
+2. **Track combining** — one `mkvmerge` into a `.mkv.tmp`, never under the final name.
+3. **Check and save** — the combined file read back against the plan: every track, the video's frame rate, frame count and duration (the proof that it was retimed), the chapters to the millisecond, the attachments, the Dolby Vision of the final file and the sync of every audio track from B against A. If it all matches, it is published without overwriting anything; if not, the `.mkv.tmp` stays for inspection.
+
+### The interface (`static/mux.js`)
+
+Same frame as the other tabs: a project column, navy sub-tabs, stacked cards and the shared Jobs column. Edits save themselves; each one sends its whole field (the full track list, audio before subtitles), every read carries a sequence number so an old response never overwrites a newer one, and a rejected change is undone by reading the project again. The sync card draws the measured points with the fitted line, but only when a single line describes the movie.
+
+---
+
 ## Technical stack
 
 - **Backend:** Python 3.10+ (ubuntu:22.04), FastAPI, uvicorn
@@ -405,7 +442,8 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 │   ├── routers/
 │   │   ├── tab1.py               ← Tab 1: endpoints + pipeline orchestrator + WS
 │   │   ├── tab2.py               ← Tab 2: /api/mkv/* + browser + quality + apply
-│   │   └── cmv40.py              ← Tab 3: endpoints + orchestration
+│   │   ├── cmv40.py              ← Tab 3: endpoints + orchestration
+│   │   └── mux.py                ← Tab 4: /api/mux/* + the sync measurement + the queue
 │   ├── queue_manager.py          ← The single job queue
 │   ├── dev_fixtures.py           ← Fixtures when DEV_MODE=1
 │   ├── phases/
@@ -418,7 +456,11 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 │   │   ├── rpu_analyze.py        ← Tab 3: L2/L8 analysis of the bin
 │   │   ├── luminance.py          ← The L1 luminance profile
 │   │   ├── cmv40_strategy.py     ← Tab 3: workflow × target × trust matrix (pure)
-│   │   └── cmv40_pipeline.py     ← Tab 3: the full CMv4.0 pipeline
+│   │   ├── cmv40_pipeline.py     ← Tab 3: the full CMv4.0 pipeline
+│   │   ├── mux_sync.py           ← Tab 4: the sync, measured from the audio
+│   │   ├── mux_plan.py           ← Tab 4: the timeline and what blocks combining (pure)
+│   │   ├── mux_pipeline.py       ← Tab 4: reading the sources and the three phases
+│   │   └── mux_relato.py         ← Tab 4: what the project is doing, in words
 │   ├── services/
 │   │   ├── settings_store.py     ← /config/app_settings.json
 │   │   ├── tmdb.py               ← TMDb search + details (movies + TV)
@@ -432,7 +474,7 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 │   └── static/
 │       ├── index.html
 │       ├── core.js · settings.js · cmv40_modals.js
-│       ├── tab1.js · tab2.js · tab3.js · browser.js · workbar.js
+│       ├── tab1.js · tab2.js · tab3.js · mux.js · browser.js · workbar.js
 │       ├── i18n/                 ← Interface and manual catalogs (es/en/ca)
 │       └── style.css
 ├── archive/                      ← Historical specs
@@ -477,6 +519,14 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 - `POST /api/cmv40/{id}/accept-keep` · `POST /api/cmv40/{id}/override-recommendation` — the Keep / Inject decision
 - `POST /api/cmv40/{id}/cancel` — kills the active subprocess
 - `WS /ws/cmv40/{id}` — live log
+
+### Tab 4 — Combine MKV
+- `GET /api/mux` — the combinations (left column)
+- `POST /api/mux/create` — reads both MKV files and creates the project (`{video, resto}`); its step is in `GET /api/mux/create/progress`
+- `GET/PUT/DELETE /api/mux/{id}` — the project with its `plan` and `relato`; `PUT` changes the tracks, chapters, attachments, names and decisions
+- `POST /api/mux/{id}/medir` · `POST /api/mux/{id}/medir/cancelar` — measures the sync (in the background) and stops it
+- `POST /api/mux/{id}/ejecutar` · `POST /api/mux/{id}/cancelar` — queues the combination, and cancels it or takes it out of the queue
+- `POST /api/mux/{id}/tmdb-refresh` — finds the film's card again
 
 ### Shared
 - `GET /api/trabajos` · `GET /api/historial` — the Jobs column: running, queued and finished jobs

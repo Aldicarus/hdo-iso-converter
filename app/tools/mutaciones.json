@@ -3753,5 +3753,465 @@
   "modulos": [
    "test_track_mapping"
   ]
+ },
+ {
+  "id": "T4-1 una respuesta vieja pisa la nueva",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
+  "nuevo": "  if (project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-2 un cambio rechazado no se deshace",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (rechazado) await _muxLeer(project);",
+  "nuevo": "  if (rechazado && false) await _muxLeer(project);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-3 una pista añadida va detrás de los subtítulos",
+  "fichero": "app/static/mux.js",
+  "viejo": "  pistas = _muxAgrupar(project.datos, pistas);\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-4 la pista añadida roba la marca por defecto",
+  "fichero": "app/static/mux.js",
+  "viejo": "por_defecto: o.por_defecto && !yaHayDefecto,",
+  "nuevo": "por_defecto: o.por_defecto,",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-5 la recta del ajuste se dibuja siempre",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const conRecta = ![MUX_MONTAJE_DISTINTO, MUX_NO_CONCLUYENTE].includes(s.veredicto);",
+  "nuevo": "  const conRecta = true;",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-6 cancelar anuncia una cancelación sin mirar la respuesta",
+  "fichero": "app/static/mux.js",
+  "viejo": "  else if (r && r.ok) showToast(tr('tab4.combinacion_cancelada'), 'info');",
+  "nuevo": "  else if (r) showToast(tr('tab4.combinacion_cancelada'), 'info');",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-7 la medida se cancela por el endpoint de la combinación",
+  "fichero": "app/static/workbar.js",
+  "viejo": "    mux:   () => (a.detalle === 'sincronia_mux'",
+  "nuevo": "    mux:   () => (a.detalle === 'sincronia'",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-8 leer los dos MKV con el timeout de 30 s",
+  "fichero": "app/static/mux.js",
+  "viejo": "    }, API_FETCH_TIMEOUT_LARGO);\n  } finally {\n    _muxNueva.leyendo = false;",
+  "nuevo": "    });\n  } finally {\n    _muxNueva.leyendo = false;",
+  "modulos": [
+   "test_tab4_combinar",
+   "test_timeouts_del_frontend"
+  ]
+ },
+ {
+  "id": "T4-9 el error de otra creación se toma por el suyo",
+  "fichero": "app/static/mux.js",
+  "viejo": "    _muxNueva.error = (p && p.job === job && p.error) || tr('tab4.no_se_pudieron_leer');",
+  "nuevo": "    _muxNueva.error = (p && p.error) || tr('tab4.no_se_pudieron_leer');",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-10 el mismo fichero dos veces se puede crear",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (crear) crear.disabled = !(a && b) || mismo;",
+  "nuevo": "  if (crear) crear.disabled = !(a && b);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-11 un repintado a mitad de arrastre no espera",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (project._arrastrando) { project._repintarAlSoltar = true; return; }\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-12 una cadencia estándar sale con seis decimales",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const dec = (precisa && !estandar) ? 6 : (v % 1 ? 3 : 0);",
+  "nuevo": "  const dec = (!estandar) ? 6 : (v % 1 ? 3 : 0);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-13 el veredicto dice el sentido dos veces",
+  "fichero": "app/static/mux.js",
+  "viejo": "      const ms = _muxMagnitud(s.beta_ms);",
+  "nuevo": "      const ms = _muxDesfase(s.beta_ms);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-14 lo escrito no sobrevive al repintado",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (pintarSiCambia(cuerpo, html)) _muxInstalarOrden(project);",
+  "nuevo": "  cuerpo.innerHTML = html; _muxInstalarOrden(project);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-15 el riesgo se acepta sin preguntar",
+  "fichero": "app/static/mux.js",
+  "viejo": "  showConfirm(\n    tr('tab4.combinar_igualmente'),",
+  "nuevo": "  _muxGuardar(project, { acepta_riesgo: true }); (() => {})(\n    tr('tab4.combinar_igualmente'),",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-16 el detalle de una ejecución vieja enseña el log vivo",
+  "fichero": "app/static/mux.js",
+  "viejo": "    cuerpo: _trabajoLogHTML(ejec ? ejec.output_log : (d && d.output_log)),",
+  "nuevo": "    cuerpo: _trabajoLogHTML(d && d.output_log),",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-17 un vídeo VFR se retima",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    if (fuente.video.modo_cadencia or \"\").upper() == \"VFR\":\n        return False\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4-18 un vídeo que no se puede retimar se combina",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "        if not video_retimable(proyecto.fuentes[0]):\n            motivo(\"video_no_retimable\")\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4-19 la línea del historial no apunta a su ejecución",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                         ref_log=f\"mux:{pid}#{run_n}\" if run_n else f\"mux:{pid}\")",
+  "nuevo": "                         ref_log=f\"mux:{pid}\")",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "G-1 la Fase G no fija la cadencia del origen",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            *cadencia,\n            str(hevc_for_mkv),",
+  "nuevo": "            str(hevc_for_mkv),",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "G-2 la Fase G no comprueba la cadencia del MKV final",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        if real is not None and abs(real - duracion_frame) > 2:",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T4-20 «Combinar» no espera a que lo tocado esté guardado",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (!await _muxEsperarGuardado(project)) return;\n",
+  "nuevo": "    // sin esperar\n",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-21 una lectura que se cruzó con un guardado se aplica",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
+  "nuevo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente) {",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-22 una lectura que vuelve con el guardado en vuelo se aplica",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
+  "nuevo": "  if (n < (project._aplicado || 0) || (project._version || 0) !== version) {",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-23 lo forzado no deja viejas las lecturas en vuelo",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (forzar) project._version = (project._version || 0) + 1;",
+  "nuevo": "  if (forzar) project._aplicado = project._pedidos || 0;",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-24 cerrar la pestaña tira lo que esperaba guardarse",
+  "fichero": "app/static/mux.js",
+  "viejo": "    while (project._pendiente && !project._borrado) {",
+  "nuevo": "    while (project._pendiente && !project._borrado && !project._closed) {",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-25 reabrir no espera al guardado de la pestaña cerrada",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (enVuelo) await enVuelo;",
+  "nuevo": "  if (false) await enVuelo;",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-26 un tick viejo pinta sobre otra creación",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (p && p.job === job && _muxNueva.leyendo && _muxNueva.job === job) _muxPintarPasos(p);",
+  "nuevo": "    if (p && p.job === job && _muxNueva.leyendo) _muxPintarPasos(p);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-27 el error de una creación vieja devuelve el modal a la selección",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (_muxNueva.leyendo || _muxNueva.job !== job) return;\n",
+  "nuevo": "    // sin mirar\n",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-28 el progreso de otra creación se pinta",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (p && p.job === job && _muxNueva.leyendo && _muxNueva.job === job) _muxPintarPasos(p);",
+  "nuevo": "    if (p && _muxNueva.leyendo && _muxNueva.job === job) _muxPintarPasos(p);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-29 un repintado a mitad de un clic se lleva el botón",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (f.gesto && Date.now() - f.gesto < _MUX_GESTO_MAX_MS) {",
+  "nuevo": "  if (false) {",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-30 el fin del gesto repinta en el mismo pointerup",
+  "fichero": "app/static/mux.js",
+  "viejo": "  setTimeout(() => {\n    f.gesto = 0;\n    const pendientes = f.pendientes;\n    f.pendientes = null;\n    if (pendientes) pendientes.forEach(p => { if (!p._closed) _muxPintarPanel(p); });\n  }, 0);",
+  "nuevo": "  (() => {\n    f.gesto = 0;\n    const pendientes = f.pendientes;\n    f.pendientes = null;\n    if (pendientes) pendientes.forEach(p => { if (!p._closed) _muxPintarPanel(p); });\n  })();",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-31 medir con la pareja guardada no mide",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (actual && actual[0] === pareja[0] && actual[1] === pareja[1]) {",
+  "nuevo": "  if (false) {",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-32 la lista que vuela pisa lo que llegó de un guardado",
+  "fichero": "app/static/mux.js",
+  "viejo": "  _muxLista = _muxConLoTocado(Array.isArray(data.proyectos) ? data.proyectos : [], desde);",
+  "nuevo": "  _muxLista = Array.isArray(data.proyectos) ? data.proyectos : [];",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-33 la lista que vuela resucita un proyecto borrado",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (t.borrado) { out = out.filter(x => x.id !== id); continue; }",
+  "nuevo": "    if (t.borrado) { continue; }",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-34 un nombre de salida vacío se queda a la vista",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (!valor) { el.value = project.datos.nombre_salida || ''; return; }",
+  "nuevo": "  if (!valor) return;",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-35 dos guardados a la vez",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (!project._guardando) project._guardado = _muxEnviarPendiente(project);",
+  "nuevo": "  project._guardado = _muxEnviarPendiente(project);",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-36 lo que espera a guardarse no se junta",
+  "fichero": "app/static/mux.js",
+  "viejo": "  project._pendiente = Object.assign(project._pendiente || {}, cambios);",
+  "nuevo": "  project._pendiente = cambios;",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-37 mientras algo corre no se vuelve a leer",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (!_muxHayQueSeguir(project.datos)) return;",
+  "nuevo": "  return;",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-38 el plan de antes sobrevive al guardado",
+  "fichero": "app/static/mux.js",
+  "viejo": "      if (!project._pendiente) _muxAplicar(project, r);",
+  "nuevo": "      if (!project._pendiente) _muxAplicar(project, { ...r, plan: project.datos.plan });",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-39 en cola se puede editar",
+  "fichero": "app/static/mux.js",
+  "viejo": "function _muxBloqueado(d) {\n  return ['queued', 'running'].includes(d.status);\n}",
+  "nuevo": "function _muxBloqueado(d) {\n  return false;\n}",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-40 el retraso a mano cambia de signo",
+  "fichero": "app/static/mux.js",
+  "viejo": "  await _muxGuardar(project, { retraso_manual_ms: v });",
+  "nuevo": "  await _muxGuardar(project, { retraso_manual_ms: -v });",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-41 el retraso a mano en un campo numérico: «+250» se guarda como 0",
+  "fichero": "app/static/mux.js",
+  "viejo": "        <input type=\"text\" inputmode=\"decimal\" class=\"globals-mkv-input\" id=\"mux-${_muxEsc(pid)}-retraso\"",
+  "nuevo": "        <input type=\"number\" step=\"1\" class=\"globals-mkv-input\" id=\"mux-${_muxEsc(pid)}-retraso\"",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-42 lo que no es un número se queda en el campo del retraso",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (!Number.isFinite(v)) {\n    const antes = project.datos && project.datos.retraso_manual_ms;\n    el.value = antes != null ? String(antes) : '';\n    return;\n  }",
+  "nuevo": "  if (!Number.isFinite(v)) return;",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-43 un adjunto se marca al revés",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const adjuntos = el.checked ? [...otros, { fuente: f, id }] : otros;",
+  "nuevo": "  const adjuntos = el.checked ? otros : [...otros, { fuente: f, id }];",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-44 reordenar el audio tira los subtítulos",
+  "fichero": "app/static/mux.js",
+  "viejo": "        if (antes !== ahora) _muxCambiarPistas(project, pistas);",
+  "nuevo": "        if (antes !== ahora) _muxCambiarPistas(project, pistas.filter(p => (_muxOrigen(project.datos, p.fuente, p.id) || {}).tipo === 'audio'));",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-45 el nombre de una pista sin escapar en el atributo",
+  "fichero": "app/static/mux.js",
+  "viejo": "            value=\"${_muxEsc(p.nombre)}\" ${bloq ? 'disabled' : ''}",
+  "nuevo": "            value=\"${p.nombre}\" ${bloq ? 'disabled' : ''}",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-46 «Combinar» encola aunque el servidor rechazara un cambio",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (!await _muxEsperarGuardado(project)) return;\n",
+  "nuevo": "    await _muxEsperarGuardado(project);\n",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-47 «Combinar» pide lo que el plan nuevo no deja",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (!((project.datos || {}).plan || {}).puede_combinar) return;\n",
+  "nuevo": "    // sin mirar el plan\n",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-48 borrar no espera a lo que se estaba guardando",
+  "fichero": "app/static/mux.js",
+  "viejo": "      if (abierto && abierto._guardando) await abierto._guardado;\n",
+  "nuevo": "      // sin esperar\n",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-49 la respuesta de «Combinar» no se aplica forzada",
+  "fichero": "app/static/mux.js",
+  "viejo": "    _muxAplicar(project, r, true);\n    showToast(tr('tab4.combinacion_en_cola'), 'success');",
+  "nuevo": "    _muxAplicar(project, r);\n    showToast(tr('tab4.combinacion_en_cola'), 'success');",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
  }
 ]

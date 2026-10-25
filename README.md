@@ -34,6 +34,7 @@ It runs on a NAS or any Linux machine with Docker and is used from the browser. 
 |---|---|
 | 💿 **Blu-ray ISO → MKV** | A lossless MKV of the disc, with the Dolby Vision FEL layer, the best audio tracks and the chapters |
 | ✨ **Dolby Vision CMv4.0 upgrade** | Adds the colorist's CMv4.0 trims to the disc's own Dolby Vision, without touching the picture |
+| 🔀 **Combine MKV** | The disc's picture with the dub and subtitles of another release, measured into sync |
 | 🔬 **Inspect / Edit MKV** | The DV+HDR deep dive of any MKV, to check the result, plus instant editing of tracks and chapters |
 
 ---
@@ -114,6 +115,16 @@ Dolby Vision carries a set of instructions that tells each TV how to fit the pic
 - **It runs the whole process by itself.** It picks the fastest route for each case and labels the result with its quality: `[CMv4 FULL]`, `CORE+` or `CORE`.
 - **The upgraded MKV comes with its deep dive already done**, ready to inspect right away.
 
+### 🔀 The disc's picture with the audio you want
+
+When the disc lacks a dub, another release often has it — usually a WEB-DL, with a weaker picture.
+
+- **Two MKVs, one file.** The picture of the remux, with its Dolby Vision FEL, and the audio, subtitles and chapters of the other release. Nothing is re-encoded.
+- **The sync is measured, not assumed.** It compares the sound of both files at seven points of the movie. Two releases of the same film often run at slightly different speeds — 23.976 and 24 fps — and merged as they are, the audio drifts by almost six seconds by the end.
+- **When the speeds differ, the video is retimed in the container.** The picture and its Dolby Vision stay as they are, bit for bit; only the timing of each frame changes, so the dub stays in sync from the first minute to the last.
+- **It says when it cannot be done.** A different cut, or a measurement that does not add up, is shown on a chart before anything is combined.
+- **A final check reads the combined MKV back**: every track, the chapters, the Dolby Vision and the sync of every audio track against the original picture.
+
 ### 🔬 The DV+HDR deep dive: check the result
 
 <img src="docs/img/mkv-radiografia.png" alt="Luminance profile of a film: brightness per frame, percentiles and distribution">
@@ -125,7 +136,7 @@ Dolby Vision carries a set of instructions that tells each TV how to fit the pic
 
 ### 📋 Always in view
 
-- **The Jobs column** stays next to all three tools. It shows what is running, how long it has taken, how long is left, and a history of everything that has finished.
+- **The Jobs column** stays next to all four tools. It shows what is running, how long it has taken, how long is left, and a history of everything that has finished.
 - **A notification when each long job finishes**, even when the tab is in the background.
 - **A card for every film**, with its poster, synopsis and TMDb rating.
 

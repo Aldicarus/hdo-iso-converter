@@ -11261,7 +11261,7 @@ span[data-icono] {
 .mux-graf-rejilla { stroke: var(--sep); stroke-width: 1; }
 .mux-graf-rejilla.cero { stroke: var(--sep-strong); }
 .mux-graf-eje {
-  fill: var(--text-3); font-size: 11px; font-family: var(--mono);
+  fill: var(--text-3); font-size: var(--fs-xs); font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 .mux-graf-ajuste { stroke: var(--text-3); stroke-width: 2; stroke-linecap: round; }
@@ -11279,7 +11279,7 @@ span[data-icono] {
 }
 .mux-leyenda-punto { background: var(--blue); }
 .mux-leyenda-descartado { border: 1.6px solid var(--text-3); box-sizing: border-box; }
-.mux-leyenda-recta { display: inline-block; width: 16px; height: 2px; background: var(--text-3); border-radius: 1px; }
+.mux-leyenda-recta { display: inline-block; width: 16px; height: 2px; background: var(--text-3); border-radius: var(--r-full); }
 .mux-graf-eje-nota { color: var(--text-3); }
 
 .mux-plan {
@@ -11392,7 +11392,7 @@ span[data-icono] {
 .mux-intercambiar:disabled { opacity: var(--op-muy-tenue); cursor: not-allowed; }
 .mux-nueva-pasos { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 8px; }
 .mux-paso { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); }
-.mux-paso-pendiente { opacity: .45; }
+.mux-paso-pendiente { opacity: var(--op-muy-tenue); }
 
 @media (max-width: 760px) {
   .mux-fuentes { grid-template-columns: 1fr; }

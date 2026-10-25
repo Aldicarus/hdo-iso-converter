@@ -181,6 +181,7 @@ function _muxCifra(texto) {
 async function refrescarMuxLista() {
   const f = refrescarMuxLista;
   const pedido = f.pedido = (f.pedido || 0) + 1;
+  const desde = f.marca = (f.marca || 0) + 1;
   const data = await apiFetch('/api/mux', { silent: true });
   if (pedido !== f.pedido) return;          // ya hay una más nueva en camino
   if (!data) {
@@ -191,9 +192,39 @@ async function refrescarMuxLista() {
     return;
   }
   if (f.reintento) { clearTimeout(f.reintento); f.reintento = null; }
-  _muxLista = Array.isArray(data.proyectos) ? data.proyectos : [];
+  _muxLista = _muxConLoTocado(Array.isArray(data.proyectos) ? data.proyectos : [], desde);
   _muxListaCargada = true;
   renderMuxLista();
+}
+
+/** Lo que cambió AQUÍ mientras la lista volaba es más nuevo que ella.
+ *
+ *  Un guardado que vuelve pone el proyecto nuevo en su tarjeta
+ *  (`_muxActualizarEnLista`); si la lista se pidió antes, trae el resumen
+ *  de antes y lo pisaba —el nombre viejo en la tarjeta con el nuevo en el
+ *  panel— hasta el siguiente refresco. Y un proyecto recién borrado
+ *  reaparecía (revisión de Codex del 2026-10-25). Las marcas cuelgan de
+ *  `refrescarMuxLista` por lo de siempre: los arneses cargan funciones por
+ *  nombre. */
+function _muxConLoTocado(lista, desde) {
+  const f = refrescarMuxLista;
+  const tocados = f.tocados || (f.tocados = new Map());
+  const local = new Map(_muxLista.map(x => [x.id, x]));
+  let out = lista;
+  for (const [id, t] of tocados) {
+    if (t.marca <= desde) { tocados.delete(id); continue; }   // la lista ya lo trae
+    if (t.borrado) { out = out.filter(x => x.id !== id); continue; }
+    const mio = local.get(id);
+    if (!mio) continue;
+    out = out.some(x => x.id === id) ? out.map(x => (x.id === id ? mio : x)) : [mio, ...out];
+  }
+  return out;
+}
+
+function _muxTocarLista(id, borrado = false) {
+  const f = refrescarMuxLista;
+  f.marca = (f.marca || 0) + 1;
+  (f.tocados || (f.tocados = new Map())).set(id, { marca: f.marca, borrado });
 }
 
 function _muxPintarErrorDeLista() {
@@ -368,6 +399,7 @@ function onMuxFiltro(btn) {
  *  panel. */
 function _muxActualizarEnLista(datos) {
   if (!datos || !datos.id) return;
+  _muxTocarLista(datos.id);
   const i = _muxLista.findIndex(x => x.id === datos.id);
   const antes = i >= 0 ? _muxFirmaDeTarjeta(_muxLista[i]) : '';
   if (i >= 0) _muxLista[i] = datos; else _muxLista.unshift(datos);
@@ -394,10 +426,16 @@ function borrarMux(id) {
     tr('tab4.borrar_la_combinacion'),
     tr('tab4.se_borrara_el_proyecto', { nombre: p.nombre_salida || id }),
     async () => {
+      // Lo que se estaba guardando termina antes: un PUT que llegara detrás
+      // del DELETE contestaría 404 con su aviso de error.
+      const abierto = _muxProyecto(id);
+      if (abierto && abierto._guardando) await abierto._guardado;
       const r = await apiFetch(`/api/mux/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!r) return;
-      if (openMuxProjects.find(x => x.id === id)) cerrarMux(id);
+      const ahora = _muxProyecto(id);
+      if (ahora) { ahora._borrado = true; cerrarMux(id); }
       if (_muxSeleccionado === id) _muxSeleccionado = null;
+      _muxTocarLista(id, true);
       _muxLista = _muxLista.filter(x => x.id !== id);
       renderMuxLista();
       refrescarMuxLista();
@@ -422,6 +460,10 @@ async function abrirMux(id, datos = null) {
     renderMuxLista();
   }
   switchMuxSubTab(id);
+  // Cerrada con un guardado a medias, el guardado sigue (`cerrarMux`); leer
+  // antes de que termine enseñaría el proyecto de antes de ese cambio.
+  const enVuelo = cerrarMux.enVuelo && cerrarMux.enVuelo.get(id);
+  if (enVuelo) await enVuelo;
   if (datos) _muxAplicar(project, datos, true);
   else await _muxLeer(project);
   return project;
@@ -494,6 +536,16 @@ function cerrarMux(pid) {
   if (i === -1) return;
   const project = openMuxProjects[i];
   project._closed = true;
+  // Cerrar deja de leer y de pintar, pero NO tira lo que el guardado
+  // automático ya aceptó: el que está en vuelo y lo que espera detrás se
+  // mandan igual (revisión de Codex del 2026-10-25). Reabrirla espera a que
+  // terminen.
+  if (project._guardando) {
+    const m = cerrarMux.enVuelo || (cerrarMux.enVuelo = new Map());
+    const p = project._guardado;
+    m.set(pid, p);
+    p.then(() => { if (m.get(pid) === p) m.delete(pid); });
+  }
   if (project._timer) { clearTimeout(project._timer); project._timer = null; }
   if (project._sortables) project._sortables.forEach(s => { try { s.destroy(); } catch (_) {} });
   document.getElementById(`mux-stab-${pid}`)?.remove();
@@ -537,6 +589,7 @@ function _muxProgramar(project) {
 async function _muxLeer(project) {
   if (!project || project._closed) return;
   const n = project._pedidos = (project._pedidos || 0) + 1;
+  const version = project._version || 0;
   const estado = {};
   const datos = await apiFetch(`/api/mux/${encodeURIComponent(project.id)}`,
                                { silent: true, estado });
@@ -556,17 +609,27 @@ async function _muxLeer(project) {
     project._timer = setTimeout(() => { project._timer = null; _muxLeer(project); }, _MUX_POLL_MS * 2);
     return;
   }
-  // Mientras se guarda, lo que mande el GET puede ser de antes del PUT y
-  // desharía en pantalla lo que el usuario acaba de tocar.
-  if (project._guardando || project._pendiente) return;
-  if (n < (project._aplicado || 0)) return;
+  // Una lectura vieja no se aplica: ni la que adelantó otra más nueva, ni la
+  // que se CRUZÓ con una escritura. Esa salió antes de que el PUT se
+  // guardara, o mientras volaba, y puede traer el proyecto de antes: mirar
+  // solo si hay un PUT en vuelo al VOLVER la dejaba pasar cuando el PUT ya
+  // había terminado, y deshacía en pantalla lo recién guardado (revisión de
+  // Codex del 2026-10-25). Cada escritura sube `_version` al salir y al
+  // volver, y trae su propio proyecto.
+  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente
+      || (project._version || 0) !== version) {
+    _muxProgramar(project);
+    return;
+  }
   project._aplicado = n;
   _muxAplicar(project, datos);
 }
 
 function _muxProyectoBorrado(project) {
   showToast(tr('tab4.la_combinacion_ya_no_existe'), 'warning');
+  project._borrado = true;
   cerrarMux(project.id);
+  _muxTocarLista(project.id, true);
   _muxLista = _muxLista.filter(x => x.id !== project.id);
   renderMuxLista();
 }
@@ -577,7 +640,10 @@ function _muxProyectoBorrado(project) {
 function _muxAplicar(project, datos, forzar = false) {
   if (!project || project._closed) return;
   if (!datos || datos.id !== project.id || !Array.isArray(datos.fuentes)) return;
-  if (forzar) project._aplicado = project._pedidos || 0;
+  // Lo que llega forzado es más nuevo que cualquier lectura en vuelo: subir
+  // la versión las deja viejas a todas. Igualar el contador de lecturas no
+  // bastaba —una que ya había salido tenía ESE número y pasaba—.
+  if (forzar) project._version = (project._version || 0) + 1;
   project.datos = datos;
   _muxPintarPanel(project);
   _muxNombreDeSubTab(project);
@@ -587,32 +653,60 @@ function _muxAplicar(project, datos, forzar = false) {
 
 /** Guarda cambios: uno en vuelo a la vez, y lo que llegue mientras tanto se
  *  junta en el siguiente. Cada cambio manda su campo entero (la lista de
- *  pistas entera, no un parche), así que juntar es quedarse con el último. */
-async function _muxGuardar(project, cambios) {
-  if (!project || project._closed) return;
+ *  pistas entera, no un parche), así que juntar es quedarse con el último.
+ *
+ *  Devuelve la promesa del envío en curso, que se resuelve cuando lo
+ *  pendiente está en el servidor: `true` si lo aceptó todo, `false` si
+ *  rechazó algo. Es lo que espera «Combinar» antes de encolar. */
+function _muxGuardar(project, cambios) {
+  if (!project || project._borrado) return Promise.resolve(false);
   project._pendiente = Object.assign(project._pendiente || {}, cambios);
-  if (project._guardando) return;
+  if (!project._guardando) project._guardado = _muxEnviarPendiente(project);
+  return project._guardado;
+}
+
+async function _muxEnviarPendiente(project) {
   project._guardando = true;
   let rechazado = false;
   try {
-    while (project._pendiente && !project._closed) {
+    // Sin mirar `_closed`: cerrar la pestaña con un cambio esperando detrás
+    // de otro lo tiraba sin mandarlo (revisión de Codex del 2026-10-25).
+    while (project._pendiente && !project._borrado) {
       const cuerpo = project._pendiente;
       project._pendiente = null;
-      const n = project._pedidos = (project._pedidos || 0) + 1;
-      const r = await apiFetch(`/api/mux/${encodeURIComponent(project.id)}`,
-                               { method: 'PUT', body: JSON.stringify(cuerpo) });
-      if (!r) { rechazado = true; project._pendiente = null; break; }
-      if (!project._pendiente && n >= (project._aplicado || 0)) {
-        project._aplicado = n;
-        _muxAplicar(project, r);
+      project._escribiendo = (project._escribiendo || 0) + 1;
+      project._version = (project._version || 0) + 1;
+      let r = null;
+      try {
+        r = await apiFetch(`/api/mux/${encodeURIComponent(project.id)}`,
+                           { method: 'PUT', body: JSON.stringify(cuerpo) });
+      } finally {
+        project._escribiendo -= 1;
+        project._version += 1;
       }
+      if (!r) { rechazado = true; project._pendiente = null; break; }
+      // El último guardado es el estado más nuevo que existe; si hay otro
+      // detrás, se espera a su respuesta.
+      if (!project._pendiente) _muxAplicar(project, r);
     }
   } finally {
+    // Se suelta ANTES de volver a leer: un cambio que llegue durante esa
+    // lectura abre su propio envío en vez de esperar a uno que ya terminó.
     project._guardando = false;
   }
   // El servidor no lo aceptó (apiFetch ya ha dicho por qué): se vuelve a lo
   // que hay de verdad, o la pantalla enseñaría un cambio que no existe.
   if (rechazado) await _muxLeer(project);
+  return !rechazado;
+}
+
+/** Espera a que lo que se ha tocado esté guardado. `false` si el servidor
+ *  rechazó algo: la pantalla ya ha vuelto a lo que hay de verdad. */
+async function _muxEsperarGuardado(project) {
+  while (project._guardando) {
+    if (!await project._guardado) return false;
+  }
+  return true;
 }
 
 /** Tras el recovery (Mac dormido, pestaña oculta): volver a leer todo. */
@@ -642,9 +736,45 @@ function _muxPintarPanel(project) {
   // Repintar a mitad de un arrastre deja a Sortable con nodos que ya no
   // existen: el orden se perdería al soltar.
   if (project._arrastrando) { project._repintarAlSoltar = true; return; }
+  // Ni a mitad de un clic. Al pulsar un botón con un nombre de pista a
+  // medio editar, el `change` del campo salta en el `mousedown` (el foco se
+  // va) y el repintado sustituía el botón antes del `mouseup`: el navegador
+  // no genera el `click` y se guardaba el nombre pero no la marca (revisión
+  // de Codex del 2026-10-25). Es la guarda de la columna de trabajo: el
+  // repintado espera al final del gesto.
+  const f = _muxPintarPanel;
+  if (f.gesto && Date.now() - f.gesto < _MUX_GESTO_MAX_MS) {
+    (f.pendientes || (f.pendientes = new Set())).add(project);
+    return;
+  }
   const html = _muxPanelHTML(project);
   if (pintarSiCambia(cuerpo, html)) _muxInstalarOrden(project);
 }
+
+// Un gesto que no termina —el puntero se suelta fuera de la ventana y no
+// llega el `pointerup`— no puede dejar el panel sin repintarse para siempre.
+const _MUX_GESTO_MAX_MS = 3000;
+
+document.addEventListener('pointerdown', (e) => {
+  if (e.target && e.target.closest && e.target.closest('#tab-panel-4')) {
+    _muxPintarPanel.gesto = Date.now();
+  }
+}, true);
+
+function _muxFinDeGesto() {
+  const f = _muxPintarPanel;
+  if (!f.gesto) return;
+  // En la tarea SIGUIENTE: `pointerup` llega antes que `mouseup` y `click`,
+  // y repintar aquí sustituiría el botón justo antes de que se generara.
+  setTimeout(() => {
+    f.gesto = 0;
+    const pendientes = f.pendientes;
+    f.pendientes = null;
+    if (pendientes) pendientes.forEach(p => { if (!p._closed) _muxPintarPanel(p); });
+  }, 0);
+}
+document.addEventListener('pointerup', _muxFinDeGesto, true);
+document.addEventListener('pointercancel', _muxFinDeGesto, true);
 
 function _muxPanelHTML(project) {
   const d = project.datos;
@@ -837,7 +967,10 @@ async function muxNombreSalida(pid, el) {
   if (!project || !el) return;
   delete el.dataset.tocado;
   const valor = el.value.trim();
-  if (!valor || valor === project.datos.nombre_salida) return;
+  // Vacío no se guarda, y tampoco se deja a la vista: un campo en blanco
+  // diría que el MKV no tiene nombre mientras «Combinar» usa el de antes.
+  if (!valor) { el.value = project.datos.nombre_salida || ''; return; }
+  if (valor === project.datos.nombre_salida) return;
   await _muxGuardar(project, { nombre_salida: valor });
 }
 
@@ -1072,9 +1205,9 @@ function _muxPlanHTML(d) {
   }
   if (!filas.length) {
     const v = (d.sincronia || {}).veredicto;
-    filas.push(tr(v === MUX_MONTAJE_DISTINTO ? 'tab4.plan_sin_ajuste_montaje'
-                : v === MUX_NO_CONCLUYENTE ? 'tab4.plan_sin_ajuste_no_concluyente'
-                : 'tab4.plan_nada_que_ajustar'));
+    filas.push(v === MUX_MONTAJE_DISTINTO ? tr('tab4.plan_sin_ajuste_montaje')
+             : v === MUX_NO_CONCLUYENTE ? tr('tab4.plan_sin_ajuste_no_concluyente')
+             : tr('tab4.plan_nada_que_ajustar'));
   }
   return `
     <div class="mux-plan">
@@ -1093,7 +1226,7 @@ function _muxRetrasoManualHTML(d) {
     <div class="mux-retraso">
       <label class="mux-campo-rotulo" for="mux-${_muxEsc(pid)}-retraso" data-i18n="tab4.retrasar_las_pistas_de_b"></label>
       <div class="mux-retraso-fila">
-        <input type="number" step="1" class="globals-mkv-input" id="mux-${_muxEsc(pid)}-retraso"
+        <input type="text" inputmode="decimal" class="globals-mkv-input" id="mux-${_muxEsc(pid)}-retraso"
           value="${d.retraso_manual_ms != null ? _muxEsc(d.retraso_manual_ms) : ''}" placeholder="0"
           ${_muxBloqueado(d) ? 'disabled' : ''}
           oninput="marcarTocado(this)" onchange="muxRetrasoManual(${jsArg(pid)}, this)">
@@ -1196,15 +1329,34 @@ async function muxCambiarPareja(pid) {
   if (!a || !b) return;
   delete a.dataset.tocado;
   delete b.dataset.tocado;
-  await _muxGuardar(project, { pareja: [Number(a.value), Number(b.value)] });
+  const pareja = [Number(a.value), Number(b.value)];
+  // El servidor vuelve a medir solo si la pareja CAMBIA, así que con la que
+  // ya estaba guardada el botón no hacía nada (revisión de Codex del
+  // 2026-10-25). Ahí se pide la medida directamente.
+  const actual = project.datos && project.datos.pareja;
+  if (actual && actual[0] === pareja[0] && actual[1] === pareja[1]) {
+    await muxMedir(pid);
+    return;
+  }
+  await _muxGuardar(project, { pareja });
 }
 
 async function muxRetrasoManual(pid, el) {
   const project = _muxProyecto(pid);
   if (!project || !el) return;
   delete el.dataset.tocado;
-  const v = el.value.trim() === '' ? 0 : Math.round(Number(el.value));
-  if (!Number.isFinite(v)) return;
+  // Texto y no `type="number"`: ahí «+250» —lo natural, la nota dice que
+  // el positivo las retrasa— no es un número válido para el navegador, el
+  // campo valía '' y se guardaba 0 sin decir nada. Se acepta el signo, la
+  // coma decimal y un «ms» detrás; lo que no es un número no se guarda y el
+  // campo vuelve a lo que había.
+  const texto = el.value.trim().replace(/\s*ms$/i, '').replace(',', '.');
+  const v = texto === '' ? 0 : Math.round(Number(texto));
+  if (!Number.isFinite(v)) {
+    const antes = project.datos && project.datos.retraso_manual_ms;
+    el.value = antes != null ? String(antes) : '';
+    return;
+  }
   await _muxGuardar(project, { retraso_manual_ms: v });
 }
 
@@ -1691,12 +1843,30 @@ function _muxAccionesHTML(d) {
 
 async function muxCombinar(pid) {
   const project = _muxProyecto(pid);
-  if (!project) return;
-  const r = await apiFetch(`/api/mux/${encodeURIComponent(pid)}/ejecutar`, { method: 'POST' });
-  if (!r) return;
-  _muxAplicar(project, r, true);
-  showToast(tr('tab4.combinacion_en_cola'), 'success');
-  refrescarWorkbar();
+  if (!project || project._combinando) return;
+  project._combinando = true;
+  try {
+    // Lo último que se tocó tiene que estar en el servidor ANTES de encolar.
+    // Quitar una pista y pulsar «Combinar» mandaba el POST con el PUT aún en
+    // vuelo —o sin salir, esperando detrás de otro—: el servidor encolaba la
+    // selección de antes y el PUT de después rebotaba con un 409, así que el
+    // MKV salía con la pista que se acababa de quitar (revisión de Codex del
+    // 2026-10-25).
+    if (!await _muxEsperarGuardado(project)) return;
+    // Y lo guardado puede haber cambiado el plan (un audio de A con los
+    // ritmos distintos): el botón ya lo dice repintado, y no se pide algo
+    // que el servidor va a rechazar.
+    if (!((project.datos || {}).plan || {}).puede_combinar) return;
+    const r = await apiFetch(`/api/mux/${encodeURIComponent(pid)}/ejecutar`, { method: 'POST' });
+    if (!r) return;
+    // Forzado: un GET que ya volaba traería el proyecto de antes de encolar
+    // —editable, con el botón encendido— y pararía el poll.
+    _muxAplicar(project, r, true);
+    showToast(tr('tab4.combinacion_en_cola'), 'success');
+    refrescarWorkbar();
+  } finally {
+    project._combinando = false;
+  }
 }
 
 /** Cancelar a mitad cuesta lo ya hecho —un mux de diez minutos—, así que se
@@ -1855,7 +2025,10 @@ async function crearCombinacion() {
   const tick = async () => {
     if (!_muxNueva.leyendo || _muxNueva.job !== job) return;
     const p = await apiFetch('/api/mux/create/progress', { silent: true }).catch(() => null);
-    if (p && p.job === job && _muxNueva.leyendo) _muxPintarPasos(p);
+    // El sello de la respuesta Y el de la creación que se está leyendo AHORA:
+    // un tick que volviera tarde, con otra creación ya en marcha, pintaría
+    // los pasos de la anterior.
+    if (p && p.job === job && _muxNueva.leyendo && _muxNueva.job === job) _muxPintarPasos(p);
     if (_muxNueva.leyendo && _muxNueva.job === job) _muxNueva.timer = setTimeout(tick, 500);
   };
   _muxNueva.timer = setTimeout(tick, 300);
@@ -1873,6 +2046,8 @@ async function crearCombinacion() {
     // `apiFetch` ya ha dicho por qué en un toast; aquí se deja el motivo a
     // la vista y se vuelve a la selección, que sigue puesta.
     const p = await apiFetch('/api/mux/create/progress', { silent: true }).catch(() => null);
+    // Si mientras tanto empezó otra creación, el modal es de ella.
+    if (_muxNueva.leyendo || _muxNueva.job !== job) return;
     _muxNueva.error = (p && p.job === job && p.error) || tr('tab4.no_se_pudieron_leer');
     _muxPintarHuecos();
     return;
