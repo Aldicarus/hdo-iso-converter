@@ -2151,5 +2151,7 @@
   "tab4.forzados": "forzados",
   "tab4.disponibles_n": "Disponibles en los dos MKV · {n}",
   "tab4.plan_sin_ajuste_montaje": "Sin ajuste: con un montaje distinto ningún retraso sirve para toda la película",
-  "tab4.plan_sin_ajuste_no_concluyente": "Sin ajuste: la medida no dio un retraso de fiar; si lo conoces, escríbelo abajo"
+  "tab4.plan_sin_ajuste_no_concluyente": "Sin ajuste: la medida no dio un retraso de fiar; si lo conoces, escríbelo abajo",
+  "tab4.check_sincronia_sin_doblaje": "No se pudo medir: A no trae una pista de este doblaje con la que compararla",
+  "tab4.check_sincronia_contra": "Comparada con {pista} de A"
 }

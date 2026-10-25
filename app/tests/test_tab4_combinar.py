@@ -849,6 +849,19 @@ window.addEventListener('load', () => setTimeout(async function () {
     return r;
   });
 
+  // La comprobación final dice contra qué pista de A se midió cada audio, y
+  // por qué uno no se pudo medir.
+  await caso('comprobacion_sincronia', async () => {
+    const d = copia(D.hecho);
+    const c = document.createElement('div');
+    c.innerHTML = _muxComprobacionHTML(d);
+    const filas = [...c.querySelectorAll('.mux-check')].map(li => ({
+      clase: li.className, titulo: li.querySelector('.mux-check-titulo').textContent,
+      texto: li.querySelector('.mux-check-texto').textContent,
+      detalle: [...li.querySelectorAll('.mux-check-detalle li')].map(x => x.textContent)}));
+    return {filas, contra: _muxDescripcionCorta(_muxOrigen(d, 0, 1))};
+  });
+
   await caso('comillas', async () => {
     const d = copia(D.listo); d.id = 'mxP1';
     const pista = d.pistas.find(p => p.fuente === 1 && p.id === 2);
@@ -1204,6 +1217,17 @@ class TestLaPestanaCombinarEnChrome(unittest.TestCase):
         self.assertFalse(c["huecos_visibles"])
         self.assertEqual(c["hechos"], 0, "se pintaron los pasos de la primera creación")
         self.assertEqual(c["error"], "")
+
+    def test_la_comprobacion_dice_contra_que_se_midio_y_por_que_no(self):
+        c = self.caso("comprobacion_sincronia")
+        filas = {f["titulo"]: f for f in c["filas"]}
+        ref = filas[self._tr("tab4.check_sincronia", n=2)]
+        self.assertEqual(ref["detalle"], [self._tr("tab4.check_sincronia_contra", pista=c["contra"])])
+        sin = filas[self._tr("tab4.check_sincronia_pista", n=3)]
+        self.assertEqual(sin["texto"], self.cat["tab4.check_sincronia_sin_doblaje"])
+        self.assertIn("mux-check-aviso", sin["clase"])
+        # Sin medida no se dice contra qué se comparó: no hay número que explicar.
+        self.assertEqual(sin["detalle"], [])
 
     def test_un_nombre_con_comillas_llega_entero_al_campo(self):
         c = self.caso("comillas")

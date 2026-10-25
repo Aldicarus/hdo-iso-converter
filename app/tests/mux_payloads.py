@@ -127,9 +127,10 @@ def proyectos_mux() -> dict:
             {"id": "adjuntos", "ok": True, "esperado": 1, "real": 1},
             {"id": "dolby_vision", "ok": True, "esperado": "P7 FEL v4.0", "real": "P7 FEL v4.0"},
             {"id": "sincronia", "pista": 2, "ok": True, "aviso": False,
-             "esperado": "≤ 40 ms", "real": "6.2 ms"},
+             "esperado": "≤ 40 ms", "real": "6.2 ms", "contra": 1},
             {"id": "sincronia_pista", "pista": 3, "ok": None, "aviso": True,
-             "esperado": "≤ 40 ms", "real": None}]}
+             "esperado": "≤ 40 ms", "real": None, "contra": 1,
+             "motivo": "sin_mismo_doblaje"}]}
         ini = datetime.now(timezone.utc) - timedelta(minutes=40)
         hecho.historial = [MuxEjecucion(
             run_number=1, started_at=ini, finished_at=ini + timedelta(minutes=14),

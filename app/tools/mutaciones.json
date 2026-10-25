@@ -4213,5 +4213,68 @@
   "modulos": [
    "test_tab4_combinar"
   ]
+ },
+ {
+  "id": "T4-50 cada doblaje se compara con la de referencia, no con el suyo",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            mismas = [q.id for q in _del_mismo_idioma(video, origen_b.get(p.id))][:2]\n",
+  "nuevo": "            mismas = []\n",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-51 el latino va antes que el de la misma etiqueta",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    return sorted(candidatas, key=lambda q: (bool(ietf) and (q.idioma_ietf or \"\").lower() != ietf,\n                                             not q.por_defecto, -(q.canales or 0), q.id))",
+  "nuevo": "    return sorted(candidatas, key=lambda q: (not q.por_defecto, -(q.canales or 0), q.id))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-52 se sigue probando tras una medida que concluye",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            usada = id_a\n            if r[\"ok\"] is not None:\n                break\n",
+  "nuevo": "            usada = id_a\n",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-53 sin su doblaje en A no se dice el motivo",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            check[\"motivo\"] = \"sin_mismo_doblaje\"\n",
+  "nuevo": "            pass\n",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4-54 la interfaz no dice por qué un audio no se pudo medir",
+  "fichero": "app/static/mux.js",
+  "viejo": "             : c.motivo === 'sin_mismo_doblaje' ? tr('tab4.check_sincronia_sin_doblaje')\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-55 la interfaz no dice contra qué pista de A se midió",
+  "fichero": "app/static/mux.js",
+  "viejo": "        detalle: contra ? [tr('tab4.check_sincronia_contra', { pista: _muxDescripcionCorta(contra) })] : [] });",
+  "nuevo": "        detalle: [] });",
+  "modulos": [
+   "test_tab4_combinar"
+  ]
+ },
+ {
+  "id": "T4-56 el ffmpeg falso suena igual en todos los doblajes",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "             (_random.Random(_zlib.crc32(f\"{semilla}:{doblaje}\".encode())), 3.0, (0.4, 1.0)))",
+  "nuevo": "             (_random.Random(semilla + 1), 3.0, (0.4, 1.0)))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
  }
 ]

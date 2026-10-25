@@ -68,6 +68,11 @@ class MuxCase(ApiTestCase):
              "channels": 6, "bytes": 40_000},
             {"id": 3, "type": "subtitles", "codec": "SubRip/SRT", "language": "eng",
              "codec_id": "S_TEXT/UTF8", "bytes": 5_000},
+            # El castellano del disco: el mismo doblaje que el del otro, con
+            # el que se comprueban sus pistas en castellano. El latino de
+            # arriba comparte idioma y es OTRO doblaje.
+            {"id": 4, "type": "audio", "codec": "AC-3", "language": "spa", "language_ietf": "es",
+             "channels": 6, "bytes": 40_000, "track_name": "Castellano DD 5.1"},
         ], attachments=[{"id": 1, "file_name": "cover.jpg", "content_type": "image/jpeg", "size": 900}])
         tb.define_mkv(self.resto.name, duration_s=FRAMES / 24.0, tracks=[
             {"id": 0, "type": "video", "codec": "HEVC/H.265/MPEG-H", "dimensions": "3840x2076",
@@ -167,7 +172,7 @@ class TestCrear(MuxCase):
         [item] = r.json()["proyectos"]
         self.assertEqual(item["id"], p["id"])
         self.assertEqual(item["fuentes"][0]["pistas"], [])
-        self.assertEqual(item["fuentes"][0]["n_pistas"], 4)
+        self.assertEqual(item["fuentes"][0]["n_pistas"], 5)
         self.assertEqual(item["relato"]["situacion"], "esperando_decision")
 
 
@@ -325,6 +330,59 @@ class TestCombinar(MuxCase):
         self.assertEqual(q.status, "done", q.error_message)
         avisos = [c for c in q.validacion["checks"] if c["id"] == "sincronia_pista" and c.get("aviso")]
         self.assertEqual([c["pista"] for c in avisos], [2], q.validacion["checks"])
+        # Y se MIDE: comparado con el castellano de A, el desfase sale en
+        # número, no como «no se pudo medir».
+        self.assertGreater(float(avisos[0]["real"].split()[0]), 400, avisos[0])
+
+    def test_cada_doblaje_se_compara_con_el_suyo_en_a(self):
+        # Los dos castellanos del otro contra el castellano de A, y no contra
+        # el inglés de la medida: dos doblajes no correlan (el diálogo es
+        # otro) y así quedaban sin medir justo las pistas por las que se
+        # combina. El latino de A comparte idioma y es otro doblaje: va
+        # detrás del de la misma etiqueta, y aquí ni se llega a probar.
+        p = self.crear()
+        self.con_medida(p["id"])
+        q = self.combinar(p["id"])
+        self.assertEqual(q.status, "done", q.error_message)
+        pistas = {c["pista"]: c for c in q.validacion["checks"] if c["id"] == "sincronia_pista"}
+        self.assertEqual(sorted(pistas), [2, 3])
+        for c in pistas.values():
+            self.assertTrue(c["ok"], c)
+            self.assertFalse(c["aviso"], c)
+            self.assertEqual(c["contra"], 4, "se comparó con otra pista que la castellana de A")
+        # Por el NOMBRE del fichero: la ruta que llega a ffmpeg es la resuelta
+        # (en el Mac, /private/var), y comparándola entera esto no casaba nunca.
+        del_video = lambda mapa: [x for x in self.tb.find("ffmpeg")
+                                  if Path(x.opt("-i") or "").name == self.video.name
+                                  and x.opt("-map") == mapa]
+        self.assertTrue(del_video("0:a:2"), "no se comparó con el castellano de A")
+        self.assertEqual(del_video("0:a:1"), [], "se probó el doblaje latino antes que el castellano")
+
+    def test_un_doblaje_que_a_no_trae_se_dice_por_que(self):
+        # Sin castellano en A no hay con qué comparar el del otro: se intenta
+        # con la de referencia (a veces concluye por la música y los efectos)
+        # y, si no concluye, se dice el motivo en vez de «no se pudo medir».
+        self.tb.define_mkv(self.video.name, duration_s=FRAMES / FPS_BD, tracks=[
+            {"id": 0, "type": "video", "codec": "HEVC/H.265/MPEG-H", "dimensions": "3840x2160",
+             "fps": FPS_BD, "frames": FRAMES, "bytes": 5_000_000, "track_name": "HEVC DV P7 FEL CMv4.0"},
+            {"id": 1, "type": "audio", "codec": "TrueHD Atmos", "language": "eng",
+             "language_ietf": "en", "channels": 8, "default": True, "bytes": 300_000},
+        ])
+        p = self.crear()
+        self.con_medida(p["id"])
+        q = self.combinar(p["id"])
+        self.assertEqual(q.status, "done", q.error_message)
+        pistas = [c for c in q.validacion["checks"] if c["id"] == "sincronia_pista"]
+        self.assertEqual(len(pistas), 2)
+        for c in pistas:
+            self.assertIsNone(c["ok"], c)
+            self.assertTrue(c["aviso"])
+            self.assertEqual(c.get("motivo"), "sin_mismo_doblaje", c)
+            self.assertEqual(c["contra"], 1)
+        # La de referencia sí: inglés contra inglés.
+        ref = [c for c in q.validacion["checks"] if c["id"] == "sincronia"][0]
+        self.assertTrue(ref["ok"], ref)
+        self.assertNotIn("motivo", ref)
 
     def test_un_origen_que_cambio_no_se_combina(self):
         p = self.crear()

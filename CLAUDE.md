@@ -1961,6 +1961,21 @@ combinación a mano no comprueba:
   de la pareja de referencia puede tumbar el trabajo; las demás avisan (una
   pista desfasada dentro de su propio release no la arregla combinar), y con
   el riesgo aceptado ninguna tumba nada.
+  - **Cada doblaje se compara con el SUYO en A** (`_del_mismo_idioma`: el de
+    la misma etiqueta IETF primero, hasta dos, y la de referencia como último
+    recurso), y el check dice contra cuál (`contra`). Compararlos todos con
+    la de referencia dejaba sin medir justo el doblaje por el que se combina:
+    en la prueba real de Toy Story 5 (2026-10-25) el inglés cuadró a 5,9 ms y
+    los dos castellanos y el catalán salieron «no se pudo medir», con A
+    trayendo su castellano. Dos doblajes no correlan —el diálogo es otro—:
+    r ≈ 0,1 y contraste ≈ 1,5 contra r ≈ 0,7 y contraste ≈ 10 del mismo.
+  - Sin una pista de su doblaje en A (el catalán) y sin medida, el check
+    lleva `motivo: "sin_mismo_doblaje"` y la interfaz lo dice: «no se pudo
+    medir» a secas parece un fallo del MKV.
+  - **El `ffmpeg` falso suena en dos capas**: la música y los efectos, comunes
+    a todos los doblajes, y el diálogo, de cada uno (`language_ietf`, o el
+    idioma). Con una sola, dos idiomas correlaban como el mismo y ningún
+    test podía ver lo de arriba; con dos, reproduce los números del NAS.
 
 Si algo no cuadra, el `.mkv.tmp` se queda para inspeccionarlo: la regla de la
 Fase H de CMv4.0.
@@ -3565,7 +3580,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **467 mutaciones** en
+de entonces seguían en verde. Hoy hay **474 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
 todas. Lo que se aprendió, por orden de cuántas veces se repitió:

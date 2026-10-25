@@ -2151,5 +2151,7 @@
   "tab4.forzados": "forçats",
   "tab4.disponibles_n": "Disponibles als dos MKV · {n}",
   "tab4.plan_sin_ajuste_montaje": "Sense ajust: amb un muntatge diferent cap retard serveix per a tota la pel·lícula",
-  "tab4.plan_sin_ajuste_no_concluyente": "Sense ajust: la mesura no ha donat un retard fiable; si el coneixes, escriu-lo a sota"
+  "tab4.plan_sin_ajuste_no_concluyente": "Sense ajust: la mesura no ha donat un retard fiable; si el coneixes, escriu-lo a sota",
+  "tab4.check_sincronia_sin_doblaje": "No s'ha pogut mesurar: A no porta cap pista d'aquest doblatge amb què comparar-la",
+  "tab4.check_sincronia_contra": "Comparada amb {pista} d'A"
 }

@@ -738,24 +738,49 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
     ref = next((p for p in audio_b if p.id == pareja[1]), audio_b[0])
     alfa = mux_plan._fr(plan_["alfa"]) if plan_.get("retimar_video") else Fraction(1)
     riesgo = bool(plan_.get("motivos"))
-    a_n = _posicion_de_audio(proyecto.fuentes[0], pareja[0])
+    video = proyecto.fuentes[0]
+    origen_b = {o.id: o for o in proyecto.fuentes[1].pistas}
     checks = []
     for p in [ref] + [q for q in audio_b if q is not ref]:
         _comprobar_cancelado(cancelado)
         n = _salida_de_audio(proyecto, p)
-        if n is None or a_n is None:
+        if n is None:
             continue
-        try:
-            r = await mux_sync.comprobar(
-                proyecto.fuentes[0].ruta, a_n, str(trabajo), n,
-                duracion_s=duracion_de_video(proyecto.fuentes[0]), alfa=alfa,
-                al_lanzar=al_lanzar,
-                puntos=None if p is ref else mux_sync.PUNTOS_FINALES[1:3])
-        except Exception as e:                          # noqa: BLE001
-            _logger.warning("[mux] comprobación de sincronía final fallida: %s", e)
-            r = {"ok": None, "puntos": [], "residuo_max_ms": None}
+        # Contra qué pista de A se compara. La de la medida, contra la suya.
+        # Cada una de las demás, contra la de SU doblaje en A si la hay: dos
+        # doblajes no correlan —el diálogo es otro—, y compararlas todas con
+        # la de referencia dejaba sin medir justo el doblaje por el que se
+        # combina (la prueba real de Toy Story 5, 2026-10-25: el castellano
+        # contra el inglés de A no concluye y A traía su castellano). Hasta
+        # dos candidatas, y la de referencia como último recurso, que a veces
+        # concluye por la música y los efectos.
+        if p.id == pareja[1]:
+            contra, sin_doblaje = [pareja[0]], False
+        else:
+            mismas = [q.id for q in _del_mismo_idioma(video, origen_b.get(p.id))][:2]
+            sin_doblaje = not mismas
+            contra = mismas + ([pareja[0]] if pareja[0] not in mismas else [])
+        r = {"ok": None, "puntos": [], "residuo_max_ms": None}
+        usada = None
+        for id_a in contra:
+            a_n = _posicion_de_audio(video, id_a)
+            if a_n is None:
+                continue
+            try:
+                r = await mux_sync.comprobar(
+                    video.ruta, a_n, str(trabajo), n,
+                    duracion_s=duracion_de_video(video), alfa=alfa,
+                    al_lanzar=al_lanzar,
+                    puntos=None if p is ref else mux_sync.PUNTOS_FINALES[1:3])
+            except Exception as e:                          # noqa: BLE001
+                _logger.warning("[mux] comprobación de sincronía final fallida: %s", e)
+                r = {"ok": None, "puntos": [], "residuo_max_ms": None}
+            usada = id_a
+            if r["ok"] is not None:
+                break
+            _comprobar_cancelado(cancelado)
         aviso = (p is not ref) or riesgo
-        checks.append({
+        check = {
             "id": "sincronia" if p is ref else "sincronia_pista",
             "pista": (_salida_de_pista(proyecto, 1, p.id) or 0) + 1,
             # Lo que es aviso no cuenta como fallo: `ok` False solo si tumba.
@@ -764,8 +789,34 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
             "esperado": f"≤ {mux_sync.RESIDUO_FINAL_MAX_MS:g} ms",
             "real": (f"{r['residuo_max_ms']} ms"
                      if r.get("residuo_max_ms") is not None else None),
-            "puntos": r["puntos"]})
+            "contra": usada,
+            "puntos": r["puntos"]}
+        if r["ok"] is None and sin_doblaje:
+            # Sin medida, y sin una pista de su doblaje en A con la que
+            # compararla: decirlo, que «no se pudo medir» a secas parece un
+            # fallo del MKV.
+            check["motivo"] = "sin_mismo_doblaje"
+        checks.append(check)
     return checks
+
+
+def _del_mismo_idioma(fuente: MuxFuente, o: MuxPistaOrigen | None) -> list[MuxPistaOrigen]:
+    """Las pistas de audio de `fuente` en el idioma de `o`, de la que más se
+    le parece a la que menos: primero la de la MISMA etiqueta IETF —el
+    castellano y el latino comparten idioma y son dos doblajes—, después la
+    principal. Sin comentarios: el del director no es el doblaje. Las
+    etiquetas no son de fiar del todo («fr» en la canadiense, «fr-FR» en la
+    francesa), y por eso esto ordena y no descarta: la medida dice si cuadra."""
+    if o is None:
+        return []
+    idioma = (o.idioma or "").lower()
+    if not idioma or idioma == "und":
+        return []
+    ietf = (o.idioma_ietf or "").lower()
+    candidatas = [q for q in fuente.pistas
+                  if q.tipo == "audio" and not q.comentario and (q.idioma or "").lower() == idioma]
+    return sorted(candidatas, key=lambda q: (bool(ietf) and (q.idioma_ietf or "").lower() != ietf,
+                                             not q.por_defecto, -(q.canales or 0), q.id))
 
 
 def _posicion_de_audio(fuente: MuxFuente, tid: int) -> int | None:

@@ -2151,5 +2151,7 @@
   "tab4.forzados": "forced",
   "tab4.disponibles_n": "Available in both MKV files · {n}",
   "tab4.plan_sin_ajuste_montaje": "No adjustment: with a different cut no single delay works for the whole movie",
-  "tab4.plan_sin_ajuste_no_concluyente": "No adjustment: the measurement gave no reliable delay; if you know it, enter it below"
+  "tab4.plan_sin_ajuste_no_concluyente": "No adjustment: the measurement gave no reliable delay; if you know it, enter it below",
+  "tab4.check_sincronia_sin_doblaje": "Could not be measured: A has no track of this dub to compare it with",
+  "tab4.check_sincronia_contra": "Compared with {pista} from A"
 }

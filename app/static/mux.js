@@ -1710,11 +1710,17 @@ function _muxComprobacionHTML(d) {
         texto: c.ok ? tr('tab4.check_dv_bien', { dv: c.real })
                     : tr('tab4.check_dv_mal', { esperado: c.esperado, real: c.real || '—' }) });
     } else if (c.id === 'sincronia' || c.id === 'sincronia_pista') {
+      // Contra qué pista de A se midió: cada doblaje, contra el suyo si A lo
+      // trae. Sin eso, «5,9 ms» no dice si se comparó el castellano con el
+      // castellano o con el inglés.
+      const contra = c.contra != null && c.real ? _muxOrigen(d, 0, c.contra) : null;
       filas.push({ estado: estado(c),
         titulo: tr(c.id === 'sincronia' ? 'tab4.check_sincronia' : 'tab4.check_sincronia_pista',
                    { n: c.pista }),
         texto: c.real ? tr('tab4.check_sincronia_texto', { real: _muxCifra(c.real), esperado: _muxCifra(c.esperado) })
-                      : tr('tab4.check_sincronia_sin_medir') });
+             : c.motivo === 'sin_mismo_doblaje' ? tr('tab4.check_sincronia_sin_doblaje')
+             : tr('tab4.check_sincronia_sin_medir'),
+        detalle: contra ? [tr('tab4.check_sincronia_contra', { pista: _muxDescripcionCorta(contra) })] : [] });
     }
   }
   const ICONO = { ok: 'check', aviso: 'aviso', fallo: 'cruz' };

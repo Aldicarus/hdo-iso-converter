@@ -1981,8 +1981,15 @@ def _ffmpeg_pcm(sc, entrada):
     hizo el mux falso suena en la línea de su pista —la del origen con el
     `--sync` aplicado—, que es lo que deja comprobar que la combinación los
     puso en su sitio. Una pista que no existe falla como el real.
+
+    Los sucesos son de DOS capas: la música y los efectos, que son los mismos
+    en todos los doblajes, y el diálogo, que es de cada doblaje —su
+    `language_ietf`, o su idioma: el castellano y el latino son dos—. Con una
+    sola capa, dos idiomas correlaban como el mismo y comprobar un doblaje
+    contra otro pasaba en verde; en el NAS, el castellano contra el inglés no
+    concluye (la prueba real de Toy Story 5, 2026-10-25).
     """
-    import array as _array, math as _math, random as _random
+    import array as _array, math as _math, random as _random, zlib as _zlib
     sr = int(opt("-ar") or 4000)
     desde = float(opt("-ss") or 0.0)
     dur = float(opt("-t") or 30.0)
@@ -1998,32 +2005,43 @@ def _ffmpeg_pcm(sc, entrada):
         if n >= len(audio):
             sys.stderr.write("Stream map '%s' matches no streams.\n" % mapa)
             return 234
-        linea = audio[n].get("linea") or _lineas_del_fichero(entrada, sc)
+        pista = audio[n]
+        linea = pista.get("linea") or _lineas_del_fichero(entrada, sc)
     else:
         spec = sc.get("mkvs", {}).get(Path(entrada).name) or {}
         audio = [t for t in spec.get("tracks") or [] if t.get("type") == "audio"]
         if spec and n >= len(audio):
             sys.stderr.write("Stream map '%s' matches no streams.\n" % mapa)
             return 234
+        pista = audio[n] if n < len(audio) else {}
         base = _lineas_del_fichero(entrada, sc)
         linea = base["pistas"].get(str(n), base)
     alfa = float(linea.get("alfa", 1.0))
     beta = float(linea.get("beta_s", 0.0))
-    rnd = _random.Random(int(linea.get("semilla", 7)))
+    semilla = int(linea.get("semilla", 7))
+    doblaje = str(pista.get("language_ietf") or pista.get("language") or "und").lower()
     muestras = _array.array("h", bytes(2 * int(dur * sr)))
     rafaga = int(0.015 * sr)
-    tau = 0.0
-    while True:
-        tau += rnd.expovariate(3.0)
-        amp = rnd.uniform(0.3, 1.0)
-        t = alfa * tau + beta
-        if t > desde + dur + 1:
-            break
-        k0 = int(round((t - desde) * sr))
-        if k0 + rafaga < 0 or k0 >= len(muestras):
-            continue
-        for k in range(max(0, k0), min(len(muestras), k0 + rafaga)):
-            muestras[k] = int(20000 * amp * _math.sin(2 * _math.pi * 440 * (k - k0) / sr))
+    # (generador, sucesos por segundo, amplitud): la música y los efectos con
+    # la semilla de la película; el diálogo, más denso y más fuerte, con una
+    # semilla de la película Y del doblaje (crc32 y no `hash`, que cambia de
+    # un proceso a otro).
+    capas = ((_random.Random(semilla), 0.6, (0.15, 0.45)),
+             (_random.Random(_zlib.crc32(f"{semilla}:{doblaje}".encode())), 3.0, (0.4, 1.0)))
+    for rnd, ritmo, (amp_min, amp_max) in capas:
+        tau = 0.0
+        while True:
+            tau += rnd.expovariate(ritmo)
+            amp = rnd.uniform(amp_min, amp_max)
+            t = alfa * tau + beta
+            if t > desde + dur + 1:
+                break
+            k0 = int(round((t - desde) * sr))
+            if k0 + rafaga < 0 or k0 >= len(muestras):
+                continue
+            for k in range(max(0, k0), min(len(muestras), k0 + rafaga)):
+                v = muestras[k] + int(20000 * amp * _math.sin(2 * _math.pi * 440 * (k - k0) / sr))
+                muestras[k] = max(-32767, min(32767, v))
     sys.stdout.buffer.write(muestras.tobytes())
     sys.stdout.buffer.flush()
     return 0
