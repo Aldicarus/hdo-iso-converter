@@ -3760,7 +3760,7 @@
   "viejo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
   "nuevo": "  if (project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3769,7 +3769,7 @@
   "viejo": "  if (rechazado) await _muxLeer(project);",
   "nuevo": "  if (rechazado && false) await _muxLeer(project);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3778,16 +3778,16 @@
   "viejo": "  pistas = _muxAgrupar(project.datos, pistas);\n",
   "nuevo": "",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-4 la pista añadida roba la marca por defecto",
   "fichero": "app/static/mux.js",
-  "viejo": "por_defecto: o.por_defecto && !yaHayDefecto,",
-  "nuevo": "por_defecto: o.por_defecto,",
+  "viejo": "por_defecto: !!o.por_defecto && !yaHayDefecto, forzada: !!o.forzada }]);",
+  "nuevo": "por_defecto: !!o.por_defecto, forzada: !!o.forzada }]);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3796,25 +3796,25 @@
   "viejo": "  const conRecta = ![MUX_MONTAJE_DISTINTO, MUX_NO_CONCLUYENTE].includes(s.veredicto);",
   "nuevo": "  const conRecta = true;",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-6 cancelar anuncia una cancelación sin mirar la respuesta",
   "fichero": "app/static/mux.js",
-  "viejo": "  else if (r && r.ok) showToast(tr('tab4.combinacion_cancelada'), 'info');",
-  "nuevo": "  else if (r) showToast(tr('tab4.combinacion_cancelada'), 'info');",
+  "viejo": "  else if (r && r.ok) showToast(tr('tab4.multiplexado_cancelado'), 'info');",
+  "nuevo": "  else if (r) showToast(tr('tab4.multiplexado_cancelado'), 'info');",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
-  "id": "T4-7 la medida se cancela por el endpoint de la combinación",
+  "id": "T4-7 la medida se cancela por el endpoint de la multiplexado",
   "fichero": "app/static/workbar.js",
   "viejo": "    mux:   () => (a.detalle === 'sincronia_mux'",
   "nuevo": "    mux:   () => (a.detalle === 'sincronia'",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3823,7 +3823,7 @@
   "viejo": "    }, API_FETCH_TIMEOUT_LARGO);\n  } finally {\n    _muxNueva.leyendo = false;",
   "nuevo": "    });\n  } finally {\n    _muxNueva.leyendo = false;",
   "modulos": [
-   "test_tab4_combinar",
+   "test_tab4_multiplexar",
    "test_timeouts_del_frontend"
   ]
  },
@@ -3833,7 +3833,7 @@
   "viejo": "    _muxNueva.error = (p && p.job === job && p.error) || tr('tab4.no_se_pudieron_leer');",
   "nuevo": "    _muxNueva.error = (p && p.error) || tr('tab4.no_se_pudieron_leer');",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3842,7 +3842,7 @@
   "viejo": "  if (crear) crear.disabled = !(a && b) || mismo;",
   "nuevo": "  if (crear) crear.disabled = !(a && b);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3851,7 +3851,7 @@
   "viejo": "  if (project._arrastrando) { project._repintarAlSoltar = true; return; }\n",
   "nuevo": "",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3860,7 +3860,7 @@
   "viejo": "  const dec = (precisa && !estandar) ? 6 : (v % 1 ? 3 : 0);",
   "nuevo": "  const dec = (!estandar) ? 6 : (v % 1 ? 3 : 0);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3869,7 +3869,7 @@
   "viejo": "      const ms = _muxMagnitud(s.beta_ms);",
   "nuevo": "      const ms = _muxDesfase(s.beta_ms);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3878,16 +3878,16 @@
   "viejo": "  if (pintarSiCambia(cuerpo, html)) _muxInstalarOrden(project);",
   "nuevo": "  cuerpo.innerHTML = html; _muxInstalarOrden(project);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-15 el riesgo se acepta sin preguntar",
   "fichero": "app/static/mux.js",
-  "viejo": "  showConfirm(\n    tr('tab4.combinar_igualmente'),",
-  "nuevo": "  _muxGuardar(project, { acepta_riesgo: true }); (() => {})(\n    tr('tab4.combinar_igualmente'),",
+  "viejo": "  showConfirm(\n    tr('tab4.multiplexar_igualmente'),",
+  "nuevo": "  _muxGuardar(project, { acepta_riesgo: true }); (() => {})(\n    tr('tab4.multiplexar_igualmente'),",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3896,7 +3896,7 @@
   "viejo": "    cuerpo: _trabajoLogHTML(ejec ? ejec.output_log : (d && d.output_log)),",
   "nuevo": "    cuerpo: _trabajoLogHTML(d && d.output_log),",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3909,9 +3909,9 @@
   ]
  },
  {
-  "id": "T4-18 un vídeo que no se puede retimar se combina",
+  "id": "T4-18 un vídeo sin velocidad fija se ajusta igual",
   "fichero": "app/phases/mux_plan.py",
-  "viejo": "        if not video_retimable(proyecto.fuentes[0]):\n            motivo(\"video_no_retimable\")\n",
+  "viejo": "            if not video_ajustable(proyecto.fuentes[v]):\n                motivo(\"video_sin_velocidad_fija\")\n",
   "nuevo": "",
   "modulos": [
    "test_mux_plan"
@@ -3927,30 +3927,21 @@
   ]
  },
  {
-  "id": "G-1 la Fase G no fija la cadencia del origen",
-  "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "            *cadencia,\n            str(hevc_for_mkv),",
-  "nuevo": "            str(hevc_for_mkv),",
-  "modulos": [
-   "test_cmv40_fases_cgh"
-  ]
- },
- {
-  "id": "G-2 la Fase G no comprueba la cadencia del MKV final",
-  "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "        if real is not None and abs(real - duracion_frame) > 2:",
-  "nuevo": "        if False:",
-  "modulos": [
-   "test_cmv40_fases_cgh"
-  ]
- },
- {
-  "id": "T4-20 «Combinar» no espera a que lo tocado esté guardado",
+  "id": "T4-20a «Multiplexar» no espera a que lo tocado esté guardado",
   "fichero": "app/static/mux.js",
-  "viejo": "    if (!await _muxEsperarGuardado(project)) return;\n",
-  "nuevo": "    // sin esperar\n",
+  "viejo": "  if (!project || project._multiplexando) return;\n  if (!await _muxEsperarGuardado(project)) return;\n  const d = project.datos || {};",
+  "nuevo": "  if (!project || project._multiplexando) return;\n  // sin esperar\n  const d = project.datos || {};",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4-20b encolar no espera a lo tocado con el diálogo abierto",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (!await _muxEsperarGuardado(project)) return;\n    // Y lo guardado puede haber cambiado el plan",
+  "nuevo": "    // sin esperar\n    // Y lo guardado puede haber cambiado el plan",
+  "modulos": [
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3959,7 +3950,7 @@
   "viejo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
   "nuevo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente) {",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3968,7 +3959,7 @@
   "viejo": "  if (n < (project._aplicado || 0) || project._escribiendo || project._pendiente\n      || (project._version || 0) !== version) {",
   "nuevo": "  if (n < (project._aplicado || 0) || (project._version || 0) !== version) {",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3977,7 +3968,7 @@
   "viejo": "  if (forzar) project._version = (project._version || 0) + 1;",
   "nuevo": "  if (forzar) project._aplicado = project._pedidos || 0;",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3986,7 +3977,7 @@
   "viejo": "    while (project._pendiente && !project._borrado) {",
   "nuevo": "    while (project._pendiente && !project._borrado && !project._closed) {",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -3995,7 +3986,7 @@
   "viejo": "  if (enVuelo) await enVuelo;",
   "nuevo": "  if (false) await enVuelo;",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4004,7 +3995,7 @@
   "viejo": "    if (p && p.job === job && _muxNueva.leyendo && _muxNueva.job === job) _muxPintarPasos(p);",
   "nuevo": "    if (p && p.job === job && _muxNueva.leyendo) _muxPintarPasos(p);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4013,7 +4004,7 @@
   "viejo": "    if (_muxNueva.leyendo || _muxNueva.job !== job) return;\n",
   "nuevo": "    // sin mirar\n",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4022,7 +4013,7 @@
   "viejo": "    if (p && p.job === job && _muxNueva.leyendo && _muxNueva.job === job) _muxPintarPasos(p);",
   "nuevo": "    if (p && _muxNueva.leyendo && _muxNueva.job === job) _muxPintarPasos(p);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4031,7 +4022,7 @@
   "viejo": "  if (f.gesto && Date.now() - f.gesto < _MUX_GESTO_MAX_MS) {",
   "nuevo": "  if (false) {",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4040,7 +4031,7 @@
   "viejo": "  setTimeout(() => {\n    f.gesto = 0;\n    const pendientes = f.pendientes;\n    f.pendientes = null;\n    if (pendientes) pendientes.forEach(p => { if (!p._closed) _muxPintarPanel(p); });\n  }, 0);",
   "nuevo": "  (() => {\n    f.gesto = 0;\n    const pendientes = f.pendientes;\n    f.pendientes = null;\n    if (pendientes) pendientes.forEach(p => { if (!p._closed) _muxPintarPanel(p); });\n  })();",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4049,7 +4040,7 @@
   "viejo": "  if (actual && actual[0] === pareja[0] && actual[1] === pareja[1]) {",
   "nuevo": "  if (false) {",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4058,7 +4049,7 @@
   "viejo": "  _muxLista = _muxConLoTocado(Array.isArray(data.proyectos) ? data.proyectos : [], desde);",
   "nuevo": "  _muxLista = Array.isArray(data.proyectos) ? data.proyectos : [];",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4067,25 +4058,25 @@
   "viejo": "    if (t.borrado) { out = out.filter(x => x.id !== id); continue; }",
   "nuevo": "    if (t.borrado) { continue; }",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-34 un nombre de salida vacío se queda a la vista",
   "fichero": "app/static/mux.js",
-  "viejo": "  if (!valor) { el.value = project.datos.nombre_salida || ''; return; }",
+  "viejo": "  if (!valor) { el.value = _muxValorPedido(project, 'nombre_salida') || ''; return; }",
   "nuevo": "  if (!valor) return;",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-35 dos guardados a la vez",
   "fichero": "app/static/mux.js",
-  "viejo": "  if (!project._guardando) project._guardado = _muxEnviarPendiente(project);",
-  "nuevo": "  project._guardado = _muxEnviarPendiente(project);",
+  "viejo": "  if (!project._guardando) {\n    const enviando = _muxEnviarPendiente(project);",
+  "nuevo": "  if (true) {\n    const enviando = _muxEnviarPendiente(project);",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4094,7 +4085,7 @@
   "viejo": "  project._pendiente = Object.assign(project._pendiente || {}, cambios);",
   "nuevo": "  project._pendiente = cambios;",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4103,7 +4094,7 @@
   "viejo": "  if (!_muxHayQueSeguir(project.datos)) return;",
   "nuevo": "  return;",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4112,7 +4103,7 @@
   "viejo": "      if (!project._pendiente) _muxAplicar(project, r);",
   "nuevo": "      if (!project._pendiente) _muxAplicar(project, { ...r, plan: project.datos.plan });",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4121,7 +4112,7 @@
   "viejo": "function _muxBloqueado(d) {\n  return ['queued', 'running'].includes(d.status);\n}",
   "nuevo": "function _muxBloqueado(d) {\n  return false;\n}",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4130,7 +4121,7 @@
   "viejo": "  await _muxGuardar(project, { retraso_manual_ms: v });",
   "nuevo": "  await _muxGuardar(project, { retraso_manual_ms: -v });",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4139,7 +4130,7 @@
   "viejo": "        <input type=\"text\" inputmode=\"decimal\" class=\"globals-mkv-input\" id=\"mux-${_muxEsc(pid)}-retraso\"",
   "nuevo": "        <input type=\"number\" step=\"1\" class=\"globals-mkv-input\" id=\"mux-${_muxEsc(pid)}-retraso\"",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4148,16 +4139,16 @@
   "viejo": "  if (!Number.isFinite(v)) {\n    const antes = project.datos && project.datos.retraso_manual_ms;\n    el.value = antes != null ? String(antes) : '';\n    return;\n  }",
   "nuevo": "  if (!Number.isFinite(v)) return;",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-43 un adjunto se marca al revés",
   "fichero": "app/static/mux.js",
-  "viejo": "  const adjuntos = el.checked ? [...otros, { fuente: f, id }] : otros;",
-  "nuevo": "  const adjuntos = el.checked ? otros : [...otros, { fuente: f, id }];",
+  "viejo": "  const adjuntos = actuales.some(es) ? actuales.filter(a => !es(a)) : [...actuales, { fuente: f, id }];",
+  "nuevo": "  const adjuntos = actuales.some(es) ? [...actuales, { fuente: f, id }] : actuales.filter(a => !es(a));",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4166,7 +4157,7 @@
   "viejo": "        if (antes !== ahora) _muxCambiarPistas(project, pistas);",
   "nuevo": "        if (antes !== ahora) _muxCambiarPistas(project, pistas.filter(p => (_muxOrigen(project.datos, p.fuente, p.id) || {}).tipo === 'audio'));",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4175,50 +4166,68 @@
   "viejo": "            value=\"${_muxEsc(p.nombre)}\" ${bloq ? 'disabled' : ''}",
   "nuevo": "            value=\"${p.nombre}\" ${bloq ? 'disabled' : ''}",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
-  "id": "T4-46 «Combinar» encola aunque el servidor rechazara un cambio",
+  "id": "T4-46a «Multiplexar» sigue aunque el servidor rechazara un cambio",
   "fichero": "app/static/mux.js",
-  "viejo": "    if (!await _muxEsperarGuardado(project)) return;\n",
-  "nuevo": "    await _muxEsperarGuardado(project);\n",
+  "viejo": "  if (!project || project._multiplexando) return;\n  if (!await _muxEsperarGuardado(project)) return;\n  const d = project.datos || {};",
+  "nuevo": "  if (!project || project._multiplexando) return;\n  await _muxEsperarGuardado(project);\n  const d = project.datos || {};",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
-  "id": "T4-47 «Combinar» pide lo que el plan nuevo no deja",
+  "id": "T4-46b encolar sigue aunque el servidor rechazara un cambio",
   "fichero": "app/static/mux.js",
-  "viejo": "    if (!((project.datos || {}).plan || {}).puede_combinar) return;\n",
-  "nuevo": "    // sin mirar el plan\n",
+  "viejo": "    if (!await _muxEsperarGuardado(project)) return;\n    // Y lo guardado puede haber cambiado el plan",
+  "nuevo": "    await _muxEsperarGuardado(project);\n    // Y lo guardado puede haber cambiado el plan",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4-47a «Multiplexar» pregunta aunque el plan no deje",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (!(d.plan || {}).puede_multiplexar) return;\n  const vacias",
+  "nuevo": "  // sin mirar el plan\n  const vacias",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4-47b encolar pide lo que el plan nuevo no deja",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (!((project.datos || {}).plan || {}).puede_multiplexar) return;",
+  "nuevo": "    // sin mirar el plan",
+  "modulos": [
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-48 borrar no espera a lo que se estaba guardando",
   "fichero": "app/static/mux.js",
-  "viejo": "      if (abierto && abierto._guardando) await abierto._guardado;\n",
+  "viejo": "      if (abierto) await _muxEsperarGuardado(abierto);\n",
   "nuevo": "      // sin esperar\n",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
-  "id": "T4-49 la respuesta de «Combinar» no se aplica forzada",
+  "id": "T4-49 la respuesta de «Multiplexar» no se aplica forzada",
   "fichero": "app/static/mux.js",
-  "viejo": "    _muxAplicar(project, r, true);\n    showToast(tr('tab4.combinacion_en_cola'), 'success');",
-  "nuevo": "    _muxAplicar(project, r);\n    showToast(tr('tab4.combinacion_en_cola'), 'success');",
+  "viejo": "    _muxAplicar(project, r, true);\n    showToast(tr('tab4.multiplexado_en_cola'), 'success');",
+  "nuevo": "    _muxAplicar(project, r);\n    showToast(tr('tab4.multiplexado_en_cola'), 'success');",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
   "id": "T4-50 los doblajes se comparan con dos puntos y no concluyen",
   "fichero": "app/phases/mux_pipeline.py",
-  "viejo": "                    duracion_s=duracion_de_video(video), alfa=alfa,\n                    al_lanzar=al_lanzar)\n",
-  "nuevo": "                    duracion_s=duracion_de_video(video), alfa=alfa,\n                    al_lanzar=al_lanzar,\n                    puntos=None if p is ref else mux_sync.PUNTOS_FINALES[1:3])\n",
+  "viejo": "                    duracion_s=duracion_de_video(video), alfa=esperado,\n                    al_lanzar=al_lanzar)\n",
+  "nuevo": "                    duracion_s=duracion_de_video(video), alfa=esperado,\n                    al_lanzar=al_lanzar,\n                    puntos=None if p is ref else mux_sync.PUNTOS_FINALES[1:3])\n",
   "modulos": [
    "test_mux_endpoints"
   ]
@@ -4253,19 +4262,19 @@
  {
   "id": "T4-54 la interfaz no dice por qué un audio no se pudo medir",
   "fichero": "app/static/mux.js",
-  "viejo": "             : c.motivo === 'sin_mismo_doblaje' ? tr('tab4.check_sincronia_sin_doblaje')\n",
+  "viejo": "             : c.motivo === 'sin_mismo_doblaje' ? tr('tab4.check_sincronia_sin_doblaje', { letra: de === 0 ? 'A' : 'B' })\n",
   "nuevo": "",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
-  "id": "T4-55 la interfaz no dice contra qué pista de A se midió",
+  "id": "T4-55 la interfaz no dice contra qué pista se midió",
   "fichero": "app/static/mux.js",
-  "viejo": "        detalle: contra ? [tr('tab4.check_sincronia_contra', { pista: _muxDescripcionCorta(contra) })] : [] });",
+  "viejo": "        detalle: contra ? [tr('tab4.check_sincronia_contra', {\n          pista: _muxDescripcionCorta(contra), letra: de === 0 ? 'A' : 'B' })] : [] });",
   "nuevo": "        detalle: [] });",
   "modulos": [
-   "test_tab4_combinar"
+   "test_tab4_multiplexar"
   ]
  },
  {
@@ -4278,10 +4287,10 @@
   ]
  },
  {
-  "id": "T4-57 las otras pistas de A van antes que la de referencia",
+  "id": "T4-57 las otras pistas van antes que la de referencia",
   "fichero": "app/phases/mux_pipeline.py",
-  "viejo": "            contra = [pareja[0]] + mismas\n",
-  "nuevo": "            contra = mismas + [pareja[0]]\n",
+  "viejo": "            contra = [ref_v] + mismas\n",
+  "nuevo": "            contra = mismas + [ref_v]\n",
   "modulos": [
    "test_mux_endpoints"
   ]
@@ -4289,17 +4298,17 @@
  {
   "id": "T4-58 unos puntos que no coinciden cuentan como medida",
   "fichero": "app/phases/mux_pipeline.py",
-  "viejo": "            if p.id != pareja[1] and r[\"ok\"] is not None and not _puntos_coinciden(r):\n                r = dict(r, ok=None, residuo_max_ms=None)\n",
+  "viejo": "            if p.id != ref_o and r[\"ok\"] is not None and not _puntos_coinciden(r):\n                r = dict(r, ok=None, residuo_max_ms=None)\n",
   "nuevo": "",
   "modulos": [
    "test_mux_endpoints"
   ]
  },
  {
-  "id": "T4-59 el motivo sale aunque A tenga pistas de su idioma",
+  "id": "T4-59 el motivo sale aunque el MKV del vídeo tenga pistas de su idioma",
   "fichero": "app/phases/mux_pipeline.py",
-  "viejo": "        if r[\"ok\"] is None and p.id != pareja[1] and not mismas:",
-  "nuevo": "        if r[\"ok\"] is None and p.id != pareja[1]:",
+  "viejo": "        if r[\"ok\"] is None and p.id != ref_o and not mismas:",
+  "nuevo": "        if r[\"ok\"] is None and p.id != ref_o:",
   "modulos": [
    "test_mux_endpoints"
   ]
@@ -4307,10 +4316,946 @@
  {
   "id": "T4-60 la pista de la medida también se prueba contra otras",
   "fichero": "app/phases/mux_pipeline.py",
-  "viejo": "        if p.id == pareja[1]:\n            contra, mismas = [pareja[0]], []\n        else:",
-  "nuevo": "        if False:\n            contra, mismas = [pareja[0]], []\n        else:",
+  "viejo": "        if p.id == ref_o:\n            contra, mismas = [ref_v], []\n        else:",
+  "nuevo": "        if False:\n            contra, mismas = [ref_v], []\n        else:",
   "modulos": [
    "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "G-1 la Fase G no fija la cadencia del origen",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "            *cadencia,\n            str(hevc_for_mkv),",
+  "nuevo": "            str(hevc_for_mkv),",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "G-2 la Fase G no comprueba la cadencia del MKV final",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        if real is not None and abs(real - duracion_frame) > 2:",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T4P-1 con el vídeo de B, el desfase con el signo cambiado",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    return 1 / alfa, -beta_ms / alfa",
+  "nuevo": "    return 1 / alfa, beta_ms / alfa",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-2 con el vídeo de B, el factor sin invertir",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    return 1 / alfa, -beta_ms / alfa",
+  "nuevo": "    return alfa, -beta_ms / alfa",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-3 la velocidad del vídeo al revés",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "                velocidad = (cads[v], cads[v] / f_vo)",
+  "nuevo": "                velocidad = (cads[v], cads[v] * f_vo)",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-4 al ajustar la velocidad, lo del otro se mueve al revés",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            mover(o, -d_vo, None)\n",
+  "nuevo": "            mover(o, d_vo, None)\n",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-5 lo del MKV del vídeo no se estira con él",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            mover(v, Fraction(0), f_vo)",
+  "nuevo": "            mover(v, Fraction(0), None)",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-6 el vídeo entra en el sync",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            if p.fuente != fuente or o.tipo == \"video\":",
+  "nuevo": "            if p.fuente != fuente:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-7 con el audio del vídeo, lo otro solo se mueve",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            mover(o, d_ov, f_ov)",
+  "nuevo": "            mover(o, d_ov, None)",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-8 el retraso a mano con el signo cambiado",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            beta_ms = Fraction(-(proyecto.retraso_manual_ms or 0))",
+  "nuevo": "            beta_ms = Fraction(proyecto.retraso_manual_ms or 0)",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-9 el umbral de ruido también al retraso a mano",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "        elif abs(beta_ms) < mux_sync.RETRASO_MINIMO_MS:",
+  "nuevo": "        if abs(beta_ms) < mux_sync.RETRASO_MINIMO_MS:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-10 la medida hace falta siempre",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    return bool(con_tiempo - {v})",
+  "nuevo": "    return bool(con_tiempo)",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-11 los adjuntos cuentan como tiempo",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    return (_fuentes_de(proyecto, \"audio\") | _fuentes_de(proyecto, \"subtitles\")",
+  "nuevo": "    return ({a[\"fuente\"] for a in proyecto.adjuntos} | _fuentes_de(proyecto, \"audio\") | _fuentes_de(proyecto, \"subtitles\")",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-12 dos por defecto del mismo tipo",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            if tipo in con_defecto:",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-13 el orden de tipos no se normaliza",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    validas.sort(key=lambda p: _ORDEN_DE_TIPO[claves[(p.fuente, p.id)].tipo])\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-14 se rescata el primero de antes del cero",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    rescatado = antes[-1] if antes and not en_cero else None",
+  "nuevo": "    rescatado = antes[0] if antes and not en_cero else None",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-15 los anidados de los anidados no se recortan",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            _recortar_atomo(hijo, fin_ns)",
+  "nuevo": "            pass",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-16 los UID se copian",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "                if hijo.tag in _UIDS:",
+  "nuevo": "                if False:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-17 entran las dos fuentes siempre",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    return [i for i in range(len(proyecto.fuentes)) if i in (elegidas | caps | adj)]",
+  "nuevo": "    return list(range(len(proyecto.fuentes)))",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-18 las etiquetas globales de los dos",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "        if i != v:\n            cmd += [\"--no-global-tags\"]",
+  "nuevo": "        if False:\n            cmd += [\"--no-global-tags\"]",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-19 el tamaño sin los adjuntos",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    total += sum(adjuntos.get((a[\"fuente\"], a[\"id\"]), 0) for a in adjuntos_validos(proyecto))\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-20 el FEL del nombre sale de A aunque el vídeo sea de B",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    fel = fv is not None and (fv.video.dv_el or \"\").upper() == \"FEL\"",
+  "nuevo": "    fel = (proyecto.fuentes[0].video.dv_el or \"\").upper() == \"FEL\"",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-21 el DCP del nombre sale de cualquier fichero",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "           or any(\"dcp\" in proyecto.fuentes[f].nombre.lower() for f in {f for f, _ in audio}))",
+  "nuevo": "           or any(\"dcp\" in f.nombre.lower() for f in proyecto.fuentes))",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-22 sin frames la duración no se escala",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            return float(original * de / a)",
+  "nuevo": "            return float(original)",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-23 audio de dos velocidades se multiplexa",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "        elif audio_de == {0, 1}:",
+  "nuevo": "        elif False:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-24 la velocidad fija se mira en A",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            if not video_ajustable(proyecto.fuentes[v]):",
+  "nuevo": "            if not video_ajustable(proyecto.fuentes[0]):",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-25 no se avisa de los subtítulos vacíos",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    if hay_subs and not _elegidas(proyecto, \"subtitles\"):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-26 «todo de B» en el vídeo deja el de A",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "                nuevas = [p for p in del_tipo if p.fuente == fuente]",
+  "nuevo": "                nuevas = list(del_tipo)",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-27 «mis idiomas» con los comentarios",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "                quiere = lambda o: _habla(o, set(idiomas)) and not _es_comentario(o)",
+  "nuevo": "                quiere = lambda o: _habla(o, set(idiomas))",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-28 los capítulos movidos van tal cual",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    if m and (m.get(\"factor\") or m.get(\"retraso_ms\")):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-29 el rescate al cero sin mirar si ya hay uno",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    rescatado = antes[-1] if antes and not en_cero else None",
+  "nuevo": "    rescatado = antes[-1] if antes else None",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4P-30 la marca de vídeo de los dos no se detecta",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    elif len(videos) > 1:\n        motivo(\"video_de_las_dos\")",
+  "nuevo": "    elif False:\n        motivo(\"video_de_las_dos\")",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4R-1 un PUT sin el esquema nuevo se guarda",
+  "fichero": "app/routers/mux.py",
+  "viejo": "    if esquema != ESQUEMA_MUX:\n        raise HTTPException(status_code=409, detail=tr('mux.recarga_la_pagina'))",
+  "nuevo": "    if False:\n        raise HTTPException(status_code=409, detail=tr('mux.recarga_la_pagina'))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-2 vídeo de los dos MKV",
+  "fichero": "app/routers/mux.py",
+  "viejo": "    if len(con_video) > 1:",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-3 medio vídeo de un MKV",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        if not todos <= {q.id for q in out if q.fuente == f}:",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-4 un adjunto repetido se acepta",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        if clave not in validos or clave in vistos:",
+  "nuevo": "        if clave not in validos:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-5 un capítulo repetido se acepta",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        if not existe or clave in vistos:",
+  "nuevo": "        if not existe:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-6 cambiar el título no devuelve a pendiente",
+  "fichero": "app/routers/mux.py",
+  "viejo": "_CAMBIAN_EL_RESULTADO = (\"pistas\", \"capitulos\", \"adjuntos\", \"titulo\", \"nombre_salida\",",
+  "nuevo": "_CAMBIAN_EL_RESULTADO = (\"pistas\", \"capitulos\", \"adjuntos\", \"nombre_salida\",",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-7 el nombre no sigue a las pistas",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        _tras_cambiar(p, antes, recalcular_nombre=body.pistas is not None)",
+  "nuevo": "        _tras_cambiar(p, antes, recalcular_nombre=False)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-8 un patrón no recalcula el nombre",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        _tras_cambiar(p, antes, recalcular_nombre=\"pistas\" in cambio)",
+  "nuevo": "        _tras_cambiar(p, antes, recalcular_nombre=False)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-9 la medida en marcha hace esperar aunque no haga falta",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        if project_id in _medidas and plan[\"necesita_sincronia\"]:",
+  "nuevo": "        if project_id in _medidas:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-10 la ficha no cambia el nombre",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                _tras_cambiar(p, antes, recalcular_nombre=True)",
+  "nuevo": "                _tras_cambiar(p, antes, recalcular_nombre=False)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-11 la ficha pisa un nombre editado",
+  "fichero": "app/routers/mux.py",
+  "viejo": "    if recalcular_nombre and not p.nombre_manual:",
+  "nuevo": "    if recalcular_nombre:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4R-12 un patrón en cola se aplica",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        antes = _volcado(p)\n        idiomas = mux_plan.idiomas_del_usuario(",
+  "nuevo": "        antes = _volcado(p)\n        p.status = 'pending'\n        idiomas = mux_plan.idiomas_del_usuario(",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4S-1 un proyecto del formato viejo se carga",
+  "fichero": "app/storage.py",
+  "viejo": "    return isinstance(data, dict) and (data.get(\"esquema\") or 1) >= ESQUEMA_MUX",
+  "nuevo": "    return isinstance(data, dict)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4S-2 el resumen sin el vídeo elegido",
+  "fichero": "app/storage.py",
+  "viejo": "        data[\"_plan\"] = {k: plan[k] for k in (\"puede_multiplexar\", \"motivos\",\n                                              \"velocidad_video\", \"video_de\",",
+  "nuevo": "        data[\"_plan\"] = {k: plan[k] for k in (\"puede_multiplexar\", \"motivos\",\n                                              \"velocidad_video\",",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4L-1 una selección a medias es una decisión pendiente",
+  "fichero": "app/phases/mux_relato.py",
+  "viejo": "    if any(m.get(\"id\") in _SELECCION_INCOMPLETA for m in motivos):\n        return relato.PREPARANDO\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-1 no se lee el Dolby Vision de ninguno",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    if hevc:\n        await paso(\"dolby_vision\")",
+  "nuevo": "    if False:\n        await paso(\"dolby_vision\")",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-2 al revés se espera α y no 1/α",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    esperado = (alfa if v == 0 else 1 / alfa) if plan_.get(\"velocidad_video\") else Fraction(1)",
+  "nuevo": "    esperado = alfa if plan_.get(\"velocidad_video\") else Fraction(1)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-3 la comprobación dice que es contra A",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            \"contra_fuente\": v,",
+  "nuevo": "            \"contra_fuente\": 0,",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-4 el puesto de una pista sin contar el vídeo",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    for i, p in enumerate(mux_plan._elegidas(proyecto)):\n        if p.fuente == fuente and p.id == tid:",
+  "nuevo": "    for i, p in enumerate(q for q in mux_plan._elegidas(proyecto)\n                          if mux_plan._por_clave(proyecto)[(q.fuente, q.id)].tipo != \"video\"):\n        if p.fuente == fuente and p.id == tid:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-5 el Dolby Vision esperado es el de A",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    fuente_v = proyecto.fuentes[v].video if v is not None else None",
+  "nuevo": "    fuente_v = proyecto.fuentes[0].video",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-6 la referencia es siempre la de A",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    ref_v, ref_o = pareja[v], pareja[o]",
+  "nuevo": "    ref_v, ref_o = pareja[0], pareja[1]",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-7 la duración del vídeo es la de A",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    fuente = proyecto.fuentes[v]\n    cad = (mux_plan._fr((plan_.get(\"velocidad_video\") or {}).get(\"a\"))",
+  "nuevo": "    fuente = proyecto.fuentes[0]\n    cad = (mux_plan._fr((plan_.get(\"velocidad_video\") or {}).get(\"a\"))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4C-8 se compara con el original del otro",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    video = proyecto.fuentes[v]\n    checks = []",
+  "nuevo": "    video = proyecto.fuentes[o]\n    checks = []",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-1 los capítulos van tal cual aunque alguno caiga fuera",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    if any(x[\"queda\"] != \"ok\" for x in caps.get(\"lista\") or []):\n        return None\n    return f",
+  "nuevo": "    return f",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4X-2 una lectura de capítulos fallida es «no tiene capítulos»",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "        raise RuntimeError(tr('mux.no_se_pudieron_leer_los_capitulos', nombre=p.name))",
+  "nuevo": "        capitulos = []",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-3 dos creaciones a la vez sacan el mismo id",
+  "fichero": "app/routers/mux.py",
+  "viejo": "        async with _cerrojo(\"__crear__\"):",
+  "nuevo": "        if True:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-4 la pareja cambia con una medida en marcha",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                if viva and not (tarea is not None and tarea.done()):",
+  "nuevo": "                if False:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-5 una cancelación en la Fase C publica igual",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    _comprobar_cancelado(cancelado)\n    final = ruta_final(proyecto)",
+  "nuevo": "    final = ruta_final(proyecto)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-6 la ficha nueva deja terminado un proyecto renombrado",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                _tras_cambiar(p, antes, recalcular_nombre=True)",
+  "nuevo": "                p.nombre_salida = p.nombre_salida if p.nombre_manual else _nombre_automatico(p)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-7 una medida que dice otra cosa deja el terminado",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                            and _lo_que_decide(resultado) != _lo_que_decide(previa)):",
+  "nuevo": "                            and False):",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-8 la misma medida otra vez devuelve a pendiente",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                            and _lo_que_decide(resultado) != _lo_que_decide(previa)):",
+  "nuevo": "                            ):",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-9 los subtítulos pierden el factor en el comando",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "                cmd += [\"--sync\", _sync_arg(p.id, s)]",
+  "nuevo": "                cmd += [\"--sync\", _sync_arg(p.id, {**s, \"factor\": None}\n                                            if claves[(i, p.id)].tipo == \"subtitles\" else s)]",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4X-10 se copia otro adjunto con la misma cantidad",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "        adj = [a[\"id\"] for a in adjuntos if a[\"fuente\"] == i]",
+  "nuevo": "        adj = [1 for a in adjuntos if a[\"fuente\"] == i]",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4X-11 normalizar borra la marca de forzado",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "        q = p.model_copy()\n        if q.por_defecto:",
+  "nuevo": "        q = p.model_copy(update={\"forzada\": False})\n        if q.por_defecto:",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4X-12 el título editado no llega al contenedor",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "    return (proyecto.titulo or \"\").strip() or re.sub(",
+  "nuevo": "    return \"\" or re.sub(",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4X-13 el capítulo oculto pierde su marca al componer",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "                if hijo.tag in _UIDS:",
+  "nuevo": "                if hijo.tag in _UIDS or hijo.tag == \"ChapterFlagHidden\":",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T4F-1 el PUT sin el esquema",
+  "fichero": "app/static/mux.js",
+  "viejo": "{ method: 'PUT', body: JSON.stringify({ esquema: _MUX_ESQUEMA, ...cuerpo }) }));",
+  "nuevo": "{ method: 'PUT', body: JSON.stringify({ ...cuerpo }) }));",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-2 elegir el vídeo de B deja también el de A",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const sinVideo = actuales.filter(p => _muxTipo(d, p) !== 'video');",
+  "nuevo": "  const sinVideo = actuales.filter(p => _muxTipo(d, p) !== 'video' || p.fuente !== f);",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-3 quitar una pista del vídeo deja la otra",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (o && o.tipo === 'video') { muxAlternarVideo(pid, f); return; }",
+  "nuevo": "  // el vídeo, como las demás",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-4 un patrón no espera a lo que se está guardando",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (!await _muxEsperarGuardado(project, false)) return;\n    const r = await _muxEscribiendo(project, () => apiFetch(",
+  "nuevo": "    const r = await _muxEscribiendo(project, () => apiFetch(",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-5 con un patrón en vuelo se puede tocar la selección",
+  "fichero": "app/static/mux.js",
+  "viejo": "  return !!(project && project.datos && !project._patron && !project._multiplexando",
+  "nuevo": "  return !!(project && project.datos && !project._multiplexando",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-6 el patrón no cuenta como escritura para las lecturas",
+  "fichero": "app/static/mux.js",
+  "viejo": "    const r = await _muxEscribiendo(project, () => apiFetch(\n      `/api/mux/${encodeURIComponent(pid)}/patron`,",
+  "nuevo": "    const r = await ((_p, fn) => fn())(project, () => apiFetch(\n      `/api/mux/${encodeURIComponent(pid)}/patron`,",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-7 el aviso de las secciones vacías no sale",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const vacias = _muxSeccionesVacias(d);\n  if (vacias.length) {",
+  "nuevo": "  const vacias = _muxSeccionesVacias(d);\n  if (false) {",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-8 las secciones vacías se miran antes del guardado",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (!await _muxEsperarGuardado(project)) return;\n  const d = project.datos || {};\n  if (!(d.plan || {}).puede_multiplexar) return;",
+  "nuevo": "  const d = project.datos || {};\n  if (!await _muxEsperarGuardado(project)) return;\n  if (!(d.plan || {}).puede_multiplexar) return;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-9 una columna larga no se pliega",
+  "fichero": "app/static/mux.js",
+  "viejo": "const _MUX_FILAS_A_LA_VISTA = 10;",
+  "nuevo": "const _MUX_FILAS_A_LA_VISTA = 1000;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-10 el plegado esconde lo elegido",
+  "fichero": "app/static/mux.js",
+  "viejo": "    visibles = elementos.filter(e => e.elegido || e.mio);",
+  "nuevo": "    visibles = elementos.filter(e => e.mio);",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-11 «sin ajuste» solo cuando no hay otras líneas",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (v === MUX_MONTAJE_DISTINTO) filas.unshift(tr('tab4.plan_sin_ajuste_montaje'));",
+  "nuevo": "  if (v === MUX_MONTAJE_DISTINTO && !filas.length) filas.unshift(tr('tab4.plan_sin_ajuste_montaje'));",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-12 la comprobación ignora de qué fuente es la pista de contraste",
+  "fichero": "app/static/mux.js",
+  "viejo": "      const de = c.contra_fuente != null ? c.contra_fuente : 0;",
+  "nuevo": "      const de = 0;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-13 el vídeo se puede arrastrar en «En el MKV final»",
+  "fichero": "app/static/mux.js",
+  "viejo": "      <ul class=\"track-list${esVideo ? '' : ' mux-orden'}\" data-tipo=\"${s.tipo}\">",
+  "nuevo": "      <ul class=\"track-list mux-orden\" data-tipo=\"${s.tipo}\">",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-14 un interruptor que no se aplicó se queda cambiado",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (el && el.type === 'checkbox') el.checked = !el.checked;",
+  "nuevo": "  return;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-15 crear manda los papeles de antes",
+  "fichero": "app/static/mux.js",
+  "viejo": "      method: 'POST', body: JSON.stringify({ a: a.ruta, b: b.ruta }),",
+  "nuevo": "      method: 'POST', body: JSON.stringify({ video: a.ruta, resto: b.ruta }),",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-16 un capítulo elegido no se puede quitar",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const capitulos = caps.some(es) ? caps.filter(c => !es(c)) : [...caps, { fuente: f, edicion, indice }];",
+  "nuevo": "  const capitulos = caps.some(es) ? caps : [...caps, { fuente: f, edicion, indice }];",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-17 el plan nombra siempre A y B en el mismo orden",
+  "fichero": "app/static/mux.js",
+  "viejo": "      letra: L(plan.video_de), otra: L(1 - plan.video_de),",
+  "nuevo": "      letra: 'A', otra: 'B',",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-18 el plan dice siempre «más rápido»",
+  "fichero": "app/static/mux.js",
+  "viejo": "    filas.push(tr(a > de ? 'tab4.plan_velocidad_rapido' : 'tab4.plan_velocidad_lento', {",
+  "nuevo": "    filas.push(tr('tab4.plan_velocidad_rapido', {",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-19 el aviso de que no hace falta medir sale siempre",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const noHaceFalta = plan.video_de != null && !plan.necesita_sincronia;",
+  "nuevo": "  const noHaceFalta = true;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-20 los botones de la columna B piden lo de A",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const letra = f === 0 ? 'a' : 'b';\n  // Plegada solo",
+  "nuevo": "  const letra = 'a';\n  // Plegada solo",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-21 la pista añadida entra sin su nombre",
+  "fichero": "app/static/mux.js",
+  "viejo": "    fuente: f, id, nombre: o.nombre || '',\n    por_defecto: !!o.por_defecto && !yaHayDefecto",
+  "nuevo": "    fuente: f, id, nombre: '',\n    por_defecto: !!o.por_defecto && !yaHayDefecto",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-22 durante un patrón el nombre y el título se pueden tocar",
+  "fichero": "app/static/mux.js",
+  "viejo": "function _muxResumenHTML(ctx) {\n  const { d, pid, bloq } = ctx;",
+  "nuevo": "function _muxResumenHTML(ctx) {\n  const { d, pid } = ctx;\n  const bloq = _muxBloqueado(d);",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-23 multiplexar no espera al patrón",
+  "fichero": "app/static/mux.js",
+  "viejo": "    const patron = conPatron && project._patronEnVuelo;",
+  "nuevo": "    const patron = false;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-24 la espera no cubre la relectura de un rechazo",
+  "fichero": "app/static/mux.js",
+  "viejo": "    const enviando = project._guardado;\n    if (enviando) {",
+  "nuevo": "    const enviando = project._guardando && project._guardado;\n    if (enviando) {",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-25 cerrar no cuenta el patrón en vuelo",
+  "fichero": "app/static/mux.js",
+  "viejo": "  const enVuelo = [project._guardado, project._patronEnVuelo].filter(Boolean);",
+  "nuevo": "  const enVuelo = [project._guardado].filter(Boolean);",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-26 encolando se puede tocar la selección",
+  "fichero": "app/static/mux.js",
+  "viejo": "  return !!(project && project.datos && !project._patron && !project._multiplexando",
+  "nuevo": "  return !!(project && project.datos && !project._patron",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-27 confirmar no vuelve a preguntar por lo vaciado",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (_muxSeccionesVacias(project.datos).some(s => !avisadas.includes(s))) {",
+  "nuevo": "    if (false) {",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-28 volver al nombre de antes con un PUT en vuelo no se guarda",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (valor === _muxValorPedido(project, 'nombre_salida')) return;",
+  "nuevo": "  if (valor === project.datos.nombre_salida) return;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-29 volver al título de antes con un PUT en vuelo no se guarda",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (el.value.trim() === (_muxValorPedido(project, 'titulo') || '')) return;",
+  "nuevo": "  if (el.value.trim() === (project.datos.titulo || '')) return;",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-30 un vídeo con BL y EL se elige a medias",
+  "fichero": "app/static/mux.js",
+  "viejo": "    .filter(o => o.tipo === 'video')\n    .map(o => ({ fuente: f, id: o.id, nombre: o.nombre || '',",
+  "nuevo": "    .filter(o => o.tipo === 'video').slice(0, 1)\n    .map(o => ({ fuente: f, id: o.id, nombre: o.nombre || '',",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-31 «Nada» pide todo",
+  "fichero": "app/static/mux.js",
+  "viejo": "onclick=\"muxPatron(${jsArg(pid)}, ${jsArg(s.id)}, 'nada_${letra}')\"",
+  "nuevo": "onclick=\"muxPatron(${jsArg(pid)}, ${jsArg(s.id)}, 'todo_${letra}')\"",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-32 renombrar toca la pista del otro MKV con el mismo id",
+  "fichero": "app/static/mux.js",
+  "viejo": "    (p.fuente === f && p.id === id) ? { ...p, nombre: el.value.trim() } : p);",
+  "nuevo": "    (p.id === id) ? { ...p, nombre: el.value.trim() } : p);",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-33 arrastrar los subtítulos no cambia su orden",
+  "fichero": "app/static/mux.js",
+  "viejo": "...(ordenSubs || de('subtitles'))",
+  "nuevo": "...de('subtitles')",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-34 los capítulos finales enseñan otro tiempo",
+  "fichero": "app/static/mux.js",
+  "viejo": "_muxReloj(x.inicio_ns / 1e9)",
+  "nuevo": "_muxReloj(x.inicio_ns / 1e6)",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-35 el botón se puede pulsar con un patrón en vuelo",
+  "fichero": "app/static/mux.js",
+  "viejo": "${plan.puede_multiplexar && !bloq ? '' : 'disabled'}",
+  "nuevo": "${plan.puede_multiplexar ? '' : 'disabled'}",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T4F-36 encolar no repinta la selección congelada",
+  "fichero": "app/static/mux.js",
+  "viejo": "  project._multiplexando = true;\n  _muxPintarPanel(project);\n  let preguntarOtraVez = false;",
+  "nuevo": "  project._multiplexando = true;\n  let preguntarOtraVez = false;",
+  "modulos": [
+   "test_tab4_multiplexar"
   ]
  }
 ]

@@ -1038,10 +1038,10 @@ function cancelarTrabajoActivo(trabajo) {
     mkv:   () => (a.detalle === 'analisis_extendido'
                     ? _mkvQualityCancel(a.id) : cancelMkvApply()),
     // Dos trabajos en la misma pestaña: la medida de sincronía (interactiva,
-    // con su clave `mux_sincronia:{id}`) y la combinación (en la cola).
+    // con su clave `mux_sincronia:{id}`) y el multiplexado (en la cola).
     mux:   () => (a.detalle === 'sincronia_mux'
                     ? cancelarMedidaMux(String(a.id || '').replace(/^mux_sincronia:/, ''))
-                    : cancelarCombinacionMux(a.id)),
+                    : cancelarMultiplexadoMux(a.id)),
   };
   const accion = acciones[a.tab];
   if (!accion) {

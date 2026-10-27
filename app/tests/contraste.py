@@ -109,6 +109,10 @@ window.__LEER = (function () {
   // lee.
   const CONTROL = {INPUT: 1, TEXTAREA: 1, SELECT: 1};
   const textoPropio = el => {
+    // Una casilla o un botón de radio no tienen texto que leer: su `value`
+    // («on») no se pinta. Medirlo daba un contraste de una letra que no
+    // existe — los interruptores de «Multiplexar MKV» salían por docenas.
+    if (el.tagName === 'INPUT' && /^(checkbox|radio)$/i.test(el.type)) return '';
     if (CONTROL[el.tagName]) {
       return (el.value || el.getAttribute('placeholder') || '·').trim();
     }

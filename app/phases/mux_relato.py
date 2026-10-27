@@ -1,13 +1,18 @@
-"""El relato de una combinación (Tab 4): qué pasa, dónde está y qué se midió.
+"""El relato de un multiplexado (Tab 4): qué pasa, dónde está y qué se midió.
 
 Mismo objeto que `tab1_relato` y `cmv40_relato`, y por el mismo motivo: la
 tarjeta de la columna izquierda, la cabecera del proyecto, la sub-pestaña y
 la columna de trabajo cuentan lo mismo porque lo leen de aquí.
 
 Lo propio de esta pestaña es que hay una decisión que puede tocarle al
-usuario ANTES de combinar: la medida de sincronía puede decir que los dos MKV
-no son el mismo montaje, que no concluye, o que el audio sale de dos ritmos
-distintos. Eso es `esperando_decision`, que en un rip no existe.
+usuario ANTES de multiplexar: la medida de sincronía puede decir que los dos
+MKV no son el mismo montaje o que es dudosa, o la selección puede llevar audio
+de dos MKV que van a velocidades distintas. Eso es `esperando_decision`, que en
+un rip no existe.
+
+Una selección a medias —sin vídeo o sin audio todavía— NO es una decisión
+pendiente: el proyecto nace sin nada elegido y se va sección a sección, así
+que eso es «preparando», con lo que falta dicho en el porqué.
 
 Es puro: lo que no puede saber por sí mismo —si está en la cola, la fase que
 corre ahora y el plan— se lo pasa el router.
@@ -26,8 +31,10 @@ _FASE_A_ETAPA = {"comprobar_origenes": "comprobar_origenes",
                  "combinar": "combinar",
                  "comprobar_y_guardar": "comprobar_y_guardar"}
 
-# Los motivos que NO son una decisión del usuario sino algo que pasa solo.
+# Los motivos que NO son una decisión del usuario: algo que pasa solo, o una
+# selección que todavía no está completa.
 _SIN_DECISION = {"midiendo", "en_marcha"}
+_SELECCION_INCOMPLETA = ("sin_video", "video_de_las_dos", "sin_audio")
 
 
 def rotulo_de_etapa(etapa: str) -> str:
@@ -64,7 +71,9 @@ def _situacion(p, en_cola, plan: dict | None) -> str:
         return relato.CANCELADO
     motivos = [m for m in (plan or {}).get("motivos") or []
                if m.get("id") not in _SIN_DECISION]
-    if motivos and not (plan or {}).get("puede_combinar"):
+    if any(m.get("id") in _SELECCION_INCOMPLETA for m in motivos):
+        return relato.PREPARANDO
+    if motivos and not (plan or {}).get("puede_multiplexar"):
         return relato.ESPERANDO_DECISION
     return relato.PREPARANDO
 
@@ -79,7 +88,13 @@ def _etapa(p, situacion: str, fase_en_curso: str) -> str:
     return "leer"
 
 
-def _hecho_de_sincronia(p) -> dict:
+def _hecho_de_sincronia(p, plan: dict | None) -> dict:
+    plan = plan or {}
+    if plan.get("video_de") is not None and not plan.get("necesita_sincronia"):
+        # Todo lo que lleva tiempo sale del MKV del vídeo: la medida, si la
+        # hay, describe una relación que este MKV no usa.
+        return relato.hecho("sincronia", tr('relato.mux_hecho_sincronia'),
+                            relato.HECHO_OK, tr('relato.mux_sincronia_no_hace_falta'))
     s = _sincronia(p)
     estado = s.get("estado")
     if not s or estado in ("error", "cancelada"):
@@ -91,6 +106,11 @@ def _hecho_de_sincronia(p) -> dict:
                             relato.HECHO_EN_CURSO,
                             tr('relato.mux_midiendo_n_de', n=hechos, total=total))
     v = s.get("veredicto") or ""
+    if v == mux_sync.OTRO_RITMO and plan.get("audio_de") == [0, 1]:
+        # Velocidades distintas no es malo por sí mismo; con audio de los dos
+        # MKV, sí: uno de los dos se desincronizaría.
+        return relato.hecho("sincronia", tr('relato.mux_hecho_sincronia'),
+                            relato.HECHO_FALLO, tr('relato.mux_veredicto_otro_ritmo'))
     estado_h = {mux_sync.EN_SINCRONIA: relato.HECHO_OK,
                 mux_sync.RETRASO: relato.HECHO_OK,
                 mux_sync.OTRO_RITMO: relato.HECHO_OK,
@@ -101,24 +121,40 @@ def _hecho_de_sincronia(p) -> dict:
                         tr(f'relato.mux_veredicto_{v}') if v else "")
 
 
-def _hechos(p, situacion: str) -> list[dict]:
+def _hecho_del_video(p, plan: dict | None) -> dict:
+    """El Dolby Vision del vídeo ELEGIDO: puede salir de cualquiera de los
+    dos MKV, y sin elegir no hay nada que decir de él."""
+    v = (plan or {}).get("video_de")
     fuentes = _campo(p, "fuentes") or []
-    video = (_campo(fuentes[0], "video") if fuentes else None) or {}
+    if v is None or not (0 <= v < len(fuentes)):
+        return relato.hecho("dolby_vision", tr('relato.mux_hecho_dv'),
+                            relato.HECHO_PENDIENTE, tr('relato.mux_sin_video_elegido'))
+    video = _campo(fuentes[v], "video") or {}
     perfil = _campo(video, "dv_profile") or 0
     el = _campo(video, "dv_el") or ""
     cm = _campo(video, "dv_cm") or ""
+    return relato.hecho(
+        "dolby_vision", tr('relato.mux_hecho_dv'),
+        relato.HECHO_OK if perfil else relato.HECHO_AVISO,
+        (" · ".join(x for x in (tr('relato.perfil_p', p=f"{perfil}{(' ' + el) if el else ''}"),
+                                f"CM {cm}" if cm else "") if x))
+        if perfil else tr('relato.rip_sin_dv'))
+
+
+def _n_pistas(n: int) -> str:
+    if n == 0:
+        return tr('relato.mux_ninguna_pista')
+    return tr('relato.mux_n_pistas_uno' if n == 1 else 'relato.mux_n_pistas_varios', n=n)
+
+
+def _hechos(p, situacion: str, plan: dict | None) -> list[dict]:
     pistas = _campo(p, "pistas") or []
     hechos = [
-        relato.hecho(
-            "dolby_vision", tr('relato.mux_hecho_dv'),
-            relato.HECHO_OK if perfil else relato.HECHO_AVISO,
-            (" · ".join(x for x in (tr('relato.perfil_p', p=f"{perfil}{(' ' + el) if el else ''}"),
-                                    f"CM {cm}" if cm else "") if x))
-            if perfil else tr('relato.rip_sin_dv')),
+        _hecho_del_video(p, plan),
         relato.hecho("pistas", tr('relato.mux_hecho_pistas'),
-                     relato.HECHO_OK if pistas else relato.HECHO_FALLO,
-                     tr('relato.mux_n_pistas', n=len(pistas))),
-        _hecho_de_sincronia(p),
+                     relato.HECHO_OK if pistas else relato.HECHO_PENDIENTE,
+                     _n_pistas(len(pistas))),
+        _hecho_de_sincronia(p, plan),
     ]
     if situacion == relato.TERMINADO:
         val = _campo(p, "validacion") or {}
@@ -128,7 +164,8 @@ def _hechos(p, situacion: str) -> list[dict]:
             "validacion", tr('relato.rip_hecho_validacion'),
             relato.HECHO_OK if not (fallos or avisos) else relato.HECHO_AVISO,
             tr('relato.rip_validacion_limpia') if not (fallos or avisos)
-            else tr('relato.mux_validacion_con_avisos', n=avisos + fallos)))
+            else tr('relato.mux_validacion_con_avisos_uno' if avisos + fallos == 1
+                    else 'relato.mux_validacion_con_avisos_varios', n=avisos + fallos)))
     return hechos
 
 
@@ -142,17 +179,20 @@ def _porque(p, situacion: str, plan: dict | None) -> str:
         return tr('relato.rip_porque_en_cola')
     if situacion == relato.TERMINADO:
         return tr('relato.mux_porque_terminado')
+    motivos = [m for m in (plan or {}).get("motivos") or []
+               if m.get("id") not in _SIN_DECISION]
+    falta = next((m for m in motivos if m.get("id") in _SELECCION_INCOMPLETA), None)
+    if falta:
+        return tr(f"relato.mux_porque_{falta['id']}")
     if situacion == relato.ESPERANDO_DECISION:
-        primero = next((m for m in (plan or {}).get("motivos") or []
-                        if m.get("id") not in _SIN_DECISION), None)
-        return tr(f"relato.mux_porque_{primero['id']}") if primero else ""
-    if _sincronia(p).get("estado") == "midiendo":
+        return tr(f"relato.mux_porque_{motivos[0]['id']}") if motivos else ""
+    if _sincronia(p).get("estado") == "midiendo" and (plan or {}).get("necesita_sincronia"):
         return tr('relato.mux_porque_midiendo')
     return tr('relato.mux_porque_preparando')
 
 
 def resolver(p, *, en_cola=None, fase_en_curso: str = "", plan: dict | None = None) -> dict:
-    """El relato de una combinación. Acepta el modelo o el dict del summary."""
+    """El relato de un multiplexado. Acepta el modelo o el dict del summary."""
     situacion = _situacion(p, en_cola, plan)
     etapa = _etapa(p, situacion, fase_en_curso or "")
     idx = ETAPAS.index(etapa)
@@ -169,7 +209,7 @@ def resolver(p, *, en_cola=None, fase_en_curso: str = "", plan: dict | None = No
                   "indice": idx + 1, "total": len(ETAPAS), "porque": ""},
         "porque": _porque(p, situacion, plan),
         "decision": decision,
-        "hechos": _hechos(p, situacion),
+        "hechos": _hechos(p, situacion, plan),
         "siguiente": (rotulo_de_etapa(ETAPAS[idx + 1])
                       if situacion == relato.EN_MARCHA and idx + 1 < len(ETAPAS)
                       else ""),

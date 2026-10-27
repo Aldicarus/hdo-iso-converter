@@ -833,7 +833,7 @@ def cmv40_session_id_base(source_mkv_path: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  TAB 4 — Combinar MKV
+#  TAB 4 — Multiplexar MKV
 # ══════════════════════════════════════════════════════════════════════
 #
 # Un proyecto por fichero en `/config/mux/{id}.json`. En un SUBDIRECTORIO a
@@ -855,7 +855,7 @@ def _mux_path(project_id: str) -> Path | None:
 
 
 def save_mux_project(project) -> None:
-    """Persiste un proyecto de combinación (atómico)."""
+    """Persiste un proyecto de multiplexado (atómico)."""
     project.updated_at = datetime.now(timezone.utc)
     path = _mux_path(project.id)
     if path is None:
@@ -863,17 +863,31 @@ def save_mux_project(project) -> None:
     _atomic_write_json(path, project.model_dump_json(indent=2))
 
 
+def _es_del_formato_actual(data) -> bool:
+    """Un proyecto de antes del rediseño (sin `esquema`) no se carga: el
+    vídeo iba fijo en A y su B se leyó sin la muestra de Dolby Vision (ver
+    `models.ESQUEMA_MUX`). Cargarlo daría un proyecto sin vídeo elegido que
+    nadie pidió así."""
+    from models import ESQUEMA_MUX
+    return isinstance(data, dict) and (data.get("esquema") or 1) >= ESQUEMA_MUX
+
+
 def load_mux_project(project_id: str):
-    """El proyecto, o None si no existe (o si el id no es uno válido)."""
+    """El proyecto, o None si no existe, si el id no es uno válido o si es
+    del formato de antes del rediseño."""
     from models import MuxProject
     path = _mux_path(project_id)
     if path is None or not path.exists():
         return None
-    return MuxProject.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not _es_del_formato_actual(data):
+        return None
+    return MuxProject.model_validate(data)
 
 
 def delete_mux_project(project_id: str) -> bool:
-    """Borra el JSON del proyecto. No toca el MKV combinado ni los orígenes."""
+    """Borra el JSON del proyecto. No toca el MKV multiplexado ni los
+    orígenes."""
     path = _mux_path(project_id)
     if path is None or not path.exists():
         return False
@@ -913,9 +927,10 @@ def _resumen_de_mux(data: dict) -> dict:
     from phases import mux_plan
     try:
         plan = mux_plan.plan(MuxProject.model_validate(data))
-        data["_plan"] = {"puede_combinar": plan["puede_combinar"],
-                         "motivos": plan["motivos"],
-                         "retimar_video": plan["retimar_video"]}
+        data["_plan"] = {k: plan[k] for k in ("puede_multiplexar", "motivos",
+                                              "velocidad_video", "video_de",
+                                              "audio_de", "necesita_sincronia",
+                                              "avisos")}
     except Exception:                               # noqa: BLE001
         data["_plan"] = None
     data["output_log"] = []
@@ -934,7 +949,7 @@ def _resumen_de_mux(data: dict) -> dict:
 
 
 def list_mux_projects_summary() -> list[dict]:
-    """Los proyectos de combinación, más recientes primero, sin lo pesado.
+    """Los proyectos de multiplexado, más recientes primero, sin lo pesado.
 
     Los dicts devueltos son los del caché: los consumidores NO deben
     mutarlos (mismo contrato que `list_sessions_summary`)."""
@@ -955,16 +970,22 @@ def list_mux_projects_summary() -> list[dict]:
             vistos.add(path.name)
             cache = _mux_summary_by_file.get(path.name)
             if cache and cache[0] == mtime_ns and cache[1] == size:
-                out.append(cache[2])
+                if cache[2] is not None:
+                    out.append(cache[2])
                 continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except Exception as e:                  # noqa: BLE001
-                logger.warning("Proyecto de combinación ilegible, omitido: %s — %s",
+                logger.warning("Proyecto de multiplexado ilegible, omitido: %s — %s",
                                path.name, e)
                 _mux_summary_by_file.pop(path.name, None)
                 continue
             if not isinstance(data, dict) or "id" not in data:
+                continue
+            if not _es_del_formato_actual(data):
+                # Se recuerda que no va, para no volver a leerlo y parsearlo
+                # en cada listado.
+                _mux_summary_by_file[path.name] = (mtime_ns, size, None)
                 continue
             data = _resumen_de_mux(data)
             _mux_summary_by_file[path.name] = (mtime_ns, size, data)

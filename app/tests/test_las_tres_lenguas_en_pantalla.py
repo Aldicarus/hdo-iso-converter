@@ -505,7 +505,7 @@ RESPUESTAS = {
 
 def _proyectos_mux() -> dict:
     """Ver `mux_payloads.proyectos_mux`: el mismo constructor que usa
-    `test_tab4_combinar`."""
+    `test_tab4_multiplexar`."""
     from mux_payloads import proyectos_mux
     return proyectos_mux()
 
@@ -885,8 +885,10 @@ _CUERPO = """
                                     _renderFileBrowserRoots();
                                     const e = document.getElementById('file-browser-roots');
                                     return e ? e.innerHTML : ''; },
-    // ── Tab 4 (Combinar MKV): la lista, el panel en sus cinco estados, la
-    //    pestaña abierta de verdad y el modal de creación en sus dos vistas.
+    // ── Tab 4 (Multiplexar MKV): la lista, el panel en sus estados —recién
+    //    creado sin nada elegido, listo, al revés (el vídeo de B), pendiente
+    //    de decisión, terminado, en marcha, en cola y midiendo—, la pestaña
+    //    abierta de verdad y el modal de creación en sus dos vistas.
     'tab4·lista':           () => { _muxLista = Object.values(X.mux); renderMuxLista();
                                     const e = document.getElementById('mux-sidebar-list');
                                     return e ? e.innerHTML : ''; },
@@ -896,6 +898,9 @@ _CUERPO = """
     'tab4·lista_error':     () => { _muxPintarErrorDeLista();
                                     const e = document.getElementById('mux-sidebar-list');
                                     return e ? e.innerHTML : ''; },
+    'tab4·panel_vacio':     () => _muxPanelHTML({id: X.mux.vacio.id, datos: X.mux.vacio}),
+    'tab4·panel_listo':     () => _muxPanelHTML({id: X.mux.listo.id, datos: X.mux.listo}),
+    'tab4·panel_reves':     () => _muxPanelHTML({id: X.mux.reves.id, datos: X.mux.reves}),
     'tab4·panel_decision':  () => _muxPanelHTML({id: X.mux.decision.id, datos: X.mux.decision}),
     'tab4·panel_hecho':     () => _muxPanelHTML({id: X.mux.hecho.id, datos: X.mux.hecho}),
     'tab4·panel_marcha':    () => _muxPanelHTML({id: X.mux.marcha.id, datos: X.mux.marcha}),
@@ -904,7 +909,7 @@ _CUERPO = """
     'tab4·abierto':         async () => { await abrirMux(X.mux.hecho.id, X.mux.hecho);
                                     const e = document.getElementById('tab-panel-4');
                                     return e ? e.innerHTML : ''; },
-    'tab4·nueva':           () => { abrirNuevaCombinacion();
+    'tab4·nueva':           () => { abrirNuevoMultiplexado();
                                     _muxNueva.fuentes = [{ruta: '/mnt/library/Blade.Runner.2049.mkv',
                                                           nombre: 'Blade.Runner.2049.mkv'}, null];
                                     _muxPintarHuecos();

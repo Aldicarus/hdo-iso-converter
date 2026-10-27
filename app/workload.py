@@ -537,6 +537,9 @@ CLASE_POR_RUTA: dict[str, str] = {
     "GET /api/mux/create/progress":         CLASE_LIGERO,
     "GET /api/mux/{project_id}":            CLASE_LIGERO,
     "PUT /api/mux/{project_id}":            CLASE_LIGERO,
+    # Un patrón de selección («Todo de B», «Mis idiomas»): reescribe la lista
+    # guardada, como el PUT.
+    "POST /api/mux/{project_id}/patron":    CLASE_LIGERO,
     "DELETE /api/mux/{project_id}":         CLASE_LIGERO,
     "POST /api/mux/{project_id}/cancelar":  CLASE_LIGERO,
     "POST /api/mux/{project_id}/medir/cancelar": CLASE_LIGERO,

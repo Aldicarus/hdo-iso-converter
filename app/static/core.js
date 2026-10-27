@@ -573,7 +573,7 @@ function _runRecoveryTasks() {
     }
   }
 
-  // ── Tab 4 — las combinaciones abiertas. No hay WebSocket: lo que corre
+  // ── Tab 4 — los multiplexados abiertos. No hay WebSocket: lo que corre
   // se lee por REST, y al volver basta con volver a leer.
   if (typeof refrescarMuxAbiertos === 'function') {
     try { refrescarMuxAbiertos(); } catch (_) {}
@@ -1530,7 +1530,7 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 const _AVISO_INTERVALO_MS = 20000;
 const _AVISO_PREF = 'hdo_avisar_fin_trabajo';
 const _AVISO_SONIDO_PREF = 'hdo_avisar_con_sonido';
-const _AVISO_NOMBRES = { 1: 'Blu-Ray ISO → MKV', 2: tr('core.editar_mkv'), 3: 'Upgrade CMv4.0', 4: tr('core.combinar_mkv') };
+const _AVISO_NOMBRES = { 1: 'Blu-Ray ISO → MKV', 2: tr('core.editar_mkv'), 3: 'Upgrade CMv4.0', 4: tr('core.multiplexar_mkv') };
 
 let _avisoTrabajosPrevios = null;   // {1,2,3,4} → bool, foto al ocultarse
 let _avisoTimer = null;
@@ -1951,7 +1951,7 @@ async function elegirFicha(i) {
   const r = await apiFetch(url, {
     method: 'POST', body: JSON.stringify({ tmdb_id: c.tmdb_id }),
   });
-  // El de una combinación contesta `ok` y el proyecto entero; los otros dos,
+  // El de un multiplexado contesta `ok` y el proyecto entero; los otros dos,
   // `updated`.
   if (!r || !(r.updated || r.ok)) { showToast(tr('core.no_se_pudo_guardar_la_ficha'), 'error'); return; }
   closeModal('ficha-modal');
@@ -2100,8 +2100,8 @@ const GLIFOS = {
   // `ajustes` (los deslizadores).
   sincronia: '<path d="M2.8 8c1.4-2.6 2.8-2.6 4.2 0s2.8 2.6 4.2 0 2.8-2.6 4.2 0 2.8 2.6 4.2 0"/>'
            + '<path d="M5.8 16c1.4-2.6 2.8-2.6 4.2 0s2.8 2.6 4.2 0 2.8-2.6 4.2 0"/>',
-  // Dos flechas en sentidos opuestos: intercambiar los dos MKV de una
-  // combinación (el del vídeo pasa a dar el audio, y al revés).
+  // Dos flechas en sentidos opuestos: intercambiar los dos MKV de un
+  // multiplexado (A pasa a ser B, y al revés).
   intercambiar: '<path d="M7 4.5v14.2m0 0-3-3m3 3 3-3"/><path d="M17 19.5V5.3m0 0-3 3m3-3 3 3"/>',
 
   // ── Acciones ───────────────────────────────────────────────────────────

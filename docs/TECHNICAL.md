@@ -13,7 +13,7 @@ The internal panel IDs (`tab-panel-1/2/3/4`) are kept for historical compatibili
 |---|----------|---|
 | 1 | 💿 **Blu-ray ISO → MKV** | Rips a UHD Blu-ray to MKV from three kinds of source (ISO, BDMV folder or M2TS files), keeping Dolby Vision FEL. A mandatory Movie / TV show toggle. TV shows are mapped to episodes through TMDb, with one session per episode. |
 | 2 | ✨ **Dolby Vision CMv4.0 upgrade** | A pipeline that injects a CMv4.0 RPU (from DoviTools or other sources) into an MKV that carries the original Blu-ray's CMv2.9, adding the L8-L11 tone-mapping metadata. Quick pre-flight of the bin, a Keep / Inject decision model based on how much colorist work the L8 really carries, frame-by-frame visual sync, and an auto-pipeline that survives the client being closed. |
-| 3 | 🔀 **Combine MKV** | The picture of one MKV (the remux, with its Dolby Vision FEL) with the audio, subtitles and chapters of another (a WEB-DL with the dub the disc lacks). The sync is measured from the sound at seven points of the movie, and when the two run at different frame rates the video is retimed in the container, with no re-encoding. |
+| 3 | 🔀 **Multiplex MKVs** | What you choose from two MKVs, A and B, in one file: typically the picture of one (the remux, with its Dolby Vision FEL) with the audio, subtitles and chapters of the other (a WEB-DL with the dub the disc lacks), but any mix, section by section. The sync is measured from the sound at seven points of the movie, and when the two run at different frame rates the video's speed is adjusted in the container, with no re-encoding. |
 | 4 | 🔬 **Inspect / Edit MKV** | Deep inspection of an MKV (commercial codec names, real bitrate, HDR10, the full Dolby Vision mastering chain, frame-by-frame L1 luminance profile). In-place editing of track names, flags and chapters with no re-encoding (instant, through `mkvpropedit`). |
 
 ## Quick start
@@ -372,39 +372,50 @@ Useful to calibrate the classifier's thresholds or to decide which historical jo
 
 ---
 
-## The "Combine MKV" tab
+## The "Multiplex MKVs" tab
 
-The picture of one MKV (**A**) with the audio, subtitles and chapters of another (**B**). The case that started it: a UHD remux at **23.976 fps** and a WEB-DL at **24.000 fps**. Muxed as they are, the audio drifts by 0.1 %: −0.30 s at minute 5, −3.00 s at minute 50, **−5.76 s at minute 97**. Nothing in the files says so — their durations differ because of the credits, and the chapters do not show it — so the tab measures before it combines.
+Two MKVs, **A** and **B**, and from each whatever you choose — the video, audio tracks, subtitles, chapters and attachments — in one final MKV. The case that started it: a UHD remux at **23.976 fps** and a WEB-DL at **24.000 fps**. Muxed as they are, the audio drifts by 0.1 %: −0.30 s at minute 5, −3.00 s at minute 50, **−5.76 s at minute 97**. Nothing in the files says so — their durations differ because of the credits, and the chapters do not show it — so the tab measures before it multiplexes.
+
+A and B have no fixed roles. A project starts **with nothing chosen** and is filled in section by section — Video, Audio, Subtitles, Chapters, Other —, each with two columns (A | B) and a switch per item; before multiplexing, the sections left empty are pointed out in a dialog, so a twenty-minute job is not repeated for an oversight.
 
 ### Measuring the sync (`phases/mux_sync.py`)
 
 - One audio track from each file (the same language when there is one), seven 30 s windows between 5 % and 88 % of the movie, decoded to mono at 4 kHz and reduced to a 100 Hz onset envelope — independent of the codec, the level and the mix.
 - Normalised cross-correlation by FFT, in pure Python. Two anchor points search ±60 s; the rest search ±6 s around where the anchors' rate puts them, with a wide retry for a cut.
 - B's envelope is rescaled to A's timeline before correlating, so a 23.976/24 pair does not smear the peak.
-- A straight line d(T) = (α − 1)·T + β through the valid points gives the verdict: `en_sincronia`, `retraso` (constant offset), `otro_ritmo` (the frame rates explain it), `deriva` (a rate nobody declares), `montaje_distinto` (a jump: a different cut) or `no_concluyente`.
+- A straight line through the valid points, always **B relative to A** — the sound that is at `t_A` in A is at `t_B = α·t_A + β` in B — gives the verdict: `en_sincronia`, `retraso` (constant offset), `otro_ritmo` (different speeds, explained by the frame rates), `deriva` (they drift apart at a rate nobody declares), `montaje_distinto` (a jump: a different cut) or `no_concluyente` (an uncertain measurement).
 
-On the real case: different rate, α = 0.999006491, final frame rate **23.999868 fps**, β = 3 ms (below 10 ms it is noise), spread 4.5 ms, 7/7 points, in 18 s.
+On the real case: different speeds, α = 0.999006491, final frame rate **23.999868 fps**, β = 3 ms (below 10 ms it is noise), spread 4.5 ms, 7/7 points, in 18 s.
 
 ### The plan (`phases/mux_plan.py`, pure)
 
+What the timeline does depends on **where** each thing comes from. With **v** the MKV the video comes from and **o** the other, the mapping from v to o is `t_o = f·t_v + d`, with `(f, d) = (α, β)` when v = A and `(1/α, −β/α)` when v = B. The video itself never gets a `--sync`: only its frame duration changes.
+
 | situation | what happens |
 |---|---|
-| same rate | B's tracks are shifted by −β (`--sync`) |
-| different rates, audio only from B | **A's video is retimed** to its frame rate / α (`--default-duration`); A's other tracks are stretched by α |
-| different rates, audio only from A | B's tracks are brought to A's timeline (factor 1/α) |
-| different rates, audio from both | not combined: audio cannot be stretched without re-encoding |
+| nothing timed comes from o | no measurement needed: everything goes as it is |
+| same speed | o's tracks and chapters are shifted (`--sync`) |
+| different speeds, audio only from v | o's tracks are brought to v's timeline |
+| different speeds, audio only from o | **the video's speed is adjusted** to o's (`--default-duration`): v's other tracks are stretched with it, o's are shifted |
+| different speeds, audio from both | not multiplexed: audio cannot be stretched without re-encoding |
 
-Retiming is container-only: mkvmerge does not rewrite the HEVC VUI, and the Dolby Vision RPU and the FEL go through untouched. A variable-frame-rate video, or one whose base and enhancement layers sit in tracks with different frame durations, is never retimed. A different cut, a drift nobody declares or an inconclusive measurement can be combined anyway, but only after the user accepts it in a dialog.
+Adjusting the speed is container-only: mkvmerge does not rewrite the HEVC VUI, and the Dolby Vision RPU and the FEL go through untouched. A variable-frame-rate video, or one whose base and enhancement layers sit in tracks with different frame durations, is never adjusted. A different cut, a drift nobody declares or an uncertain measurement can be multiplexed anyway, but only after the user accepts it in a dialog. When the measurement is uncertain, the delay of B relative to A can be typed in.
+
+Chapters are chosen one by one, from A, B or both: the plan maps each one to the final timeline, merges them in film order, drops what falls outside the video and moves the last one before zero to the start. They are composed into a single XML with **the UIDs removed** — mkvmerge 88 silently drops a chapter whose UID repeats one already seen, and a WEB-DL usually copies the disc's chapters — and nested chapters are trimmed the same way. When all the chapters of one file are chosen and that file is not shifted, mkvmerge copies them as they are.
+
+The selection patterns ("All" and "None" per column, "My languages", "Forced only", "Fonts for the chosen ASS") are resolved by the server on the saved project (`POST /api/mux/{id}/patron`); the interface waits for any pending save before asking.
 
 ### Three phases in one queue turn (`phases/mux_pipeline.py`)
 
-1. **Source check** — both files still there and unchanged, the output name free, enough room in Output.
-2. **Track combining** — one `mkvmerge` into a `.mkv.tmp`, never under the final name.
-3. **Check and save** — the combined file read back against the plan: every track, the video's frame rate, frame count and duration (the proof that it was retimed), the chapters to the millisecond, the attachments, the Dolby Vision of the final file and the sync of every audio track from B against A's reference track, at four points: a different dub only correlates through the music and effects, and two points were not enough. If it all matches, it is published without overwriting anything; if not, the `.mkv.tmp` stays for inspection.
+1. **Source check** — both files still there and unchanged, the plan still allows it, the output name free, enough room in Output.
+2. **Track multiplexing** — one `mkvmerge` into a `.mkv.tmp`, never under the final name, with the chapters in a composed XML when they are mixed or shifted.
+3. **Check and save** — the multiplexed file read back against the plan: every track (the video included: name and flags too), the video's frame rate, frame count and duration (the proof that its speed was adjusted), the chapters to the millisecond, the attachments, the Dolby Vision of the chosen video and the sync of every audio track from o against the reference track of the video's MKV, at four points: a different dub only correlates through the music and effects, and two points were not enough. If it all matches, it is published without overwriting anything; if not, the `.mkv.tmp` stays for inspection.
+
+Projects saved before the redesign (with the video fixed in A) carry no `esquema` and are not loaded; the tab never reached a release, so they only existed on the author's NAS.
 
 ### The interface (`static/mux.js`)
 
-Same frame as the other tabs: a project column, navy sub-tabs, stacked cards and the shared Jobs column. Edits save themselves; each one sends its whole field (the full track list, audio before subtitles), every read carries a sequence number so an old response never overwrites a newer one, and a rejected change is undone by reading the project again. The sync card draws the measured points with the fitted line, but only when a single line describes the movie.
+Same frame as the other tabs: a project column, navy sub-tabs, stacked cards and the shared Jobs column. The panel opens with a summary — what each MKV contributes, the plan in words, the output name and the Multiplex button —, then the sync card and the five sections. Edits save themselves; each one sends its whole field (the full track list, the video first, then audio, then subtitles) and the format version (`esquema`), so a browser tab running the old code gets "reload the page" instead of saving a selection without the video. Every read carries a sequence number so an old response never overwrites a newer one, and a rejected change is undone by reading the project again. The sync card draws the measured points with the fitted line, but only when a single line describes the movie.
 
 ---
 
@@ -443,7 +454,7 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 │   │   ├── tab1.py               ← Tab 1: endpoints + pipeline orchestrator + WS
 │   │   ├── tab2.py               ← Tab 2: /api/mkv/* + browser + quality + apply
 │   │   ├── cmv40.py              ← Tab 3: endpoints + orchestration
-│   │   └── mux.py                ← Tab 4: /api/mux/* + the sync measurement + the queue
+│   │   └── mux.py                ← Tab 4: /api/mux/* + the sync measurement + the patterns + the queue
 │   ├── queue_manager.py          ← The single job queue
 │   ├── dev_fixtures.py           ← Fixtures when DEV_MODE=1
 │   ├── phases/
@@ -458,7 +469,7 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 │   │   ├── cmv40_strategy.py     ← Tab 3: workflow × target × trust matrix (pure)
 │   │   ├── cmv40_pipeline.py     ← Tab 3: the full CMv4.0 pipeline
 │   │   ├── mux_sync.py           ← Tab 4: the sync, measured from the audio
-│   │   ├── mux_plan.py           ← Tab 4: the timeline and what blocks combining (pure)
+│   │   ├── mux_plan.py           ← Tab 4: the timeline, the chapters, the patterns and what blocks multiplexing (pure)
 │   │   ├── mux_pipeline.py       ← Tab 4: reading the sources and the three phases
 │   │   └── mux_relato.py         ← Tab 4: what the project is doing, in words
 │   ├── services/
@@ -520,12 +531,13 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 - `POST /api/cmv40/{id}/cancel` — kills the active subprocess
 - `WS /ws/cmv40/{id}` — live log
 
-### Tab 4 — Combine MKV
-- `GET /api/mux` — the combinations (left column)
-- `POST /api/mux/create` — reads both MKV files and creates the project (`{video, resto}`); its step is in `GET /api/mux/create/progress`
-- `GET/PUT/DELETE /api/mux/{id}` — the project with its `plan` and `relato`; `PUT` changes the tracks, chapters, attachments, names and decisions
+### Tab 4 — Multiplex MKVs
+- `GET /api/mux` — the projects (left column)
+- `POST /api/mux/create` — reads both MKV files and creates the project with nothing chosen (`{a, b}`); its step is in `GET /api/mux/create/progress`
+- `GET/PUT/DELETE /api/mux/{id}` — the project with its `plan`, `relato`, `patrones` and `mis_idiomas`; `PUT` (always with `esquema: 2`) changes the tracks, chapters, attachments, names and decisions
+- `POST /api/mux/{id}/patron` — applies a selection pattern to a section (`{esquema, seccion, patron}`), on the saved project
 - `POST /api/mux/{id}/medir` · `POST /api/mux/{id}/medir/cancelar` — measures the sync (in the background) and stops it
-- `POST /api/mux/{id}/ejecutar` · `POST /api/mux/{id}/cancelar` — queues the combination, and cancels it or takes it out of the queue
+- `POST /api/mux/{id}/ejecutar` · `POST /api/mux/{id}/cancelar` — queues the multiplex, and cancels it or takes it out of the queue
 - `POST /api/mux/{id}/tmdb-refresh` — finds the film's card again
 
 ### Shared

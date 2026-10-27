@@ -38,10 +38,10 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
 |---|----------|---|-----------|
 | 1 | 💿 **Blu-Ray ISO → MKV** | `tab-panel-1` | ISO UHD Blu-ray → MKV con selección automática de pistas y soporte Dolby Vision FEL |
 | 2 | ✨ **Upgrade Dolby Vision CMv4.0** | `tab-panel-3` | Inyecta RPU CMv4.0 en un MKV con CMv2.9 del Blu-ray original (sync visual frame-a-frame, multi-proyecto) |
-| 3 | 🔀 **Combinar MKV** | `tab-panel-4` | El vídeo de un MKV (A, el remux con Dolby Vision) con el audio, los subtítulos y los capítulos de otro (B, el WEB-DL con el doblaje). Mide la sincronía por el audio y, si los dos van a cadencias distintas, retima el vídeo sin recodificar |
+| 3 | 🔀 **Multiplexar MKV** | `tab-panel-4` | Dos MKV, A y B, y de cada uno lo que se elija —vídeo, audio, subtítulos, capítulos, adjuntos— en un MKV final; típicamente el vídeo del remux con Dolby Vision y el doblaje de un WEB-DL. Mide la sincronía por el audio y, si los dos van a cadencias distintas, ajusta la velocidad del vídeo sin recodificar |
 | 4 | ✏️ **Consultar / Editar MKV** | `tab-panel-2` | Inspección profunda de la metadata del MKV (codecs comerciales, bitrate, HDR10 MaxCLL/MaxFALL, Dolby Vision profile + CM version + niveles L1-L11, procedencia CMv4.0, paquetes PGS, etc.) y edición in-place de nombres de pistas, flags default/forced y capítulos sin re-encoding |
 
-**Nota importante para desarrollo UI**: los IDs internos de panel y las llamadas `switchTab(N)` **no** coinciden con el orden visual — `switchTab(1)` abre el panel ISO→MKV, `switchTab(2)` el de Editar, `switchTab(3)` el de CMv4.0 y `switchTab(4)` el de Combinar. La reorden visual se hace solo cambiando el orden de los `<button class="tab">` en `index.html`. Cualquier código que active un tab debe usar el ID (`tab-btn-N`) y **nunca** la posición DOM.
+**Nota importante para desarrollo UI**: los IDs internos de panel y las llamadas `switchTab(N)` **no** coinciden con el orden visual — `switchTab(1)` abre el panel ISO→MKV, `switchTab(2)` el de Editar, `switchTab(3)` el de CMv4.0 y `switchTab(4)` el de Multiplexar. La reorden visual se hace solo cambiando el orden de los `<button class="tab">` en `index.html`. Cualquier código que active un tab debe usar el ID (`tab-btn-N`) y **nunca** la posición DOM.
 
 ---
 
@@ -89,7 +89,7 @@ ISO2MKVFEL/
     │   ├── tab1.py          ← Tab 1: endpoints + orquestador del pipeline + WS
     │   ├── tab2.py          ← Tab 2: /api/mkv/* + browser + calidad + apply
     │   ├── cmv40.py         ← Tab 3: los 37 endpoints + WS del log + auto-pipeline
-    │   └── mux.py           ← Tab 4: /api/mux/* + la medida + la cola + el arranque
+    │   └── mux.py           ← Tab 4: /api/mux/* + la medida + los patrones + la cola + el arranque
     ├── requirements.txt
     ├── models.py            ← Pydantic models (Session, BDInfoResult, MkvAnalysisResult, CMv40Session...)
     ├── storage.py           ← Persistencia JSON en /config + fingerprint ISO
@@ -105,7 +105,7 @@ ISO2MKVFEL/
     │   ├── cmv40_strategy.py  ← Tab 3: la matriz (workflow × target_type × trust) como datos
     │   ├── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync + pre-flight)
     │   ├── mux_sync.py        ← Tab 4: la sincronía MEDIDA por el audio (correlación por FFT)
-    │   ├── mux_plan.py        ← Tab 4: la línea de tiempo y los motivos, puro
+    │   ├── mux_plan.py        ← Tab 4: la línea de tiempo, los capítulos, los patrones y los motivos, puro
     │   ├── mux_pipeline.py    ← Tab 4: leer las fuentes y las tres fases
     │   └── mux_relato.py      ← Tab 4: el relato (ver «El relato»)
     ├── dev_fixtures.py      ← Fixtures (DEV_MODE=1): ISOs/MKVs/RPUs fake para devel UI sin discos reales
@@ -124,7 +124,7 @@ ISO2MKVFEL/
     │   ├── tab1.js          ← Tab 1: nuevo proyecto, series, sesión, cola, consola
     │   ├── tab2.js          ← Tab 2: editar MKV + radiografía DV+HDR
     │   ├── tab3.js          ← Tab 3: proyectos CMv4.0, fases, sync, overlay
-    │   ├── mux.js           ← Tab 4: combinaciones, sincronía, pistas, modal de creación
+    │   ├── mux.js           ← Tab 4: resumen, sincronía, las cinco secciones A | B, modal de creación
     │   ├── browser.js       ← El file browser modal (lo usan Tab 2, Tab 3 y Tab 4)
     │   └── style.css
     ├── tests/               ← unittest (test_series_*, test_tmdb_tv_match, test_rpu_analyze, test_mkv_*, test_firma, test_precache_tab2, test_reintentar_preflight, test_source_abstraction, test_track_mapping, test_subtitle_classification, test_pgs_sampling, test_playlist_fallback, test_mpls_chapters, test_movie_naming, test_cmv40_*)
@@ -472,7 +472,7 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 6. **Fase F — Inyectar RPU**: `dovi_tool inject-rpu -i EL.hevc --rpu-in RPU_final.bin`.
    - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, **la Fase F para antes de inyectar** (desde el 2026-10-17): seguía con el RPU original «porque el vídeo es correcto», pero la Fase H comprueba el perfil del MKV entregado y rechaza un Profile 7 en una salida single-layer, así que inyectar y remuxar (~20 min en UHD) era gastar para llegar a un rechazo seguro. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
-   - **Fija la duración de frame del MKV origen** (`--default-duration 0:<ns>`) y la comprueba en el MKV final (`cadencia_distinta_del_origen`). El HEVC crudo no la trae de forma fiable —un origen retimado en «Combinar MKV» declara en su VUI la cadencia de antes, porque mkvmerge 88 no reescribe el VUI ni con `--fix-bitstream-timing-information`, y un WEB-DL puede no declarar ninguna—, así que mkvmerge le ponía la que dedujera del bitstream: el audio del origen se desincronizaba y la Fase H, que cuenta frames y no duración, lo daba por bueno (2026-10-25).
+   - **Fija la duración de frame del MKV origen** (`--default-duration 0:<ns>`) y la comprueba en el MKV final (`cadencia_distinta_del_origen`). El HEVC crudo no la trae de forma fiable —un origen con la velocidad del vídeo ajustada en «Multiplexar MKV» declara en su VUI la cadencia de antes, porque mkvmerge 88 no reescribe el VUI ni con `--fix-bitstream-timing-information`, y un WEB-DL puede no declarar ninguna—, así que mkvmerge le ponía la que dedujera del bitstream: el audio del origen se desincronizaba y la Fase H, que cuenta frames y no duración, lo daba por bueno (2026-10-25).
 8. **Fase H — Validación**: dos rutas según el modo:
    - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Verifica el frame count —**falla** con más de ±2 frames cuando el recuento es exacto; si es una estimación por duración, solo lo registra—, el Dolby Vision del propio MKV (ver abajo) y `mkvmerge -J`. ~segundos. Hasta el 2026-10-17 el frame count solo se registraba y el resultado era un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito a mano: un MKV truncado se entregaba.
      - **El recuento exacto es la etiqueta `NUMBER_OF_FRAMES` que escribe mkvmerge, NO `nb_frames`** (`_frames_de_ffprobe`). Sobre un MKV real, `ffprobe … stream=nb_frames` no lo da NUNCA —en JSON la clave falta, en CSV sale `N/A,`, con la coma de la side data del DV—, así que la primera versión del arreglo solo era estricta **en los tests**: el `ffprobe` falso daba el número para cualquier fichero. Lo destapó la captura del contrato (ver «Los fakes tienen contrato»). Antes de activarlo se midió en el NAS: en los **29** MKV entregados que se emparejan con su proyecto, la etiqueta coincide EXACTAMENTE con los frames esperados, drop-in y merge. Con idioma la etiqueta lleva sufijo (`NUMBER_OF_FRAMES-eng`), y un HEVC crudo no trae nada.
@@ -1856,35 +1856,74 @@ Medido: 24,1 MB → **0,38 MB** la película entera y 0,07 MB un zoom; la primer
 
 ---
 
-## Tab 4 — Combinar MKV
+## Tab 4 — Multiplexar MKV
 
 ### Objetivo, y el caso que la motivó
 
-El vídeo de un MKV (**A**, típicamente el remux del Blu-ray con Dolby Vision
-FEL) con el audio, los subtítulos y los capítulos de otro (**B**, típicamente
-un WEB-DL con el doblaje que el disco no trae). A y B son letras en toda la
-pestaña —azul y morado—, como MKVToolNix numera sus ficheros.
+Dos MKV, **A** y **B**, y de cada uno lo que se elija —el vídeo, las pistas de
+audio y de subtítulos, los capítulos y los adjuntos— en un MKV final. El uso
+típico: el vídeo del remux del Blu-ray, con su Dolby Vision FEL, y el audio,
+los subtítulos y los capítulos de un WEB-DL con el doblaje que el disco no
+trae. A y B son letras en toda la pestaña —azul y morado—, como MKVToolNix
+numera sus ficheros.
 
 El caso real (2026-10-25): Toy Story 5, un remux P7 FEL CMv4.0 a **23,976
 fps** (146.545 frames, 48 pistas) y un WEB-DL de HDO a **24,000 fps** con la
-pista DCP en castellano. Combinados a mano en MKVToolNix, sin retraso ni
+pista DCP en castellano. Juntados a mano en MKVToolNix, sin retraso ni
 ajuste, el audio sale adelantado **−0,30 / −1,51 / −3,00 / −4,49 / −5,76 s**
 en los minutos 5 / 25 / 50 / 75 / 97: un 0,1 %, la diferencia entre las dos
 cadencias. Nada lo avisa —las duraciones no se parecen por los créditos y
-los capítulos no lo dicen—, y por eso la pestaña **mide** antes de combinar.
+los capítulos no lo dicen—, y por eso la pestaña **mide** antes de
+multiplexar.
+
+### Sin papeles: se elige sección a sección (rediseño del 2026-10-27)
+
+Nació como «Combinar MKV», con papeles fijos —A daba el vídeo, B el resto— y
+una selección por defecto. El usuario lo cambió el 2026-10-27, con cuatro
+decisiones:
+
+- **A y B no tienen papeles.** El vídeo puede salir de cualquiera de los dos,
+  y la regla de la línea de tiempo se generaliza (ver abajo).
+- **El proyecto nace SIN NADA ELEGIDO** y se va sección a sección —Vídeo,
+  Audio, Subtítulos, Capítulos y Otros (los adjuntos)—, cada una con dos
+  columnas A | B y un interruptor por elemento. Debajo de cada una, «En el MKV
+  final»: lo elegido, en su orden, con su nombre y sus marcas.
+- **Antes de multiplexar se avisa de lo que se quedó vacío** (un diálogo con
+  las secciones que tienen algo que elegir y nada elegido): repetir veinte
+  minutos por un descuido es lo que se quería evitar. No bloquea: no llevar
+  subtítulos puede ser lo que se quiere.
+- **Los capítulos se eligen uno a uno**, de A, de B o mezclados: «necesito
+  flexibilidad». El vídeo, en cambio, sale de UN solo MKV y entero (una BL y
+  su EL en pistas aparte van juntas).
+
+Los botones: «Todo» y «Nada» en la cabecera de cada columna, y por sección
+«Mis idiomas» (audio y subtítulos), «Solo forzados» (subtítulos) y «Fuentes
+de los ASS elegidos» (otros). Sin atajos globales.
+
+**El vocabulario cambió con él**, porque «combinar» y «retimar» no decían lo
+que hace: «Multiplexar / Multiplexado» (EN «Multiplex», CA «Multiplexar /
+multiplexació»), «ajustar la velocidad del vídeo», «Velocidades distintas»,
+«Se van separando (N ms por hora)» en vez de «deriva (ppm)», «Medida dudosa»
+en vez de «no concluyente», «Pistas comparadas» en vez de «pareja», «Variación
+entre puntos» y «Desfase que queda». **Lo que NO cambió son los ids**: el tipo
+de trabajo `combinar_mkv` (la cola se persiste y el historial es
+append-only), la fase `combinar` (clave de `MuxEjecucion.fases` ya
+guardadas), el glifo `combinar`, las rutas `/api/mux/*` y el tab `mux`.
 
 ### La sincronía se mide por el audio (`phases/mux_sync.py`)
 
 La misma película suena igual en los dos ficheros, así que la envolvente de
-su audio se puede correlar y el desfase sale como el retardo del pico.
+su audio se puede correlar y el desfase sale como el retardo del pico. La
+medida es **siempre B respecto a A** —el sonido que en A está en `t_A` está
+en B en `t_B = α·t_A + β`—; qué hacer con ella depende de lo elegido.
 
 - **Siete ventanas de 30 s** entre el 5 y el 88 % de la película, decodificadas
   a mono 4 kHz y reducidas a una envolvente de arranques a 100 Hz (la subida
   de la log-energía en bloques de 10 ms): no depende del códec, del nivel ni
   de la mezcla, que es lo que cambia entre un TrueHD y un DD+.
-- **Dos anclas con búsqueda ancha (±60 s)** dicen qué ritmo siguen los dos;
-  los demás puntos se buscan ±6 s donde ese ritmo los pone, y con reintento
-  ancho si no aparecen (un corte de montaje).
+- **Dos anclas con búsqueda ancha (±60 s)** dicen qué velocidad siguen los
+  dos; los demás puntos se buscan ±6 s donde esa velocidad los pone, y con
+  reintento ancho si no aparecen (un corte de montaje).
 - **La envolvente de B se lleva a la escala de tiempo de A antes de correlar**
   (revisión de Codex del plan): sin eso, con 23,976/24 los extremos de la
   ventana se separan 30 ms, y con PAL 1,2 s.
@@ -1892,99 +1931,181 @@ su audio se puede correlar y el desfase sale como el retardo del pico.
   mayor fuera de su lóbulo (50 ms). Correlación normalizada y centrada por
   tramo, por FFT **en Python puro**: numpy no está en la imagen.
 - Con los puntos, la recta d(T) = (α − 1)·T + β. La dispersión tiene que
-  caber en 40 ms; el ritmo se ajusta al que declaran las cadencias si cae a
-  ≤ 2 ppm, es «otro ritmo» hasta 200 ppm y «deriva» por encima.
-- **Medido en el caso real**: otro ritmo, α = 0,999006491 (+5,49 ppm sobre
-  1000/1001), cadencia final **23,999868 fps**, β = 3 ms (por debajo de
-  10 ms es ruido y se toma 0), dispersión 4,5 ms, 7/7 puntos, 18 s.
-  Comparando dos idiomas distintos no concluye (3/7): la pareja por defecto
-  es la del mismo idioma si la hay.
+  caber en 40 ms; la velocidad se ajusta a la que declaran las cadencias si
+  cae a ≤ 2 ppm, es «velocidades distintas» hasta 200 ppm y «se van
+  separando» por encima.
+- **Medido en el caso real**: velocidades distintas, α = 0,999006491 (+5,49
+  ppm sobre 1000/1001), cadencia final **23,999868 fps**, β = 3 ms (por
+  debajo de 10 ms es ruido y se toma 0), dispersión 4,5 ms, 7/7 puntos, 18
+  s. Comparando dos idiomas distintos no concluye (3/7): las pistas
+  comparadas por defecto son las del mismo idioma si las hay.
 
 Seis veredictos: `en_sincronia`, `retraso`, `otro_ritmo`, `deriva`,
-`montaje_distinto`, `no_concluyente`. **La medida describe; no decide.**
+`montaje_distinto`, `no_concluyente` (los ids de siempre; la interfaz los
+nombra con el vocabulario nuevo). **La medida describe; no decide.**
 
-### El plan es puro y la interfaz lo lee (`phases/mux_plan.py`)
+### La línea de tiempo, en las dos direcciones (`phases/mux_plan.py`)
 
 Misma regla que `cmv40_strategy`: la línea de tiempo y los motivos para no
-combinar salen de una función sin E/S, `GET /api/mux/{id}` la sirve como
+multiplexar salen de una función sin E/S, `GET /api/mux/{id}` la sirve como
 `plan` —calculado al servir, **no se persiste**— y la interfaz no re-deriva
 nada.
 
+Sea **v** el MKV del que sale el vídeo y **o** el otro. El mapeo de v a o es
+`t_o = f·t_v + d`, con **`(f, d) = (α, β)` si v = A y `(1/α, −β/α)` si
+v = B** (`_mapeo_v_a_o`). Codex y una prueba con fracciones exactas
+confirmaron las fórmulas en las dos direcciones antes de implementarlas.
+
 | situación | qué se hace |
 |---|---|
-| mismo ritmo | las pistas de B se mueven −β (`--sync`) |
-| ritmos distintos, audio solo de B | **se retima el vídeo de A** a cad_A / α (`--default-duration`); lo que vaya de A se estira con α |
-| ritmos distintos, audio solo de A | lo de B se lleva a la línea de A (factor 1/α) |
-| ritmos distintos, audio de los dos | `audio_de_dos_ritmos`: no se combina. Un audio no se estira sin recodificar |
+| de o no sale nada con tiempo | no hace falta la medida (`necesita_sincronia` false) |
+| misma velocidad | lo de o se mueve lo medido (`--sync`) |
+| velocidades distintas, audio solo de v | lo de o se lleva a la línea de v |
+| velocidades distintas, audio solo de o | **se ajusta la velocidad del vídeo** a `cad_v / f` (`--default-duration`); lo de v con tiempo se estira con él (`f`) y lo de o se mueve `−d` |
+| velocidades distintas, audio de los dos | `audio_de_dos_ritmos`: no se multiplexa. Un audio no se estira sin recodificar |
 
-- **Retimar es solo el contenedor**: medido el 2026-10-25, mkvmerge 88 no
-  reescribe el VUI del HEVC —ni la BL ni la EL de un P7 FEL— ni con
-  `--fix-bitstream-timing-information`. Los reproductores de MKV mandan por
-  las marcas del contenedor, y el Dolby Vision sale intacto (comprobado sobre
-  un clip: P7 FEL CM v4.0 y ±8 ms de sincronía).
-- **`video_no_retimable`**: un vídeo VFR (`FrameRate_Mode` de MediaInfo), sin
-  duración de frame o con la BL y la EL en pistas de duraciones distintas no
-  se retima. Retimar escribe UNA duración para todo el vídeo.
-- Los motivos que se pueden pasar por alto con **«Combinar igualmente»**:
+- **El vídeo NUNCA lleva `--sync`**: solo cambia su duración de frame. Con el
+  vídeo dentro de la lista de pistas, un `--sync` con factor encima del
+  `--default-duration` lo estiraría dos veces (revisión de Codex del plan,
+  hallazgo #1; `test_el_video_nunca_lleva_sync`).
+- **`necesita_sincronia`** solo si algo con tiempo —audio, subtítulos o
+  capítulos— sale del MKV que no da el vídeo. Los adjuntos no tienen tiempo,
+  y unos capítulos elegidos de una lista vacía no cuentan (Codex #6). Todo de
+  A no necesita medir nada, y **la medida en marcha solo hace esperar
+  (`/ejecutar` 409) si hace falta**.
+- **La comprobación que vale por todas: `TestTodoCaeEnSuSitio`.** Un mismo
+  sonido, puesto en las dos fuentes con la medida, tiene que acabar en el
+  MKV final en el mismo instante que el fotograma que lo acompaña, en cada
+  combinación de α (cinco), β (cuatro), lado del vídeo y lado del audio: 80
+  casos. Cazó las siete mutaciones de signo y factor que se le probaron.
+- **Ajustar la velocidad es solo el contenedor**: medido el 2026-10-25,
+  mkvmerge 88 no reescribe el VUI del HEVC —ni la BL ni la EL de un P7 FEL—
+  ni con `--fix-bitstream-timing-information`. Los reproductores de MKV
+  mandan por las marcas del contenedor, y el Dolby Vision sale intacto
+  (comprobado sobre un clip: P7 FEL CM v4.0 y ±8 ms de sincronía).
+- **`video_sin_velocidad_fija`**: un vídeo VFR (`FrameRate_Mode` de
+  MediaInfo), sin duración de frame o con la BL y la EL en pistas de
+  duraciones distintas no se ajusta. Lo que se mira es el vídeo ELEGIDO.
+- Los motivos que se pueden pasar por alto con **«Multiplexar igualmente»**:
   `sin_medida`, `medida_vieja`, `deriva`, `montaje_distinto`,
   `no_concluyente`. Lo acepta el usuario con un diálogo delante, y una medida
   nueva lo retira. Los demás no tienen salida que no sea cambiar algo.
-- Con la medida no concluyente se puede escribir el retraso a mano
-  (`retraso_manual_ms`, positivo = las pistas de B se retrasan).
-- **Capítulos** de A, de B o ninguno. Si se mueven se reescriben con un XML
-  ya mapeado: lo que caería antes de 0 se junta en 0 y lo que pasa del final
-  del vídeo se quita.
-- **La selección por defecto**: el vídeo de A entero, y de B todo lo demás
-  (audio, subtítulos, capítulos y las fuentes de sus ASS); si B no trae un
-  tipo, el de A. El nombre: título y año del fichero de B más los tags del
-  vídeo de A ([DV FEL], [CMv4 …]).
+- **El retraso a mano es el de B respecto a A** (`retraso_manual_ms`,
+  positivo = lo de B suena más tarde; β = −retraso). Con el vídeo de B lo que
+  se mueve es lo de A, al revés. **Se aplica tal cual**: el umbral de ruido
+  de 10 ms es para lo MEDIDO (uno de 9 ms se anulaba; Codex #16).
+
+### Los capítulos, uno a uno
+
+- `capitulos_finales` lleva cada capítulo elegido a la línea final con el
+  mapeo de su fuente, los mezcla en el orden de la película, marca `fuera` lo
+  que cae después del final del vídeo y, de lo que cae antes del cero, pasa
+  **el último** al cero (`al_cero`) si no hay ya uno ahí: la película sigue
+  empezando en un capítulo. Lo que queda fuera conserva su tiempo y la lista
+  se enseña con él.
+- **Se componen en un XML y SIN los UID** (`componer_capitulos_xml`):
+  mkvmerge pone UID nuevos a lo que no los trae, y uno repetido —un WEB-DL
+  suele copiar los capítulos del disco— hace que **se coma un capítulo sin
+  avisar** (medido con la v88 del NAS, 2026-10-27). Cada capítulo se copia de
+  SU XML con lo que lleve dentro —nombres en varios idiomas, la marca de
+  oculto, sus anidados—, y los anidados se recortan igual que los de primer
+  nivel, recursivamente (Codex #5). Se leen con `edicion`/`indice`
+  (`MuxCapituloOrigen`) para poder volver a encontrar ESE capítulo.
+- **Todos los de una fuente, sin moverla, van tal cual**
+  (`capitulos_nativos`): mkvmerge los copia con sus ediciones y sus UID.
+- La duración final sale de los frames del vídeo elegido a la velocidad
+  final, y **sin frames, de la duración escalada** (Codex #4: la original sin
+  escalar dejaba fuera capítulos que sí caben).
+
+### Los patrones, la validación y el nombre
+
+- **Los patrones los resuelve el SERVIDOR** (`POST /api/mux/{id}/patron`,
+  `mux_plan.aplicar_patron`) sobre lo guardado, y la interfaz espera a que lo
+  tocado esté guardado antes de pedirlo: uno calculado con un cambio aún en
+  vuelo mezclaría los dos (Codex #15). «Todo» en el vídeo CAMBIA el vídeo;
+  en lo demás, añade al final de su tipo conservando nombre y marcas de lo que
+  ya estaba. «Mis idiomas» son los del perfil de la app
+  (`phase_b.idiomas_preferidos`) más la VO de TMDb (`original_language`, o el
+  inglés), de los dos MKV y sin comentarios; el GET los sirve como
+  `mis_idiomas` para que la interfaz enseñe lo mismo que el patrón elegiría.
+- **El PUT valida y normaliza** (`_validar_pistas` y compañía): 400 con una
+  pista, un capítulo o un adjunto que no existe o repetido (un adjunto
+  desconocido se descartaba sin decirlo; Codex #13), con vídeo de los dos
+  MKV y con medio vídeo de uno; y normaliza el orden vídeo → audio →
+  subtítulos y una sola marca «por defecto» por tipo.
+- **Lo que cambia el MKV devuelve un `done` a `pending`**: pistas,
+  capítulos, adjuntos, título, nombre y retraso a mano (antes solo los tres
+  primeros; Codex #12).
+- **El nombre se recalcula con la selección** salvo que se haya editado: el
+  `[DV FEL]` y el `[CMv4 …]` del vídeo ELEGIDO y el `[Audio DCP]` de un audio
+  elegido (Codex #8: con el vídeo de B se quedaba el FEL de A). Título y año,
+  de la ficha de TMDb si la hay, saneados (`Face/Off` no puede crear un
+  subdirectorio); si no, del nombre de A y después de B.
+
+### El esquema, y los proyectos de antes
+
+- **`esquema: 2`** en el proyecto (`models.ESQUEMA_MUX`) y en cada escritura
+  de la interfaz (`_MUX_ESQUEMA`). Un PUT o un patrón sin él contesta 409
+  «recarga la página»: una pestaña con el JS de antes del rediseño no manda
+  el vídeo en la lista de pistas, y guardarla lo borraría (Codex #14).
+- **Los proyectos de antes del rediseño no se cargan ni se listan**
+  (`storage._es_del_formato_actual`; el listado recuerda que no van para no
+  releerlos). Su B se leyó sin la muestra de Dolby Vision (Codex #9) y
+  migrarlos no compensaba: la pestaña no llegó a ningún release, así que solo
+  existían en el NAS del autor, y se borraron al desplegar.
+- **Los dos MKV llevan su muestra de Dolby Vision al leerse**: de cualquiera
+  puede salir el vídeo, y la Fase C compara el DV del vídeo elegido.
 
 ### Tres fases en un turno de cola (`phases/mux_pipeline.py`)
 
 | fase | qué hace |
 |---|---|
-| A · Comprobación de los orígenes | los dos MKV siguen ahí y sin cambios (huella), el plan sigue permitiendo combinar, el nombre de salida está libre y hay sitio (+5 %) |
-| B · Combinación de las pistas | un `mkvmerge` al `.mkv.tmp` del destino, nunca al nombre final, con el progreso de `--gui-mode` |
+| A · Comprobación de los orígenes | los dos MKV siguen ahí y sin cambios (huella), el plan sigue permitiendo multiplexar, el nombre de salida está libre y hay sitio (+5 %) |
+| B · Multiplexado de las pistas | un `mkvmerge` al `.mkv.tmp` del destino, nunca al nombre final, con el progreso de `--gui-mode`; solo entran las fuentes que aportan algo, y el `--track-order` usa el puesto de cada una en esa lista |
 | C · Comprobación y guardado | lo que se leyó del MKV contra el plan; si cuadra, `_publicar_sin_pisar` y la firma |
 
-La Fase C es la que hace que esto sea de fiar, y comprueba cosas que la
-combinación a mano no comprueba:
+La Fase C es la que hace que esto sea de fiar, y comprueba cosas que el
+multiplexado a mano no comprueba:
 
-- las pistas una a una: tipo, códec, idioma, nombre, marcas, y en el vídeo
-  la cadencia y los frames;
-- **la duración del vídeo** (frames / cadencia del plan): es lo que demuestra
-  que se retimó. La comprobación del audio mide contra el ORIGINAL, y sin
-  esta un vídeo sin retimar con el audio bien puesto pasaría;
-- los capítulos al milisegundo, los adjuntos y el Dolby Vision del MKV final
-  (la muestra de siempre);
-- **la sincronía final de cada audio de B** contra A, en cuatro puntos: la
-  de la pareja de referencia puede tumbar el trabajo; las demás avisan (una
-  pista desfasada dentro de su propio release no la arregla combinar), y con
-  el riesgo aceptado ninguna tumba nada.
-  - **Cada audio de B se compara primero con la de REFERENCIA de A, y con
-    los cuatro puntos** —la que la medida alineó con el vídeo—, y el check
-    dice contra cuál (`contra`). Lo decidieron las medidas de la prueba real
-    de Toy Story 5 (2026-10-25), no la intuición, que iba al revés:
+- las pistas una a una, **el vídeo también** (nombre y marcas, ahora que se
+  elige y se edita como las demás): tipo, códec, idioma, nombre, marcas, y en
+  el vídeo la cadencia y los frames;
+- **la duración del vídeo elegido** (frames / cadencia del plan): es lo que
+  demuestra que se ajustó su velocidad. La comprobación del audio mide
+  contra el ORIGINAL, y sin esta un vídeo sin ajustar con el audio bien
+  puesto pasaría;
+- los capítulos al milisegundo, los adjuntos y el Dolby Vision del vídeo
+  elegido en el MKV final (la muestra de siempre);
+- **la sincronía final de cada audio de o** contra la de referencia del MKV
+  del vídeo, en cuatro puntos, con lo esperado α (vídeo de A) o 1/α (vídeo de
+  B) si se ajustó la velocidad. La de las pistas comparadas puede tumbar el
+  trabajo; las demás avisan (una pista desfasada dentro de su propio release
+  no la arregla multiplexar), y con el riesgo aceptado ninguna tumba nada.
+  Cada check dice contra qué pista se midió y de qué fuente (`contra`,
+  `contra_fuente`; una validación de antes, sin la fuente, era contra A).
+  - **Cada audio se compara primero con la de REFERENCIA, y con los cuatro
+    puntos**. Lo decidieron las medidas de la prueba real de Toy Story 5
+    (2026-10-25), no la intuición, que iba al revés:
     - con DOS puntos, como se hacía, un doblaje contra la referencia inglesa
       no concluía nunca: dos doblajes correlan solo por la música y los
       efectos (r ≈ 0,1-0,2, contraste ≈ 1,5-2,5, la mitad de los puntos
       válidos), y los dos castellanos y el catalán —justo lo que se
-      combinaba— salían «no se pudo medir». Con cuatro, los tres concluyen
+      multiplexaba— salían «no se pudo medir». Con cuatro, los tres concluyen
       a ~6 ms, lo mismo que la referencia (5,9);
-    - compararlos con «su» doblaje en A parecía lo natural y **no vale como
-      primera opción**: el `es` del disco no correla con el castellano del
-      WEB-DL (r ≈ 0,08 en los cuatro puntos: es otro doblaje con la misma
-      etiqueta), y cada pista de A trae su propio desfase dentro de A —el DD
-      5.1 inglés del disco va ~50 ms del TrueHD—, que se leería como un
-      desfase del otro. Solo si la de referencia no concluye se prueban
-      hasta dos de su idioma, la de la misma etiqueta IETF primero
-      (`_del_mismo_idioma`).
+    - compararlos con «su» doblaje en el otro MKV parecía lo natural y **no
+      vale como primera opción**: el `es` del disco no correla con el
+      castellano del WEB-DL (r ≈ 0,08 en los cuatro puntos: es otro doblaje
+      con la misma etiqueta), y cada pista trae su propio desfase dentro de
+      su fichero —el DD 5.1 inglés del disco va ~50 ms del TrueHD—, que se
+      leería como un desfase del otro. Solo si la de referencia no concluye
+      se prueban hasta dos de su idioma, la de la misma etiqueta IETF
+      primero (`_del_mismo_idioma`).
   - **Unos puntos válidos que no coinciden entre sí no son una medida**
     (`_puntos_coinciden`): con una correlación tan floja, un pico casual da
     un residuo de un segundo y se leería como «desfasada». Un desfase de
     verdad desplaza todos los puntos a la vez. No se aplica a la pista de la
     medida, que es una comparación y estricta.
-  - Sin otra pista de su idioma en A y sin medida, el check lleva `motivo:
+  - Sin otra pista de su idioma y sin medida, el check lleva `motivo:
     "sin_mismo_doblaje"` y la interfaz lo dice: «no se pudo medir» a secas
     parece un fallo del MKV.
   - **El `ffmpeg` falso suena en dos capas**: la música y los efectos, comunes
@@ -1993,22 +2114,27 @@ combinación a mano no comprueba:
     test podía ver lo de arriba; con dos, reproduce los números del NAS.
 
 Si algo no cuadra, el `.mkv.tmp` se queda para inspeccionarlo: la regla de la
-Fase H de CMv4.0.
+Fase H de CMv4.0. El tamaño estimado suma el vídeo y los adjuntos elegidos
+(Codex #7), y una pista sin tamaño conocido cancela la cifra.
 
 ### Las clases de trabajo, el estado y el arranque
 
-- **Leer los dos MKV** (`POST /api/mux/create`): INTERACTIVO y síncrono, ~25
-  s con el modal delante, así que va con `API_FETCH_TIMEOUT_LARGO`. Su paso
-  se lee en `/api/mux/create/progress`, sellado por `job`.
+- **Leer los dos MKV** (`POST /api/mux/create`, `{a, b}`): INTERACTIVO y
+  síncrono, ~25 s con el modal delante, así que va con
+  `API_FETCH_TIMEOUT_LARGO`. Su paso se lee en `/api/mux/create/progress`,
+  sellado por `job`.
 - **Medir** (`POST /api/mux/{id}/medir`, y sola al crear): INTERACTIVO y
   fire-and-forget, **una a la vez en toda la app** —dos leyendo del mismo
   vdev se estorban más de lo que adelantan— y cancelable. Se registra con
   `detalle="sincronia_mux"`, así que sale en «En segundo plano».
-- **Combinar** (`POST /api/mux/{id}/ejecutar`): DIFERIDO, a la cola única
+- **Un patrón** (`POST /api/mux/{id}/patron`): LIGERO, como el PUT.
+- **Multiplexar** (`POST /api/mux/{id}/ejecutar`): DIFERIDO, a la cola única
   (`TIPO_COMBINAR`), las tres fases en un turno. Dos proyectos no pueden
   escribir el mismo nombre (409).
 - `/config/mux/{id}.json`, con summary cacheado por `stat` que vacía las
-  pistas, los capítulos, los puntos y los logs y guarda un plan resumido.
+  pistas, los capítulos, los puntos y los logs y guarda un plan resumido
+  (`puede_multiplexar`, los motivos, la velocidad, el vídeo y el audio
+  elegidos, los avisos).
 - **Todo cambio va cargar → cambiar → guardar dentro de un cerrojo por
   proyecto** (por bucle de eventos, la trampa de `_session_save_locks`): la
   medida que termina guardaría su copia vieja encima del nombre recién
@@ -2016,37 +2142,62 @@ Fase H de CMv4.0.
 - `recuperar_proyectos_interrumpidos`: `running` → error y su `.mkv.tmp`
   fuera; `queued` que ya no está en la cola → `pending`; una medida
   `midiendo` → error.
-- El historial: una línea por medida y una por combinación, que apunta a SU
+- El historial: una línea por medida y una por multiplexado, que apunta a SU
   ejecución (`mux:{id}#{n}`) como en Tab 1.
+- **El relato** (`mux_relato`): una selección a medias (sin vídeo o sin
+  audio) es «preparando», con lo que falta en el porqué, y no una decisión
+  pendiente; el Dolby Vision es el del vídeo elegido, y la sincronía dice
+  «no hace falta» cuando todo lo que va en el tiempo sale del MKV del vídeo.
 
 ### La interfaz (`static/mux.js`)
 
 El armazón de las otras tres: columna de proyectos con `tarjetaDeProyecto`
-(el chip de la sincronía es lo que separa una combinación de otra en la
-lista), sub-pestañas navy, tarjetas apiladas y la columna de trabajo común.
-Tono morado y glifo `combinar`, dos ramas que entran en una flecha
-horizontal: la versión vertical —el «merge» de un control de versiones— se
-leía como un muñequito a 14 px.
+(el chip de la sincronía es lo que separa un proyecto de otro en la lista),
+sub-pestañas navy, tarjetas apiladas y la columna de trabajo común. Tono
+morado y glifo `combinar`, dos ramas que entran en una flecha horizontal: la
+versión vertical —el «merge» de un control de versiones— se leía como un
+muñequito a 14 px.
 
-- **Guardado automático, con el campo entero**: una pista renombrada manda la
-  lista completa de pistas, y siempre con el audio delante de los subtítulos
-  (`_muxAgrupar`). Lo destapó el test: una pista añadida iba al final de la
-  lista entera, o sea DETRÁS de los subtítulos, y así habría llegado al
+El panel, de arriba abajo: el **resumen** (lo que cada MKV aporta, «Al
+multiplexar» con el plan en palabras, el nombre y el título, los motivos, lo
+que se ha quedado vacío y el botón **Multiplexar**), la **sincronía**, las
+**cinco secciones**, la comprobación y el historial, y el botón otra vez al
+pie, donde se acaba de recorrer la última sección.
+
+- **Cada sección: dos columnas con un interruptor por elemento** —un checkbox
+  de verdad pintado como conmutador, azul en A y morado en B—, «Todo» y
+  «Nada» en la cabecera de cada columna, los patrones propios de la sección
+  y, debajo, «En el MKV final» (el audio y los subtítulos se ordenan
+  arrastrando; el vídeo no). Una columna de audio o de subtítulos con más de
+  diez elementos enseña lo elegido y lo de tus idiomas, con «Ver las N
+  restantes»; los capítulos van en una caja con scroll, y su «En el MKV
+  final» es la lista del plan, con los tiempos que tendrán y lo que queda
+  fuera o pasa al principio.
+- **El vídeo sale de un solo MKV**: elegir el de B quita el de A, y quitar
+  una de sus pistas desde «En el MKV final» lo quita entero.
+- **«Multiplexar» espera a que lo tocado esté guardado y mira el plan
+  GUARDADO** antes de preguntar por las secciones vacías; y `_muxEncolar` lo
+  vuelve a esperar, porque con el diálogo abierto se puede seguir tocando: un
+  cambio que el servidor rechace o un plan nuevo que ya no deje no se
+  encolan.
+- **Mientras un patrón vuela, la selección no se toca** (`_muxEditable`): un
+  cambio hecho sobre la selección de antes pisaría su resultado al guardarse
+  detrás. Un interruptor que no se aplicó vuelve a su sitio
+  (`_muxDeshacerInterruptor`): el repintado no lo haría, porque el HTML no
+  cambia y `pintarSiCambia` no toca nada.
+- **Guardado automático, con el campo entero y el esquema**: una pista
+  renombrada manda la lista completa de pistas, el vídeo delante, luego el
+  audio y luego los subtítulos (`_muxAgrupar`): una pista añadida al final de
+  la lista entera acabaría DETRÁS de los subtítulos, y así llegaría al
   `--track-order`. Un PUT en vuelo a la vez y lo que llegue mientras tanto se
   junta; uno que el servidor rechaza se deshace volviendo a leer.
 - **Cada lectura lleva su número, y la versión de escritura con la que
-  salió.** Un GET no se aplica si otro más nuevo ya volvió, si hay un PUT en
-  vuelo al volver, ni si una escritura **empezó o terminó mientras volaba**
-  (`_version` sube al salir y al volver cada PUT, y con cada respuesta
-  forzada): mirar solo el PUT en vuelo dejaba pasar el GET que salió durante
-  el guardado y volvió después, con el proyecto de antes. Igualar el contador
-  de lecturas al aplicar una respuesta forzada tampoco bastaba — una lectura
-  que ya había salido tenía ESE número y pasaba, y además paraba el poll.
-- **«Combinar» espera a que lo tocado esté guardado** (`_muxEsperarGuardado`
-  sobre la promesa que devuelve `_muxGuardar`): quitar una pista y pulsar
-  enviaba el POST con el PUT en vuelo o esperando detrás, el servidor
-  encolaba la selección de antes y el PUT rebotaba con un 409. Si el servidor
-  rechazó un cambio, o el plan nuevo ya no deja combinar, no se encola.
+  salió.** Un GET no se aplica si otro más nuevo ya volvió, si hay una
+  escritura en vuelo al volver, ni si una escritura **empezó o terminó
+  mientras volaba** (`_muxEscribiendo` sube `_version` al salir y al volver
+  de cada PUT y de cada patrón, y con cada respuesta forzada): mirar solo el
+  PUT en vuelo dejaba pasar el GET que salió durante el guardado y volvió
+  después, con el proyecto de antes.
 - **Cerrar la pestaña deja de leer y de pintar, no de guardar**: lo que
   esperaba detrás de un PUT se manda igual, reabrirla espera a ese guardado
   (`cerrarMux.enVuelo`) y borrar también.
@@ -2060,38 +2211,116 @@ leía como un muñequito a 14 px.
   resucita (`_muxConLoTocado`).
 - **El retraso a mano es un campo de texto**: con `type="number"`, «+250»
   —lo natural, la nota dice que el positivo retrasa— vale `''` para el
-  navegador y se guardaba 0 sin decir nada. Lo destapó un test.
+  navegador y se guardaba 0 sin decir nada.
 - `pintarSiCambia` con anclas: lo que se escribe y los desplegables abiertos
   sobreviven al poll, y un arrastre aplaza el repintado hasta que se suelta.
 - **El gráfico de la medida**: un punto azul por medida válida, hueco si se
   descartó, y la recta del ajuste **solo si describe algo** —con un montaje
-  distinto o una medida que no concluye no hay una recta para toda la
-  película, y dibujarla plana en cero diría que cuadra—. Zona de 24 px por
-  punto con su tooltip, y la tabla de puntos como gemela.
+  distinto o una medida dudosa no hay una recta para toda la película, y
+  dibujarla plana en cero diría que cuadra—. Zona de 24 px por punto con su
+  tooltip, y la tabla de puntos como gemela.
 - Sin WebSocket: mientras algo corre se lee cada 2 s (6 s con la pestaña
   oculta), encadenado; `alCambiarTrabajos` relee al terminar.
 - Lo que se dice sale de la respuesta: cancelar algo que ya terminó no
   anuncia una cancelación.
 
-La revisión de Codex del frontend (2026-10-25) dio nueve hallazgos y los
-nueve eran ciertos, casi todos de la misma clase que la tanda 3: **lo que pasa
-entre dos peticiones cuando una vuelve tarde**. Sus once mutaciones de
-cobertura sobrevivían a los tests de entonces; hoy son parte de las 51 de la
-pestaña (`T4-*`, `G-*`) y se cazan todas.
+### La revisión de Codex de la implementación (2026-10-27)
 
-Tests: `test_mux_sync`, `test_mux_plan` y `test_mux_endpoints` (el backend,
-con el `mkvmerge` falso que entiende `--default-duration` y `--sync`);
-`test_tab4_combinar` (los flujos de la pestaña en Chrome, con un grabador de
-peticiones **con memoria**: contestando siempre el proyecto de partida, la
-relectura que dispara la columna de trabajo deshacía el cambio y el caso
-medía el arnés); y la pestaña dentro de `test_las_tres_lenguas_en_pantalla`
-y `test_contraste_del_tema`, con los proyectos de `mux_payloads.py` hechos
-por el backend.
+Trece hallazgos, verificados uno a uno contra el código y ciertos los trece,
+más diez mutaciones que según Codex sobrevivían (sobrevivían todas). En el
+frontend, casi todos de la clase de siempre —**lo que se cruza entre dos
+escrituras**—, con una forma nueva: ahora hay DOS escrituras, el PUT y el
+patrón.
+
+- **Mientras vuela un patrón, o mientras se encola, no se toca NADA de lo que
+  guarda** (`_muxEditable` mira `_patron` y `_multiplexando`, y el bloqueo
+  llega al nombre, el título, el retraso, las pistas comparadas, el riesgo y el
+  propio botón). Solo se congelaban los interruptores: un título guardado con
+  el patrón en vuelo volvía DESPUÉS, y su respuesta deshacía en pantalla lo que
+  el patrón ya había dejado en el servidor — se veía una selección y se
+  encolaba otra. Y con `/ejecutar` en vuelo, lo que se tocara rebotaba con un
+  409 y el MKV salía con la selección de antes.
+- **`_muxEsperarGuardado` cubre los PUT, la relectura tras un rechazo y el
+  patrón** (`_patronEnVuelo`). Miraba `_guardando`, que se suelta ANTES de la
+  relectura: en ese hueco la pantalla aún enseña el cambio rechazado, y
+  «Multiplexar» encolaba la selección guardada. La promesa `_guardado` vive
+  hasta que el envío termina, relectura incluida. Cerrar y reabrir esperan
+  también al patrón.
+- **Confirmar el diálogo vuelve a preguntar si lo guardado entretanto vació
+  otra sección**: el «sí» era a otra lista (`_muxEncolar(project, avisadas)`).
+- **Lo que no ha vuelto se compara con lo PEDIDO** (`_muxValorPedido`): volver
+  al nombre de antes con el PUT en vuelo se tomaba por «no ha cambiado» y se
+  quedaba el del PUT.
+
+En el backend, seis:
+
+- **Los capítulos «tal cual» solo si ninguno cae fuera**: con los capítulos de
+  un MKV y el vídeo de otro más corto, el último caía detrás del final, se
+  copiaba igual y la Fase C lo esperaba (`capitulos_nativos` mira la `lista`).
+- **Una lectura de capítulos fallida no es «no tiene capítulos»**: crear falla
+  con el motivo (`mux.no_se_pudieron_leer_los_capitulos`). Con la lista vacía
+  la sección decía que no había, ni salía el aviso de sección vacía, y la Fase
+  C comparaba cero contra cero. El 1 de `mkvextract` son avisos y vale; el
+  fallo es el 2.
+- **El id de un proyecto se reserva con el proyecto guardado**
+  (`_cerrojo("__crear__")`): dos creaciones de la misma película en el mismo
+  segundo sacaban el mismo id y la segunda pisaba a la primera.
+- **Las pistas comparadas no cambian con una medida en marcha** (409): la
+  nueva no arrancaba y la que terminaba guardaba su resultado —el de las
+  pistas de antes— junto a la pareja nueva, que es la que usa la comprobación
+  final.
+- **Una cancelación aceptada en la Fase C no publica**: con todo de un MKV sin
+  Dolby Vision no se pasaba por la muestra ni por la sincronía, que eran los
+  únicos sitios donde se miraba.
+- **«Terminado» deja de serlo cuando el MKV que saldría cambia** también por
+  la ficha (el nombre nuevo, por `_tras_cambiar`) y por una medida que dice
+  otra cosa (`_lo_que_decide`; la misma medida otra vez, no).
+
+Y de las mutaciones, las cinco del plan (el factor de los subtítulos en el
+`--sync`, el adjunto elegido y no otro, la marca de forzado, el título del
+contenedor y la marca de capítulo oculto) y las cinco de la interfaz (un vídeo
+con BL y EL entero, «Nada» que pide nada, renombrar con el mismo id en A y B,
+arrastrar los subtítulos y los tiempos de los capítulos finales) tienen hoy su
+test.
+
+### Los tests, y lo que el arnés aprendió
+
+`test_mux_plan` (el plan en las dos direcciones, con las pistas reales de
+`fixtures_mux/`), `test_mux_sync`, `test_mux_endpoints` (el backend por HTTP
+y con los binarios falsos, el multiplexado de punta a punta en las dos
+direcciones) y `test_tab4_multiplexar` (los flujos de la pestaña en Chrome,
+con un grabador de peticiones **con memoria**: contestando siempre el
+proyecto de partida, la relectura que dispara la columna de trabajo deshacía
+el cambio y el caso medía el arnés); y la pestaña dentro de
+`test_las_tres_lenguas_en_pantalla` y `test_contraste_del_tema`, con los
+proyectos de `mux_payloads.py` hechos por el backend (vacío, listo, al revés,
+pendiente de decisión, terminado, en marcha, en cola y midiendo). Las
+mutaciones de la pestaña son las `T4-*`, `T4P-*` (el plan), `T4R-*`/`T4S-*`/
+`T4L-*`/`T4C-*` (router, persistencia, relato y pipeline), `T4X-*` (los
+arreglos de la revisión de Codex de la implementación) y `T4F-*` (la interfaz
+nueva). Para verificarlas rápido, `mutar.py` acepta una CLASE como módulo
+(`test_mux_endpoints.TestCrear`): el módulo entero son ~3 min por mutación y
+una clase, segundos. En el catálogo van con el módulo entero.
+
+Dos cosas que el rediseño destapó en el arnés:
+
+- **El `mkvmerge` falso TIRABA las opciones globales que van detrás del
+  último fichero**, y ahí es donde se pone el `--track-order`: ningún test
+  podía ver el orden de las pistas del MKV final, y con el vídeo de la
+  segunda entrada salía al final en verde. Hoy las globales del final van
+  con la última entrada (`_GLOBALES`).
+- **Un MKV sin RPU declarado contesta con las props por defecto, un P7
+  FEL**, que es lo que los tests de CMv4.0 esperan de sus orígenes. Desde que
+  se lee el Dolby Vision de los dos MKV, el WEB-DL de los tests salía con un
+  FEL que no tiene: `FakeToolbox.define_sin_dv(nombre)` lo declara HDR10, y
+  `extract-rpu` falla sobre él como el real.
 
 **Para hacer capturas con el Chrome sin cabeza hay que desactivar las
 transiciones y las animaciones CSS**: con `--virtual-time-budget` no avanzan,
 y la pestaña que deja de estar activa se queda congelada a mitad (texto
-blanco sobre transparente), igual que un modal a medio aparecer.
+blanco sobre transparente), igual que un modal a medio aparecer. Y la sonda
+de contraste salta las casillas y los botones de radio: su `value` («on») no
+se pinta, y los interruptores salían por docenas.
 
 ---
 
@@ -3569,7 +3798,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - Estados: `pending` → `queued` → `running` → `done` | `error`
 - **No se persiste si Fase A falla**: la sesión solo se crea tras éxito de A+B.
 - **Timestamps UTC-aware**: `datetime.now(timezone.utc)` siempre.
-- **Cola**: `queue_state.json`. Al arrancar, lo que estaba `running` vuelve a `pending` (con su MKV a medias borrado) y lo `queued` que sigue en la cola se queda `queued` y se reanuda (`recuperar_sesiones_interrumpidas` + `reanudar_cola`). `reanudar_cola` despierta la cola con **cualquier** tipo de trabajo, no solo con rips: una cola que tras el reinicio solo llevara fases CMv4.0 o combinaciones se quedaba dormida hasta que alguien encolara un rip. Y se borran los `*_intermediate.mkv` del primer nivel de `/mnt/tmp`: al arrancar no corre ningún rip, así que son de uno que murió (la fase limpia cuando mkvmerge falla, no cuando matan al proceso).
+- **Cola**: `queue_state.json`. Al arrancar, lo que estaba `running` vuelve a `pending` (con su MKV a medias borrado) y lo `queued` que sigue en la cola se queda `queued` y se reanuda (`recuperar_sesiones_interrumpidas` + `reanudar_cola`). `reanudar_cola` despierta la cola con **cualquier** tipo de trabajo, no solo con rips: una cola que tras el reinicio solo llevara fases CMv4.0 o multiplexados se quedaba dormida hasta que alguien encolara un rip. Y se borran los `*_intermediate.mkv` del primer nivel de `/mnt/tmp`: al arrancar no corre ningún rip, así que son de uno que murió (la fase limpia cuando mkvmerge falla, no cuando matan al proceso).
 
 ### Docker
 - **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.3.3 + Python 3.10
@@ -3595,10 +3824,10 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **478 mutaciones** en
+de entonces seguían en verde. Hoy hay **583 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
-una por cada arreglo que salió de ella— y `app/tools/mutar.py` las caza
-todas. Lo que se aprendió, por orden de cuántas veces se repitió:
+una por cada arreglo que salió de ella y las de la pestaña Multiplexar— y
+`app/tools/mutar.py` las caza todas. Lo que se aprendió, por orden de cuántas veces se repitió:
 
 - **Se probaba que algo PASA, no la frontera en que deja de pasar.** Umbrales
   a 0,70 en vez de 0,85, 300 nits en vez de 200, `> 2` en vez de `>= 2`: el
@@ -4656,7 +4885,7 @@ que es lo que ya disparan los toggles de modo de audio/subtítulos.
 | `tab1.js` | 5.339 | nuevo proyecto, modo serie, sidebar, render de sesión, cola, consola, WS |
 | `tab2.js` | 3.843 | editar MKV + radiografía DV+HDR + la columna de MKVs analizados |
 | `tab3.js` | 8.593 | proyectos CMv4.0, cards por fase, overlay, gráfico de sync |
-| `mux.js` | 1.977 | Tab 4: combinaciones, la sincronía con su gráfico, pistas, modal de creación |
+| `mux.js` | 2.499 | Tab 4: el resumen, la sincronía con su gráfico, las cinco secciones A \| B, modal de creación |
 | `browser.js` | 324 | el file browser modal, que comparten Tab 2, Tab 3 y Tab 4 |
 
 **Son `<script>` clásicos, NO `type="module"`, y es una decisión medida**: **154 nombres de función** se referencian desde atributos inline (`onclick="openProject(…)"`) en `index.html` y en las plantillas que el propio JS emite con `innerHTML`. En un script clásico las declaraciones `function` van a `globalThis` y siguen funcionando sin tocar nada; con módulos quedan encerradas en el ámbito del módulo y haría falta un bloque de 154 `window.foo = foo` **mantenido a mano** — cada botón nuevo moriría en silencio hasta que alguien lo pulsara. No hay build step en este proyecto, así que nadie generaría ese bloque.

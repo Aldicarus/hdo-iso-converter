@@ -1,6 +1,6 @@
 """
-routers/mux.py — Tab 4 (Combinar MKV): el vídeo de un MKV con el audio, los
-subtítulos y los capítulos de otro.
+routers/mux.py — Tab 4 (Multiplexar MKV): dos MKV, y de cada uno lo que se
+elija —vídeo, audio, subtítulos, capítulos y adjuntos— en un MKV final.
 
 Tres trabajos, con las tres clases de `workload`:
 
@@ -10,8 +10,8 @@ Tres trabajos, con las tres clases de `workload`:
     INTERACTIVO y fire-and-forget, como los pre-flight de CMv4.0. Son ~20 s
     leyendo ~2 GB; encolarla detrás de un rip de 40 minutos dejaría el
     proyecto parado sin motivo, y por eso no va a la cola. Una a la vez.
-  · **Combinar** (`POST /api/mux/{id}/ejecutar`): DIFERIDO, a la cola única,
-    con sus tres fases seguidas.
+  · **Multiplexar** (`POST /api/mux/{id}/ejecutar`): DIFERIDO, a la cola
+    única, con sus tres fases seguidas.
 
 Las decisiones están en `phases/mux_plan.py` (puro) y la E/S en
 `phases/mux_pipeline.py`; aquí vive el estado: el JSON del proyecto, la cola,
@@ -41,7 +41,8 @@ import relato
 import storage
 import trabajos
 import workload
-from models import MuxEjecucion, MuxPista, MuxProject, MuxSincronia
+from models import (ESQUEMA_MUX, MuxCapitulo, MuxEjecucion, MuxPista, MuxProject,
+                    MuxSincronia)
 from phases import mux_pipeline, mux_plan, mux_relato, mux_sync
 from queue_manager import queue_manager
 
@@ -157,6 +158,7 @@ async def _payload(pid: str) -> dict:
     """El proyecto entero, con lo que se calcula al servir y NO se guarda:
     el plan, el relato y el tamaño estimado (los tres cambian en cuanto el
     usuario toca algo, y guardarlos sería guardar algo viejo)."""
+    from i18n import idioma_activo
     p = await _cargar_o_404(pid)
     plan = _plan_vivo(p)
     datos = p.model_dump(mode="json")
@@ -165,6 +167,12 @@ async def _payload(pid: str) -> dict:
     datos["tamano_estimado"] = mux_plan.tamano_estimado(p)
     datos["posicion_en_cola"] = _posicion_en_cola(pid)
     datos["midiendo"] = pid in _medidas
+    # Lo que la interfaz necesita para pintar las secciones sin replicar
+    # reglas: qué patrones tiene cada una y qué idiomas son «los míos» (los
+    # mismos que usa el patrón, para que lo resaltado y lo elegido casen).
+    datos["patrones"] = {k: list(v) for k, v in mux_plan.PATRONES.items()}
+    datos["mis_idiomas"] = sorted(mux_plan.idiomas_del_usuario(
+        idioma_activo(), (p.tmdb_info or {}).get("original_language")))
     return _con_progreso_de_medida(datos)
 
 
@@ -176,7 +184,7 @@ def _posicion_en_cola(pid: str) -> int | None:
     return None
 
 
-@router.get("/api/mux", summary="Los proyectos de combinación (columna izquierda)")
+@router.get("/api/mux", summary="Los proyectos de multiplexado (columna izquierda)")
 async def mux_listar():
     def _leer():
         resumenes = storage.list_mux_projects_summary()
@@ -195,7 +203,7 @@ async def mux_listar():
     return {"proyectos": await asyncio.to_thread(_leer)}
 
 
-@router.get("/api/mux/{project_id}", summary="Un proyecto de combinación")
+@router.get("/api/mux/{project_id}", summary="Un proyecto de multiplexado")
 async def mux_obtener(project_id: str):
     return await _payload(project_id)
 
@@ -205,8 +213,8 @@ async def mux_obtener(project_id: str):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class CrearMux(BaseModel):
-    video: str
-    resto: str
+    a: str
+    b: str
 
 
 # El paso de la lectura, para el modal. Lleva el SELLO de su petición (`job`)
@@ -224,9 +232,9 @@ async def mux_crear_progreso():
              dependencies=[Depends(workload.marca(
                  lambda: tr('mux.wl_lectura_de_dos_mkv'), workload.TAB_MUX))])
 async def mux_crear(body: CrearMux, job: str = ""):
-    ruta_v = _ruta_segura(body.video)
-    ruta_r = _ruta_segura(body.resto)
-    if ruta_v == ruta_r:
+    ruta_a = _ruta_segura(body.a)
+    ruta_b = _ruta_segura(body.b)
+    if ruta_a == ruta_b:
         raise HTTPException(status_code=400, detail=tr('mux.los_dos_son_el_mismo'))
     sello = job or uuid.uuid4().hex[:12]
     _creacion.update(activo=True, job=sello, fuente=0, paso="", error=None)
@@ -238,15 +246,20 @@ async def mux_crear(body: CrearMux, job: str = ""):
         return _paso
 
     try:
-        f0 = await mux_pipeline.leer_fuente(ruta_v, con_dv=True, al_paso=paso_de(0))
-        f1 = await mux_pipeline.leer_fuente(ruta_r, con_dv=False, al_paso=paso_de(1))
+        f0 = await mux_pipeline.leer_fuente(ruta_a, al_paso=paso_de(0))
+        f1 = await mux_pipeline.leer_fuente(ruta_b, al_paso=paso_de(1))
         provisional = mux_pipeline.proyecto_nuevo("provisional", f0, f1)
-        provisional.id = await asyncio.to_thread(storage.make_mux_project_id,
-                                                 provisional.nombre_salida)
+        # El id y el guardado, juntos y de uno en uno: `make_mux_project_id`
+        # mira qué existe en disco, y dos creaciones de la misma película en
+        # el mismo segundo sacaban el mismo id y la segunda se guardaba
+        # encima de la primera (revisión de Codex del 2026-10-27).
+        async with _cerrojo("__crear__"):
+            provisional.id = await asyncio.to_thread(storage.make_mux_project_id,
+                                                     provisional.nombre_salida)
+            await _guardar(provisional)
         titulo, _ = _cartel(provisional)
         workload.detallar_actual(que=tr('mux.wl_lectura_de', p1=titulo or provisional.nombre_salida),
                                  titulo=titulo)
-        await _guardar(provisional)
     except RuntimeError as e:
         if _creacion.get("job") == sello:
             _creacion["error"] = str(e)
@@ -260,12 +273,20 @@ async def mux_crear(body: CrearMux, job: str = ""):
     return await _payload(pid)
 
 
+def _nombre_automatico(p: MuxProject) -> str:
+    """El nombre por defecto, con el título y el año de la ficha de TMDb si la
+    hay (en el idioma de la app): sin papeles ya no hay un «MKV del doblaje»
+    del que fiarse para el título en castellano."""
+    ficha = p.tmdb_info or {}
+    anio = ficha.get("year")
+    return mux_plan.nombre_por_defecto(p, ficha.get("title") or "",
+                                       str(anio) if anio else "")
+
+
 async def _hidratar_tmdb(pid: str, tmdb_id: int | None = None) -> bool:
-    """La ficha de TMDb, best-effort. Busca por el nombre del MKV del audio
-    (en un release de un tracker español trae el título en castellano) y si
-    no, por el del vídeo. El año completa el nombre de salida si no lo traía
-    y el usuario no lo ha editado; el título del nombre es el del fichero,
-    como en Tab 1."""
+    """La ficha de TMDb, best-effort. Busca por el nombre de A y, si no da,
+    por el de B. Con la ficha, el nombre de salida pasa a llevar su título y
+    su año, salvo que el usuario lo haya editado."""
     from services.cmv40_recommend import parse_mkv_filename
     from services.tmdb import fetch_details, is_configured, search_movies
     from i18n import idioma_activo
@@ -276,7 +297,7 @@ async def _hidratar_tmdb(pid: str, tmdb_id: int | None = None) -> bool:
         if p is None:
             return False
         if tmdb_id is None:
-            for f in (p.fuentes[1], p.fuentes[0]):
+            for f in p.fuentes:
                 titulo, anio = parse_mkv_filename(f.nombre)
                 if not titulo:
                     continue
@@ -293,12 +314,13 @@ async def _hidratar_tmdb(pid: str, tmdb_id: int | None = None) -> bool:
             p = await _cargar(pid)
             if p is None:
                 return False
+            antes = _volcado(p)
             p.tmdb_info = {**ficha.model_dump(), "idioma": idioma_activo()}
-            if not p.nombre_manual and p.status not in ("queued", "running"):
-                titulo, anio = parse_mkv_filename(p.fuentes[1].nombre)
-                if not anio and ficha.year:
-                    p.nombre_salida = mux_plan.nombre_por_defecto(
-                        p, titulo or "", str(ficha.year))
+            # Por `_tras_cambiar`, como cualquier cambio: con el nombre nuevo,
+            # un proyecto terminado ya no describe el MKV que hay en Output
+            # (revisión de Codex del 2026-10-27).
+            if p.status not in ("queued", "running"):
+                _tras_cambiar(p, antes, recalcular_nombre=True)
             await _guardar(p)
         return True
     except Exception as e:                              # noqa: BLE001
@@ -326,15 +348,25 @@ class PistaMuxIn(BaseModel):
     forzada: bool = False
 
 
+class CapituloMuxIn(BaseModel):
+    fuente: int
+    edicion: int = 0
+    indice: int
+
+
 class AdjuntoMuxIn(BaseModel):
     fuente: int
     id: int
 
 
 class ActualizarMux(BaseModel):
-    """`None` = no tocar."""
+    """`None` = no tocar. `esquema` lo manda la interfaz de ahora: una pestaña
+    del navegador con el código de antes de multiplexar no lo trae, y sus
+    guardados borrarían el vídeo (que antes no iba en la lista) — se le pide
+    recargar (revisión de Codex del plan, 2026-10-27)."""
+    esquema: int | None = None
     pistas: list[PistaMuxIn] | None = None
-    capitulos_de: Literal["video", "resto", "ninguno"] | None = None
+    capitulos: list[CapituloMuxIn] | None = None
     adjuntos: list[AdjuntoMuxIn] | None = None
     titulo: str | None = None
     nombre_salida: str | None = None
@@ -343,24 +375,75 @@ class ActualizarMux(BaseModel):
     retraso_manual_ms: int | None = None
 
 
+class PatronMux(BaseModel):
+    esquema: int | None = None
+    seccion: str
+    patron: str
+
+
+def _exigir_esquema(esquema: int | None) -> None:
+    if esquema != ESQUEMA_MUX:
+        raise HTTPException(status_code=409, detail=tr('mux.recarga_la_pagina'))
+
+
 def _validar_pistas(p: MuxProject, pistas: list[PistaMuxIn]) -> list[MuxPista]:
+    """La selección de pistas que llega del cliente, o un 400.
+
+    Lo que el PUT no deja guardar, porque produciría un MKV roto o uno que no
+    es lo que se ve: una pista que no existe o repetida, vídeo de los dos MKV
+    (el vídeo sale de uno solo) y medio vídeo de uno (una BL y su EL en pistas
+    aparte van juntas). Lo demás se normaliza: el orden vídeo → audio →
+    subtítulos y una sola marca «por defecto» por tipo."""
     vistas = set()
     out = []
     for q in pistas:
-        if q.fuente not in (0, 1):
+        letra = "AB"[q.fuente] if q.fuente in (0, 1) else str(q.fuente)
+        orig = (next((x for x in p.fuentes[q.fuente].pistas if x.id == q.id), None)
+                if q.fuente in (0, 1) else None)
+        if orig is None:
             raise HTTPException(status_code=400, detail=tr('mux.pista_desconocida',
-                                                           fuente=q.fuente, id=q.id))
-        orig = next((x for x in p.fuentes[q.fuente].pistas if x.id == q.id), None)
-        if orig is None or orig.tipo == "video":
-            # El vídeo no es una fila: va entero del MKV del vídeo.
-            raise HTTPException(status_code=400, detail=tr('mux.pista_desconocida',
-                                                           fuente=q.fuente, id=q.id))
+                                                           fuente=letra, id=q.id))
         if (q.fuente, q.id) in vistas:
             raise HTTPException(status_code=400, detail=tr('mux.pista_repetida',
-                                                           fuente=q.fuente, id=q.id))
+                                                           fuente=letra, id=q.id))
         vistas.add((q.fuente, q.id))
         out.append(MuxPista(fuente=q.fuente, id=q.id, nombre=q.nombre.strip(),
                             por_defecto=q.por_defecto, forzada=q.forzada))
+    con_video = {q.fuente for q in out
+                 if next(x for x in p.fuentes[q.fuente].pistas if x.id == q.id).tipo == "video"}
+    if len(con_video) > 1:
+        raise HTTPException(status_code=400, detail=tr('mux.video_de_un_solo_mkv'))
+    for f in con_video:
+        todos = {x.id for x in p.fuentes[f].pistas if x.tipo == "video"}
+        if not todos <= {q.id for q in out if q.fuente == f}:
+            raise HTTPException(status_code=400, detail=tr('mux.video_entero'))
+    return mux_plan.normalizar_pistas(p, out)
+
+
+def _validar_capitulos(p: MuxProject, capitulos: list[CapituloMuxIn]) -> list[MuxCapitulo]:
+    vistos, out = set(), []
+    for c in capitulos:
+        clave = (c.fuente, c.edicion, c.indice)
+        existe = (c.fuente in (0, 1) and any(
+            x.edicion == c.edicion and x.indice == c.indice for x in p.fuentes[c.fuente].capitulos))
+        if not existe or clave in vistos:
+            raise HTTPException(status_code=400, detail=tr('mux.capitulo_desconocido'))
+        vistos.add(clave)
+        out.append(MuxCapitulo(fuente=c.fuente, edicion=c.edicion, indice=c.indice))
+    return out
+
+
+def _validar_adjuntos(p: MuxProject, adjuntos: list[AdjuntoMuxIn]) -> list[dict]:
+    """Un adjunto que no existe, o repetido, es un 400: se descartaba sin
+    decir nada y lo guardado no era lo enviado (revisión de Codex)."""
+    validos = {(i, a.id) for i, f in enumerate(p.fuentes) for a in f.adjuntos}
+    vistos, out = set(), []
+    for a in adjuntos:
+        clave = (a.fuente, a.id)
+        if clave not in validos or clave in vistos:
+            raise HTTPException(status_code=400, detail=tr('mux.adjunto_desconocido'))
+        vistos.add(clave)
+        out.append({"fuente": a.fuente, "id": a.id})
     return out
 
 
@@ -376,21 +459,45 @@ def _nombre_valido(nombre: str) -> str:
     return n
 
 
+# Lo que cambia el MKV que saldría: tocar cualquiera de estos campos en un
+# proyecto terminado lo devuelve a pendiente, o el banner seguiría diciendo
+# «multiplexado» sobre un MKV que ya no corresponde a lo que hay en pantalla.
+# Antes solo contaban las pistas, el nombre y los capítulos: el título, los
+# adjuntos y el retraso manual dejaban el `done` (revisión de Codex).
+_CAMBIAN_EL_RESULTADO = ("pistas", "capitulos", "adjuntos", "titulo", "nombre_salida",
+                         "retraso_manual_ms")
+
+
+def _volcado(p: MuxProject) -> dict:
+    return {k: p.model_dump(mode="json").get(k) for k in _CAMBIAN_EL_RESULTADO}
+
+
+def _tras_cambiar(p: MuxProject, antes: dict, *, recalcular_nombre: bool) -> None:
+    """Lo que sigue a cualquier cambio de la selección: el nombre automático
+    se recalcula (sus tags salen de lo elegido) y un proyecto terminado vuelve
+    a pendiente si cambió algo del resultado."""
+    if recalcular_nombre and not p.nombre_manual:
+        p.nombre_salida = _nombre_automatico(p)
+    if p.status in ("done", "error") and _volcado(p) != antes:
+        p.status = "pending"
+        p.error_message = None
+
+
 @router.put("/api/mux/{project_id}", summary="Cambia la selección, el nombre o las decisiones")
 async def mux_actualizar(project_id: str, body: ActualizarMux):
+    _exigir_esquema(body.esquema)
     volver_a_medir = False
     async with _cerrojo(project_id):
         p = await _cargar_o_404(project_id)
         if p.status in ("queued", "running"):
             raise HTTPException(status_code=409, detail=tr('mux.no_se_edita_en_marcha'))
+        antes = _volcado(p)
         if body.pistas is not None:
             p.pistas = _validar_pistas(p, body.pistas)
-        if body.capitulos_de is not None:
-            p.capitulos_de = body.capitulos_de
+        if body.capitulos is not None:
+            p.capitulos = _validar_capitulos(p, body.capitulos)
         if body.adjuntos is not None:
-            validos = {(i, a.id) for i, f in enumerate(p.fuentes) for a in f.adjuntos}
-            p.adjuntos = [{"fuente": a.fuente, "id": a.id} for a in body.adjuntos
-                          if (a.fuente, a.id) in validos]
+            p.adjuntos = _validar_adjuntos(p, body.adjuntos)
         if body.titulo is not None:
             p.titulo = body.titulo.strip()
         if body.nombre_salida is not None:
@@ -404,25 +511,58 @@ async def mux_actualizar(project_id: str, body: ActualizarMux):
             if len(pareja) != 2 or pareja[0] not in audio(0) or pareja[1] not in audio(1):
                 raise HTTPException(status_code=400, detail=tr('mux.pareja_no_valida'))
             if pareja != (p.pareja or []):
+                # Con una medida en marcha, la nueva no arrancaría
+                # (`_lanzar_medida` dice que ya hay una) y la que termina
+                # guardaría su resultado —el de las pistas de antes— junto a
+                # la pareja nueva, que es la que usa la comprobación final
+                # (revisión de Codex del 2026-10-27).
+                viva = _medidas.get(project_id)
+                tarea = (viva or {}).get("task")
+                if viva and not (tarea is not None and tarea.done()):
+                    raise HTTPException(status_code=409,
+                                        detail=tr('mux.pareja_con_medida_en_marcha'))
                 p.pareja = pareja
                 volver_a_medir = True
         if body.acepta_riesgo is not None:
             p.acepta_riesgo = bool(body.acepta_riesgo)
         if body.retraso_manual_ms is not None:
             p.retraso_manual_ms = int(body.retraso_manual_ms)
-        if p.status in ("done", "error") and (body.pistas is not None or body.nombre_salida is not None
-                                               or body.capitulos_de is not None):
-            # Cambiar lo que se va a combinar vuelve a dejarlo pendiente: el
-            # MKV combinado ya no corresponde a lo que hay en pantalla.
-            p.status = "pending"
-            p.error_message = None
+        _tras_cambiar(p, antes, recalcular_nombre=body.pistas is not None)
         await _guardar(p)
     if volver_a_medir:
         _lanzar_medida(project_id)
     return await _payload(project_id)
 
 
-@router.delete("/api/mux/{project_id}", summary="Borra el proyecto (no el MKV combinado)")
+@router.post("/api/mux/{project_id}/patron", summary="Aplica un patrón de selección a una sección")
+async def mux_patron(project_id: str, body: PatronMux):
+    """Los botones de patrón («Todo de A», «Mis idiomas», «Solo forzados»…).
+
+    Se resuelven AQUÍ, sobre lo guardado, y no en el GET de antes: un patrón
+    calculado con un estado viejo —el que había antes de un cambio que aún se
+    está guardando— mezclaría las dos cosas (revisión de Codex). La interfaz
+    espera a tener guardado lo que tocó antes de pedirlo."""
+    from i18n import idioma_activo
+    _exigir_esquema(body.esquema)
+    async with _cerrojo(project_id):
+        p = await _cargar_o_404(project_id)
+        if p.status in ("queued", "running"):
+            raise HTTPException(status_code=409, detail=tr('mux.no_se_edita_en_marcha'))
+        antes = _volcado(p)
+        idiomas = mux_plan.idiomas_del_usuario(
+            idioma_activo(), (p.tmdb_info or {}).get("original_language"))
+        try:
+            cambio = mux_plan.aplicar_patron(p, body.seccion, body.patron, idiomas)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=tr('mux.patron_desconocido'))
+        for campo, valor in cambio.items():
+            setattr(p, campo, valor)
+        _tras_cambiar(p, antes, recalcular_nombre="pistas" in cambio)
+        await _guardar(p)
+    return await _payload(project_id)
+
+
+@router.delete("/api/mux/{project_id}", summary="Borra el proyecto (no el MKV multiplexado)")
 async def mux_borrar(project_id: str):
     async with _cerrojo(project_id):
         p = await _cargar_o_404(project_id)
@@ -468,6 +608,13 @@ def _turno_de_medida():
     return lock
 
 
+def _lo_que_decide(s: MuxSincronia | None):
+    """De una medida, lo que cambia el MKV que se multiplexaría."""
+    if s is None or s.estado != "medida":
+        return None
+    return (s.veredicto, s.alfa_num, s.alfa_den, s.beta_ms, s.pista_a, s.pista_b)
+
+
 def _lanzar_medida(pid: str) -> bool:
     """Arranca la medida si no hay una de ese proyecto en marcha."""
     viva = _medidas.get(pid)
@@ -505,6 +652,7 @@ async def _medir(pid: str, estado: dict) -> None:
         if p is None:
             _medidas.pop(pid, None)
             return
+        previa = p.sincronia
         p.sincronia = MuxSincronia(estado="midiendo",
                                    huellas=[f.huella for f in p.fuentes])
         # Una medida nueva invalida la decisión tomada sobre la anterior:
@@ -546,6 +694,13 @@ async def _medir(pid: str, estado: dict) -> None:
                 p2 = await _cargar(pid)
                 if p2 is not None and resultado is not None:
                     p2.sincronia = resultado
+                    # Una medida que dice otra cosa cambia el MKV que saldría:
+                    # lo terminado deja de describirlo (revisión de Codex del
+                    # 2026-10-27). La misma medida otra vez, no.
+                    if (p2.status in ("done", "error")
+                            and _lo_que_decide(resultado) != _lo_que_decide(previa)):
+                        p2.status = "pending"
+                        p2.error_message = None
                     await _guardar(p2)
         finally:
             _medidas.pop(pid, None)
@@ -558,7 +713,7 @@ async def _medir(pid: str, estado: dict) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Combinar
+#  Multiplexar
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _otro_con_el_mismo_destino(p: MuxProject) -> str | None:
@@ -572,19 +727,21 @@ def _otro_con_el_mismo_destino(p: MuxProject) -> str | None:
     return None
 
 
-@router.post("/api/mux/{project_id}/ejecutar", summary="Encola la combinación")
+@router.post("/api/mux/{project_id}/ejecutar", summary="Encola el multiplexado")
 async def mux_ejecutar(project_id: str):
     async with _cerrojo(project_id):
         p = await _cargar_o_404(project_id)
         if p.status in ("queued", "running"):
             raise HTTPException(status_code=409, detail=tr('mux.ya_esta_en_marcha'))
-        if project_id in _medidas:
-            raise HTTPException(status_code=409, detail=tr('mux.esperando_a_la_medida'))
         plan = _plan_vivo(p)
-        if not plan["puede_combinar"]:
+        # La medida en marcha solo hace esperar si lo elegido la necesita:
+        # todo de A no tiene nada que medir (revisión de Codex).
+        if project_id in _medidas and plan["necesita_sincronia"]:
+            raise HTTPException(status_code=409, detail=tr('mux.esperando_a_la_medida'))
+        if not plan["puede_multiplexar"]:
             motivos = ", ".join(tr(f"mux.motivo_corto_{m['id']}") for m in plan["motivos"])
             raise HTTPException(status_code=409,
-                                detail=tr('mux.no_se_puede_combinar', motivos=motivos))
+                                detail=tr('mux.no_se_puede_multiplexar', motivos=motivos))
         try:
             final = mux_pipeline.ruta_final(p)
         except RuntimeError as e:
@@ -602,7 +759,7 @@ async def mux_ejecutar(project_id: str):
     titulo, poster = _cartel(p)
     await queue_manager.encolar(queue_manager_mod.TrabajoEnCola(
         tab="mux", tipo=TIPO, clave=project_id,
-        que=tr('mux.cola_combinacion', p1=titulo or p.nombre_salida),
+        que=tr('mux.cola_multiplexado', p1=titulo or p.nombre_salida),
         titulo=titulo, poster=poster,
         datos={"encolado": datetime.now(timezone.utc).isoformat()}))
     return await _payload(project_id)
@@ -620,7 +777,7 @@ def _progreso_fase(fase: str) -> None:
     _progreso.update(fase=fase, fase_desde=time.monotonic(), pct=None, paso="")
 
 
-@router.post("/api/mux/{project_id}/cancelar", summary="Para la combinación o la saca de la cola")
+@router.post("/api/mux/{project_id}/cancelar", summary="Para el multiplexado o lo saca de la cola")
 async def mux_cancelar(project_id: str):
     """Dos significados con el mismo botón, como en CMv4.0: si espera turno
     se saca de la cola; si corre, se mata mkvmerge (o la medida de la Fase C)
@@ -647,8 +804,8 @@ def _registrar_proceso(pid: str):
     return _al_lanzar
 
 
-async def _combinar(pid: str) -> None:
-    """La combinación, con el turno ya concedido."""
+async def _multiplexar(pid: str) -> None:
+    """El multiplexado, con el turno ya concedido."""
     async with _cerrojo(pid):
         p = await _cargar(pid)
         if p is None or p.status != "queued":
@@ -660,7 +817,7 @@ async def _combinar(pid: str) -> None:
         await _guardar(p)
     titulo, poster = _cartel(p)
     workload.registrar(pid, workload.TAB_MUX,
-                       tr('mux.wl_combinacion_de', p1=titulo or p.nombre_salida))
+                       tr('mux.wl_multiplexado_de', p1=titulo or p.nombre_salida))
     inicio = datetime.now(timezone.utc)
     ahora = time.monotonic()
     _progreso.update(id=pid, fase="", pct=None, paso="", desde=ahora, fase_desde=ahora, chips=[])
@@ -691,9 +848,9 @@ async def _combinar(pid: str) -> None:
         _progreso["pct"] = max(0.0, min(100.0, pct))
 
     plan = mux_plan.plan(p, ignorar_estado=True)
-    if plan.get("retimar_video"):
-        _progreso["chips"] = [tr('mux.chip_retimado',
-                                 fps=mux_sync.texto_de_cadencia(mux_plan._fr(plan["retimar_video"])))]
+    if plan.get("velocidad_video"):
+        _progreso["chips"] = [tr('mux.chip_velocidad', fps=mux_sync.texto_de_cadencia(
+            mux_plan._fr(plan["velocidad_video"]["a"])))]
     estado_final, error, validacion = "error", None, None
     trabajo = None
     capitulos_ns = None
@@ -705,7 +862,7 @@ async def _combinar(pid: str) -> None:
             if fase == "comprobar_origenes":
                 await mux_pipeline.fase_a_comprobar_origenes(p, plan, log, cancelado)
             elif fase == "combinar":
-                trabajo, capitulos_ns = await mux_pipeline.fase_b_combinar(
+                trabajo, capitulos_ns = await mux_pipeline.fase_b_multiplexar(
                     p, plan, log, al_lanzar=_registrar_proceso(pid),
                     cancelado=cancelado, al_progreso=al_pct)
             else:
@@ -714,7 +871,7 @@ async def _combinar(pid: str) -> None:
                     cancelado=cancelado, capitulos_ns=capitulos_ns)
             tiempos[fase] = round(time.monotonic() - t0, 1)
         estado_final = "done"
-    except mux_pipeline.CombinacionCancelada:
+    except mux_pipeline.MultiplexadoCancelado:
         estado_final = "cancelled"
         await log('[Pipeline] 🛑 Cancelado ' + tr('tab1.por_el_usuario'))
     except mux_pipeline.ValidacionFallida as e:
@@ -722,7 +879,7 @@ async def _combinar(pid: str) -> None:
         error = str(e)
         await log('[Pipeline] ' + tr('tab1.error', e=e))
     except Exception as e:                              # noqa: BLE001
-        _logger.exception("[mux] la combinación falló")
+        _logger.exception("[mux] el multiplexado falló")
         error = str(e)
         await log('[Pipeline] ' + tr('tab1.error', e=e))
     finally:
@@ -758,11 +915,11 @@ async def _combinar(pid: str) -> None:
                     fases=tiempos, output_log=list(log_lineas), validacion=validacion))
                 await _guardar(q)
         historial.anotar(id=pid, tab=historial.TAB_MUX, tipo=historial.TIPO_COMBINAR_MKV,
-                         que=tr('mux.hist_combinacion', p1=titulo or p.nombre_salida),
+                         que=tr('mux.hist_multiplexado', p1=titulo or p.nombre_salida),
                          titulo=titulo, poster=poster, inicio=inicio, fin=fin,
                          estado=estado_final, error=error,
                          # La ejecución concreta, como en Tab 1: un proyecto
-                         # combinado dos veces tiene dos logs, y la línea
+                         # multiplexado dos veces tiene dos logs, y la línea
                          # del historial habla de uno.
                          ref_log=f"mux:{pid}#{run_n}" if run_n else f"mux:{pid}")
         _progreso.update(id="", fase="", pct=None, paso="", chips=[])
@@ -770,8 +927,8 @@ async def _combinar(pid: str) -> None:
         _procesos.pop(pid, None)
 
 
-async def _runner_combinar(trabajo) -> None:
-    await _combinar(trabajo.clave)
+async def _runner_multiplexar(trabajo) -> None:
+    await _multiplexar(trabajo.clave)
 
 
 def _descartada(trabajo) -> None:
@@ -862,7 +1019,7 @@ def recuperar_proyectos_interrumpidos() -> None:
             _logger.warning("[mux] recuperación de %s fallida: %s", r.get("id"), e)
 
 
-queue_manager.registrar_runner(TIPO, _runner_combinar)
+queue_manager.registrar_runner(TIPO, _runner_multiplexar)
 queue_manager.registrar_descarte(TIPO, _descartada)
 trabajos.registrar(TIPO, _adaptador)
 relato.registrar(workload.TAB_MUX, mux_relato.resolver)

@@ -1,7 +1,7 @@
-"""Proyectos de «Combinar MKV» de ejemplo, hechos por el backend (no es un test).
+"""Proyectos de «Multiplexar MKV» de ejemplo, hechos por el backend (no es un test).
 
 Los usan los tests que pintan la pestaña en Chrome: `test_las_tres_lenguas_en_pantalla`
-(que la lee en las tres lenguas) y `test_tab4_combinar` (que ejecuta sus flujos).
+(que la lee en las tres lenguas) y `test_tab4_multiplexar` (que ejecuta sus flujos).
 Un solo constructor para los dos, por lo mismo que `frontend_sources`: dos copias
 de la forma de un proyecto acaban describiendo dos proyectos distintos.
 """
@@ -13,7 +13,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 
 
 def proyectos_mux() -> dict:
-    """Los proyectos de «Combinar MKV» que pinta la sonda, hechos por el BACKEND.
+    """Los proyectos de «Multiplexar MKV» que pinta la sonda, hechos por el BACKEND.
 
     Las pistas son las reales de `fixtures_mux/` —el caso de Toy Story, un
     remux con 48 pistas y un WEB-DL con 7—, y el plan y el relato salen de
@@ -34,7 +34,8 @@ def proyectos_mux() -> dict:
     from unittest import mock
     sys.path.insert(0, str(APP_DIR))
     import i18n
-    from models import Chapter, MuxAdjunto, MuxEjecucion, MuxFuente, MuxPunto, MuxSincronia
+    from models import (MuxAdjunto, MuxCapitulo, MuxCapituloOrigen, MuxEjecucion, MuxFuente,
+                        MuxPista, MuxPunto, MuxSincronia)
     from phases import mux_pipeline, mux_plan, mux_relato, mux_sync
 
     fix = APP_DIR / "tests" / "fixtures_mux"
@@ -54,8 +55,8 @@ def proyectos_mux() -> dict:
         mi = {"media": {"track": [{"@type": "Video", "FrameRate_Mode": "CFR",
                                    "HDR_Format": "Dolby Vision / SMPTE ST 2086"}]}}
         video = mux_pipeline._resumen_de_video(pistas, mi, _Dovi() if dv else None)
-        capitulos = [Chapter(number=i + 1, timestamp=f"00:{i * 10:02d}:00.000",
-                             name=f"Chapter {i + 1:02d}") for i in range(caps)]
+        capitulos = [MuxCapituloOrigen(edicion=0, indice=i, inicio_ns=i * 600_000_000_000,
+                                       nombre=f"Chapter {i + 1:02d}") for i in range(caps)]
         adjuntos = [MuxAdjunto(id=int(a["id"]), nombre=a.get("file_name") or "",
                                mime=a.get("content_type") or "", tamano=int(a.get("size") or 0))
                     for a in j.get("attachments") or []]
@@ -76,7 +77,25 @@ def proyectos_mux() -> dict:
         p.tmdb_info = {"title": "Blade Runner 2049", "original_title": "Blade Runner 2049",
                        "year": 2017, "runtime_minutes": 164, "genres": ["Science Fiction"],
                        "overview": "A young blade runner discovers a long-buried secret.",
-                       "vote_average": 7.6, "vote_count": 13000, "poster_url": ""}
+                       "vote_average": 7.6, "vote_count": 13000, "poster_url": "",
+                       "original_language": "en"}
+        return p
+
+    def elegir(p, video=0, audio=((1, 1), (1, 2)), subs=((1, 5),), caps=None):
+        """Lo que se elegiría a mano: el vídeo de una fuente entero, y las
+        pistas y los capítulos que se digan. El proyecto nace vacío."""
+        origen = {(i, o.id): o for i, f in enumerate(p.fuentes) for o in f.pistas}
+        claves = [(video, o.id) for o in p.fuentes[video].pistas if o.tipo == "video"] if video is not None else []
+        claves += list(audio) + list(subs)
+        p.pistas = mux_plan.normalizar_pistas(p, [
+            MuxPista(fuente=f, id=i, nombre=origen[(f, i)].nombre or "",
+                     por_defecto=origen[(f, i)].por_defecto, forzada=origen[(f, i)].forzada)
+            for f, i in claves])
+        f_caps = 1 if caps is None else caps
+        if f_caps is not False:
+            p.capitulos = [MuxCapitulo(fuente=f_caps, edicion=c.edicion, indice=c.indice)
+                           for c in p.fuentes[f_caps].capitulos]
+        p.nombre_salida = mux_plan.nombre_por_defecto(p, "Blade Runner 2049", "2017")
         return p
 
     def medida(p, veredicto, alfa=Fraction(1), beta=0, validos=None, salto=None):
@@ -98,6 +117,7 @@ def proyectos_mux() -> dict:
                             medido_en=datetime.now(timezone.utc))
 
     def payload(p, en_cola=False, fase=""):
+        # Lo mismo que `routers.mux._payload` calcula al servir.
         plan = mux_plan.plan(p)
         d = p.model_dump(mode="json")
         d["plan"] = plan
@@ -105,14 +125,19 @@ def proyectos_mux() -> dict:
         d["tamano_estimado"] = mux_plan.tamano_estimado(p)
         d["posicion_en_cola"] = 2 if en_cola else None
         d["midiendo"] = bool(p.sincronia and p.sincronia.estado == "midiendo")
+        d["patrones"] = {k: list(v) for k, v in mux_plan.PATRONES.items()}
+        d["mis_idiomas"] = sorted(mux_plan.idiomas_del_usuario(
+            "en", (p.tmdb_info or {}).get("original_language")))
         return d
 
     alfa = Fraction(1000, 1001)
     with mock.patch.object(i18n, "idioma_activo", return_value="en"):
-        dec = proyecto("mux_Blade_Runner_2049_2017_1")
+        vacio = proyecto("mux_Blade_Runner_2049_2017_0")
+        vacio.sincronia = medida(vacio, mux_sync.OTRO_RITMO, alfa)
+        dec = elegir(proyecto("mux_Blade_Runner_2049_2017_1"))
         dec.sincronia = medida(dec, mux_sync.NO_CONCLUYENTE, validos=[0, 4, 6])
         dec.retraso_manual_ms = 120
-        hecho = proyecto("mux_Blade_Runner_2049_2017_2")
+        hecho = elegir(proyecto("mux_Blade_Runner_2049_2017_2"))
         hecho.sincronia = medida(hecho, mux_sync.OTRO_RITMO, alfa)
         hecho.status = "done"
         hecho.output_mkv_path = "/mnt/output/" + hecho.nombre_salida
@@ -127,9 +152,9 @@ def proyectos_mux() -> dict:
             {"id": "adjuntos", "ok": True, "esperado": 1, "real": 1},
             {"id": "dolby_vision", "ok": True, "esperado": "P7 FEL v4.0", "real": "P7 FEL v4.0"},
             {"id": "sincronia", "pista": 2, "ok": True, "aviso": False,
-             "esperado": "≤ 40 ms", "real": "6.2 ms", "contra": 1},
+             "esperado": "≤ 40 ms", "real": "6.2 ms", "contra": 1, "contra_fuente": 0},
             {"id": "sincronia_pista", "pista": 3, "ok": None, "aviso": True,
-             "esperado": "≤ 40 ms", "real": None, "contra": 1,
+             "esperado": "≤ 40 ms", "real": None, "contra": 1, "contra_fuente": 0,
              "motivo": "sin_mismo_doblaje"}]}
         ini = datetime.now(timezone.utc) - timedelta(minutes=40)
         hecho.historial = [MuxEjecucion(
@@ -137,19 +162,27 @@ def proyectos_mux() -> dict:
             status="done", fases={"comprobar_origenes": 4.2, "combinar": 742.0,
                                   "comprobar_y_guardar": 96.4},
             output_log=["[Pipeline] start"])]
-        marcha = proyecto("mux_Blade_Runner_2049_2017_3")
+        marcha = elegir(proyecto("mux_Blade_Runner_2049_2017_3"))
         marcha.sincronia = medida(marcha, mux_sync.RETRASO, beta=2350)
         marcha.status = "running"
-        cola = proyecto("mux_Blade_Runner_2049_2017_4")
+        cola = elegir(proyecto("mux_Blade_Runner_2049_2017_4"))
         cola.sincronia = medida(cola, mux_sync.MONTAJE_DISTINTO, salto=[2797, 3652])
         cola.acepta_riesgo = True
         cola.status = "queued"
-        midiendo = proyecto("mux_Blade_Runner_2049_2017_5")
+        midiendo = elegir(proyecto("mux_Blade_Runner_2049_2017_5"))
         midiendo.sincronia = MuxSincronia(estado="midiendo", progreso=[3, 7])
-        # El caso real (otro ritmo, el vídeo se retima) listo para combinar.
-        listo = proyecto("mux_Blade_Runner_2049_2017_6")
+        # El caso real (velocidades distintas: el vídeo de A pasa a la
+        # velocidad del audio de B) listo para multiplexar.
+        listo = elegir(proyecto("mux_Blade_Runner_2049_2017_6"))
         listo.sincronia = medida(listo, mux_sync.OTRO_RITMO, alfa)
-        cache.update({"listo": payload(listo),
+        # Al revés: el vídeo de B con el audio de A y los capítulos de los
+        # dos, mezclados.
+        reves = elegir(proyecto("mux_Blade_Runner_2049_2017_7"), video=1,
+                       audio=((0, 1), (0, 3)), subs=((0, 22),), caps=False)
+        reves.capitulos = [MuxCapitulo(fuente=0, indice=0), MuxCapitulo(fuente=1, indice=3),
+                           MuxCapitulo(fuente=1, indice=6)]
+        reves.sincronia = medida(reves, mux_sync.OTRO_RITMO, alfa, beta=1500)
+        cache.update({"vacio": payload(vacio), "listo": payload(listo), "reves": payload(reves),
                       "decision": payload(dec), "hecho": payload(hecho),
                       "marcha": payload(marcha, fase="combinar"),
                       "cola": payload(cola, en_cola=True),

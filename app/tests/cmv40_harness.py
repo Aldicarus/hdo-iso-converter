@@ -253,6 +253,19 @@ class FakeToolbox:
         self._flush()
         return p
 
+    def define_sin_dv(self, name: str) -> None:
+        """Un MKV cuyo HEVC no lleva Dolby Vision (un WEB-DL HDR10):
+        `extract-rpu` falla sobre él como el real («No RPU was found»).
+
+        Sin declararlo, un fichero sin RPU definido contesta con las props por
+        defecto —un P7 FEL—, que es lo que los tests de CMv4.0 esperan de sus
+        orígenes; pero desde que «Multiplexar MKV» lee el Dolby Vision de las
+        DOS fuentes, el WEB-DL de sus tests salía con un P7 FEL que no tiene y
+        el nombre de salida le ponía un [DV FEL] con el vídeo de B."""
+        self._scenario["rpus"][name] = dict(self._scenario["rpus"].get(name) or {},
+                                            sin_rpu=True)
+        self._flush()
+
     def define_rpu_levels(self, name: str, *, l8_indices: list[int] | None = None,
                           l9_primary: int | None = None,
                           l11_content_type: int | None = None,
@@ -2181,9 +2194,20 @@ _SIN_AUDIO = ("--no-audio", "-A")
 _SIN_SUBS = ("--no-subtitles", "-S")
 
 
+# Las opciones GLOBALES de mkvmerge: valen estén donde estén, también detrás
+# del último fichero, que es donde las pone «Multiplexar MKV».
+_GLOBALES = ("--track-order", "--title", "--chapters", "--global-tags",
+             "--segment-uid", "--chapter-language", "--chapter-charset")
+
+
 def _entradas_del_mux():
     """`[(ruta, opciones)]` en orden. Las opciones de mkvmerge se aplican al
-    fichero que las SIGUE; las que tienen valor se guardan como lista."""
+    fichero que las SIGUE; las que tienen valor se guardan como lista.
+
+    Las globales que quedan detrás del último fichero van con él: el
+    `--track-order` final se TIRABA, así que ningún test podía ver el orden
+    de las pistas, y con el vídeo de la segunda entrada el MKV salía con el
+    vídeo al final y en verde (rediseño de «Multiplexar MKV», 2026-10-27)."""
     entradas, pendientes, i = [], {}, 0
     while i < len(ARGV):
         a = ARGV[i]
@@ -2198,6 +2222,10 @@ def _entradas_del_mux():
             continue
         entradas.append((a, pendientes))
         pendientes, i = {}, i + 1
+    if entradas:
+        for clave in _GLOBALES:
+            if clave in pendientes:
+                entradas[-1][1].setdefault(clave, []).extend(pendientes[clave])
     return entradas
 
 

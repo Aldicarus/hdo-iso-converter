@@ -880,6 +880,18 @@
       ],
       "body": []
     },
+    "POST /api/mux/{project_id}/patron": {
+      "params": [
+        [
+          "project_id",
+          "path",
+          true
+        ]
+      ],
+      "body": [
+        "application/json"
+      ]
+    },
     "POST /api/mux/{project_id}/tmdb-refresh": {
       "params": [
         [

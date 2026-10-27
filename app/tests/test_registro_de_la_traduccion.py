@@ -99,6 +99,9 @@ NOMBRE_PROPIO = {
     "ui.solo_consultar_editar_mkv":
         "los tres filtros de la columna nombran las tres pestañas, y «Inspect /"
         " Edit MKV» es el nombre de una de ellas",
+    "ui.solo_multiplexar_mkv":
+        "la gemela de la de arriba: «Multiplex MKVs» es el nombre de la "
+        "pestaña 4, y con «Only» delante la heurística la toma por Title Case",
 }
 
 IGUAL_EN_INGLES = {
@@ -125,6 +128,13 @@ IGUAL_EN_INGLES = {
         "el rótulo de la pestaña 1 es un icono, un nombre comercial "
         "(«Blu-Ray»), dos siglas del glosario y una flecha: no hay ninguna "
         "palabra que traducir",
+    "tab4.seccion_audio":
+        "«Audio» se escribe igual en castellano y en inglés (en catalán, "
+        "«Àudio»). Es el título de una de las cinco secciones de «Multiplexar "
+        "MKV»",
+    "tab4.aporta_audio":
+        "«audio: {n}», una pieza de la línea «Aporta» del resumen: la palabra "
+        "es la misma en castellano y en inglés, y en catalán lleva acento",
     "workload.minutos":
         "«min» es la abreviatura de minuto en las tres lenguas. Va al "
         "catálogo igualmente porque el hueco tiene que poder separarse de la "

@@ -11163,11 +11163,12 @@ span[data-icono] {
 }
 
 /* ═════════════════════════════════════════════════════════════════
-   TAB 4 — Combinar MKV
+   TAB 4 — Multiplexar MKV
    Las tarjetas, las listas de pistas, el banner y la barra de acciones
    son las de Tab 1 (`section-card`, `track-item`, `banner`,
    `project-action-bar`): aquí solo lo propio — las dos letras de las
-   fuentes, el veredicto de la sincronía y su gráfico, y el modal.
+   fuentes, las dos columnas de cada sección con su interruptor, el
+   veredicto de la sincronía y su gráfico, y el modal.
    ═════════════════════════════════════════════════════════════════ */
 .mux-panel { display: none; }
 .mux-cargando {
@@ -11186,7 +11187,7 @@ span[data-icono] {
 .mux-letra-a { background: var(--blue-dim); color: var(--blue); }
 .mux-letra-b { background: rgba(var(--purple-rgb), 0.14); color: var(--purple-text); }
 
-/* ── Orígenes y salida ──────────────────────────────────────────── */
+/* ── El resumen: las dos fuentes, el plan y la salida ───────────── */
 .mux-fuentes {
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
   margin-bottom: 14px;
@@ -11209,6 +11210,13 @@ span[data-icono] {
   font-size: var(--fs-sm); color: var(--text-3); margin-top: 3px; line-height: 1.45;
   overflow-wrap: anywhere;
 }
+/* Lo que el MKV final saca de esta fuente: es lo que se mira al volver al
+   resumen después de recorrer las secciones. */
+.mux-aporta {
+  margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--sep);
+  font-size: var(--fs-sm); color: var(--text-3); line-height: 1.45;
+}
+.mux-fuente.aporta .mux-aporta { color: var(--text-1); font-weight: 600; }
 .mux-salida { display: flex; flex-direction: column; gap: 6px; }
 .mux-campo-rotulo {
   font-size: var(--fs-xs); font-weight: 700; color: var(--text-3);
@@ -11308,7 +11316,82 @@ span[data-icono] {
 .mux-pareja-fila { display: flex; align-items: center; gap: 8px; width: 100%; }
 .mux-pareja-fila select { flex: 1; min-width: 0; }
 
-/* ── Pistas ─────────────────────────────────────────────────────── */
+/* ── Las secciones: dos columnas, A y B ─────────────────────────── */
+.mux-patrones { display: flex; flex-wrap: wrap; gap: 4px; }
+.mux-columnas {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start;
+}
+.mux-columna {
+  min-width: 0; border: 1px solid var(--sep); border-radius: var(--r-md);
+  background: var(--surface-1); overflow: hidden;
+}
+.mux-columna-cab {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px;
+  background: var(--surface-2); border-bottom: 1px solid var(--sep);
+}
+.mux-columna-nombre {
+  flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mux-columna-acciones { display: flex; gap: 2px; flex-shrink: 0; }
+.mux-columna-vacia { padding: 12px 10px; font-size: var(--fs-sm); color: var(--text-3); }
+.mux-filas { list-style: none; margin: 0; padding: 0; }
+/* Los capítulos son muchos y cortos: en una caja con scroll, sin plegar. */
+.mux-filas-caja { max-height: 340px; overflow-y: auto; }
+.mux-fila {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 7px 10px; border-bottom: 1px solid var(--sep);
+}
+.mux-fila:last-child { border-bottom: 0; }
+.mux-fila-texto { flex: 1; min-width: 0; }
+.mux-fila-titulo {
+  font-size: var(--fs-md); color: var(--text-2); line-height: 1.35;
+  overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+}
+.mux-fila.elegida .mux-fila-titulo { color: var(--text-1); font-weight: 600; }
+.mux-fila-dato {
+  font-size: var(--fs-sm); color: var(--text-3); line-height: 1.4; margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+.mux-fila-nota {
+  flex-shrink: 0; padding: 2px 7px; border-radius: var(--r-md);
+  background: var(--orange-dim); color: var(--orange-text);
+  font-size: var(--fs-xs); font-weight: 700; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.mux-fila.fuera .mux-fila-titulo { text-decoration: line-through; color: var(--text-3); }
+
+/* El interruptor de cada elemento: un checkbox de verdad —se usa con el
+   teclado y lo lee un lector de pantalla— pintado como un conmutador. Del
+   color de su columna: azul en A, morado en B. */
+.mux-interruptor {
+  appearance: none; -webkit-appearance: none; flex-shrink: 0;
+  width: 30px; height: 18px; margin: 1px 0 0; position: relative;
+  border-radius: var(--r-full); border: 1px solid var(--sep-strong);
+  background: var(--surface-3); cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.mux-interruptor::after {
+  content: ''; position: absolute; top: 1px; left: 1px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--surface-1); box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  transition: transform var(--t-fast) var(--ease);
+}
+.mux-interruptor:checked { background: var(--blue); border-color: var(--blue); }
+.mux-columna-b .mux-interruptor:checked { background: var(--purple); border-color: var(--purple); }
+.mux-interruptor:checked::after { transform: translateX(12px); }
+.mux-interruptor:disabled { opacity: var(--op-muy-tenue); cursor: not-allowed; }
+.mux-interruptor:focus-visible { outline: 2px solid var(--blue-border); outline-offset: 2px; }
+
+.mux-ver-todas {
+  display: block; width: 100%; padding: 7px 10px; text-align: left;
+  border: 0; border-top: 1px solid var(--sep); background: var(--surface-2);
+  color: var(--blue-text); font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+}
+.mux-ver-todas:hover { background: var(--surface-3); }
+
+/* «En el MKV final», bajo las columnas: lo elegido, en su orden. */
+.mux-final { margin-top: 14px; }
 .track-item.mux-pista { grid-template-columns: 28px 22px 26px 1fr auto auto; }
 .track-item.mux-pista .mux-letra,
 .track-item.mux-pista .track-type-icon { grid-row: 1; }
@@ -11318,25 +11401,23 @@ span[data-icono] {
   font-size: var(--fs-xs); font-weight: 700; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.mux-disponible .mux-letra { margin-right: 2px; }
-
-/* ── Capítulos y adjuntos ───────────────────────────────────────── */
-.mux-modos { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.mux-capitulos {
-  margin: 8px 0 0; padding: 0; list-style: none;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px;
-  max-height: 260px; overflow-y: auto; counter-reset: cap;
+.mux-capitulos-final {
+  margin: 6px 0 0; padding: 0; list-style: none;
+  max-height: 300px; overflow-y: auto;
 }
-.mux-capitulos li {
-  display: flex; gap: 10px; font-size: var(--fs-sm); padding: 3px 0;
-  border-bottom: 1px solid var(--sep); min-width: 0;
+.mux-cap-final {
+  display: flex; align-items: center; gap: 10px; padding: 4px 0;
+  border-bottom: 1px solid var(--sep); font-size: var(--fs-sm); min-width: 0;
 }
-.mux-cap-tiempo { font-family: var(--mono); color: var(--text-3); flex-shrink: 0; }
-.mux-cap-nombre { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mux-adjuntos { display: flex; flex-direction: column; gap: 6px; }
-.mux-adjunto { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); cursor: pointer; }
-.mux-adjunto-nombre { color: var(--text-1); overflow-wrap: anywhere; }
-.mux-adjunto-dato { color: var(--text-3); font-size: var(--fs-sm); margin-left: auto; white-space: nowrap; }
+.mux-cap-final.fuera .mux-cap-nombre { text-decoration: line-through; color: var(--text-3); }
+.mux-cap-tiempo {
+  font-family: var(--mono); color: var(--text-3); flex-shrink: 0; min-width: 62px;
+  font-variant-numeric: tabular-nums;
+}
+.mux-cap-nombre {
+  flex: 1; min-width: 0; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ── La comprobación del MKV combinado ──────────────────────────── */
 .mux-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -11350,7 +11431,7 @@ span[data-icono] {
 .mux-check-texto { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; }
 .mux-check-detalle { margin: 4px 0 0; padding-left: 16px; font-size: var(--fs-sm); color: var(--red-text); }
 
-/* ── Lo que impide combinar ─────────────────────────────────────── */
+/* ── Lo que impide multiplexar ──────────────────────────────────── */
 .mux-motivos {
   margin: 4px 0 6px; padding: 10px 14px;
   border-radius: var(--r-md); border: 1px solid var(--orange-border); background: var(--orange-dim);
@@ -11363,8 +11444,17 @@ span[data-icono] {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-top: 8px; font-size: var(--fs-sm); color: var(--text-3);
 }
+/* Lo que se ha quedado sin nada elegido: no impide nada, se ve antes de
+   pulsar (y el botón lo vuelve a preguntar). */
+.mux-vacias {
+  display: flex; align-items: flex-start; gap: 8px; margin: 6px 0 2px;
+  font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5;
+}
+.mux-vacias svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 2px; color: var(--blue); }
+.mux-pie-nota { flex: 1; font-size: var(--fs-sm); color: var(--text-3); text-align: right; }
+.mux-resumen .project-action-bar { padding-bottom: 4px; }
 
-/* ── El modal «Nueva combinación» ───────────────────────────────── */
+/* ── El modal «Nuevo multiplexado» ──────────────────────────────── */
 .mux-nueva-box { max-width: 860px; width: 92vw; }
 .mux-nueva-huecos {
   display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: stretch;
@@ -11395,12 +11485,10 @@ span[data-icono] {
 .mux-paso-pendiente { opacity: var(--op-muy-tenue); }
 
 @media (max-width: 760px) {
-  .mux-fuentes { grid-template-columns: 1fr; }
+  .mux-fuentes, .mux-columnas { grid-template-columns: 1fr; }
   .mux-nueva-huecos { grid-template-columns: 1fr; }
   .mux-intercambiar svg { transform: none; }
 }
-.mux-disponibles > summary.tracks-group-label { cursor: pointer; margin-bottom: 0; padding: 2px 0; }
-.mux-disponibles[open] > summary.tracks-group-label { margin-bottom: 8px; }
 /* La cabecera de una tarjeta: el título ocupa lo que sobra y el recuento o
    el botón van a la derecha, como en el resto de tarjetas con acción. */
 .mux-panel .section-header > div:not(.mux-acciones-cab) { flex: 1; min-width: 0; }

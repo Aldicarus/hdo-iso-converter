@@ -34,7 +34,7 @@ It runs on a NAS or any Linux machine with Docker and is used from the browser. 
 |---|---|
 | 💿 **Blu-ray ISO → MKV** | A lossless MKV of the disc, with the Dolby Vision FEL layer, the best audio tracks and the chapters |
 | ✨ **Dolby Vision CMv4.0 upgrade** | Adds the colorist's CMv4.0 trims to the disc's own Dolby Vision, without touching the picture |
-| 🔀 **Combine MKV** | The disc's picture with the dub and subtitles of another release, measured into sync |
+| 🔀 **Multiplex MKVs** | What you choose from two MKVs —the disc's picture, another release's dub and subtitles— in one file, measured into sync |
 | 🔬 **Inspect / Edit MKV** | The DV+HDR deep dive of any MKV, to check the result, plus instant editing of tracks and chapters |
 
 ---
@@ -119,11 +119,11 @@ Dolby Vision carries a set of instructions that tells each TV how to fit the pic
 
 When the disc lacks a dub, another release often has it — usually a WEB-DL, with a weaker picture.
 
-- **Two MKVs, one file.** The picture of the remux, with its Dolby Vision FEL, and the audio, subtitles and chapters of the other release. Nothing is re-encoded.
+- **Two MKVs, one file, and you choose what comes from each.** Typically the picture of the remux, with its Dolby Vision FEL, and the audio, subtitles and chapters of the other release — but any mix works, section by section and even chapter by chapter. Nothing is re-encoded.
 - **The sync is measured, not assumed.** It compares the sound of both files at seven points of the movie. Two releases of the same film often run at slightly different speeds — 23.976 and 24 fps — and merged as they are, the audio drifts by almost six seconds by the end.
-- **When the speeds differ, the video is retimed in the container.** The picture and its Dolby Vision stay as they are, bit for bit; only the timing of each frame changes, so the dub stays in sync from the first minute to the last.
-- **It says when it cannot be done.** A different cut, or a measurement that does not add up, is shown on a chart before anything is combined.
-- **A final check reads the combined MKV back**: every track, the chapters, the Dolby Vision and the sync of every audio track against the original picture.
+- **When the speeds differ, the video's speed is adjusted in the container**, whichever file it comes from. The picture and its Dolby Vision stay as they are, bit for bit; only the timing of each frame changes, so the dub stays in sync from the first minute to the last.
+- **It says when it cannot be done.** A different cut, or a measurement that does not add up, is shown on a chart before anything is multiplexed — and a section left empty by mistake is pointed out before the job starts.
+- **A final check reads the multiplexed MKV back**: every track, the chapters, the Dolby Vision and the sync of every audio track against the original picture.
 
 ### 🔬 The DV+HDR deep dive: check the result
 

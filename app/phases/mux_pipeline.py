@@ -1,16 +1,15 @@
 """
-phases/mux_pipeline.py — Leer los dos MKV, medir su sincronía y combinarlos.
+phases/mux_pipeline.py — Leer los dos MKV, medir su sincronía y multiplexarlos.
 
-Las tres cosas que hace la pestaña «Combinar MKV» con E/S de verdad. Las
+Las tres cosas que hace la pestaña «Multiplexar MKV» con E/S de verdad. Las
 decisiones viven en `mux_plan` (qué pistas, qué línea de tiempo, qué argv) y
 la medida en `mux_sync`; aquí se lanzan los procesos, se leen sus salidas y
 se escribe el log. El estado del proyecto (guardarlo, la cola, el historial)
 es del router: estas funciones reciben el proyecto y devuelven lo que pasó.
 
 Lo que se reutiliza, y por qué no se reescribe:
-  · los capítulos en formato simple (`mkv_analyze._extract_chapters`) y la
-    muestra de Dolby Vision de 30 s (`mkv_analyze._run_dovi_on_mkv`): son
-    los mismos que ve la radiografía de Tab 2, y dos lecturas distintas del
+  · la muestra de Dolby Vision de 30 s (`mkv_analyze._run_dovi_on_mkv`): es
+    la misma que ve la radiografía de Tab 2, y dos lecturas distintas del
     mismo fichero acabarían diciendo cosas distintas;
   · `phase_e.ruta_de_salida` y el nombre de trabajo `.mkv.tmp`: un nombre
     con `..` no sale de /mnt/output, y un MKV a medias nunca lleva el nombre
@@ -34,8 +33,8 @@ from pathlib import Path
 
 import firma
 from i18n import t as tr
-from models import (MuxAdjunto, MuxFuente, MuxPistaOrigen, MuxProject,
-                    MuxPunto, MuxSincronia, MuxVideo)
+from models import (ESQUEMA_MUX, MuxAdjunto, MuxCapituloOrigen, MuxFuente,
+                    MuxPistaOrigen, MuxProject, MuxPunto, MuxSincronia, MuxVideo)
 from phases import mux_plan, mux_sync
 
 _logger = logging.getLogger(__name__)
@@ -54,8 +53,8 @@ MKVMERGE_INACTIVIDAD_S = 900
 VIGILANTE_CADA_S = 30
 
 
-class CombinacionCancelada(Exception):
-    """La combinación se paró a petición. No es un fallo."""
+class MultiplexadoCancelado(Exception):
+    """El multiplexado se paró a petición. No es un fallo."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -129,7 +128,7 @@ def _frames_fiables(props: dict) -> int:
 
     Es una ETIQUETA, no un recuento: la escribe el programa que muxeó el
     fichero, y otro editor puede dejarla vieja. mkvmerge la regenera al
-    combinar, así que comparar contra una etiqueta ajena daría por fallido un
+    multiplexar, así que comparar contra una etiqueta ajena daría por fallido un
     MKV correcto (revisión de Codex del plan). Sin ella, 0: «no se sabe»."""
     app = str(props.get("tag__statistics_writing_app") or "")
     return _int(props.get("tag_number_of_frames")) if app.startswith("mkvmerge") else 0
@@ -140,12 +139,17 @@ def pistas_de_j(j: dict, mediainfo: dict | None = None) -> list[MuxPistaOrigen]:
     por_numero = _mediainfo_por_numero(mediainfo)
     pistas = []
     for t in j.get("tracks") or []:
+        if t.get("type") not in ("video", "audio", "subtitles"):
+            # Un `buttons` (los menús de un DVD) u otro tipo raro no es una
+            # pista que se pueda elegir: se leía como vídeo y acababa en el
+            # `--video-tracks` (revisión de Codex del 2026-10-27).
+            continue
         p = t.get("properties") or {}
         mi = por_numero.get(_int(p.get("number"), -1)) or {}
         bytes_ = _int(p.get("tag_number_of_bytes")) or _int(mi.get("StreamSize"))
         pistas.append(MuxPistaOrigen(
             id=_int(t.get("id")),
-            tipo=t.get("type") if t.get("type") in ("video", "audio", "subtitles") else "video",
+            tipo=t.get("type"),
             codec=t.get("codec") or "",
             codec_id=p.get("codec_id") or "",
             idioma=p.get("language") or "und",
@@ -189,20 +193,51 @@ def _resumen_de_video(pistas: list[MuxPistaOrigen], mediainfo: dict | None,
     )
 
 
-async def leer_fuente(ruta: str, *, con_dv: bool, al_paso=None) -> MuxFuente:
+async def leer_capitulos(ruta: str) -> list[dict] | None:
+    """Los capítulos de primer nivel de un MKV, de su XML (`mkvextract
+    chapters`, ver `mux_plan.capitulos_de_xml`): `[]` si no tiene, None si no
+    se pudieron leer.
+
+    Del XML y no del formato simple: el simple no dice en qué edición está
+    cada capítulo, y la Fase B tiene que volver a encontrar ESE capítulo en
+    su XML para copiarlo con lo que lleve dentro."""
+    carpeta = Path(tempfile.mkdtemp(prefix="mux_caps_"))
+    xml = carpeta / "capitulos.xml"
+    try:
+        rc, out, err = await _ejecutar([MKVEXTRACT_BIN, ruta, "chapters", str(xml)],
+                                       _TOPE_LECTURA_S)
+        if rc not in (0, 1):
+            return None
+        texto = xml.read_text(encoding="utf-8", errors="replace") if xml.exists() else ""
+        return mux_plan.capitulos_de_xml(texto) if texto.strip() else []
+    except asyncio.TimeoutError:
+        return None
+    except Exception as e:                              # noqa: BLE001
+        _logger.warning("[mux] los capítulos de %s no se pudieron leer: %s", Path(ruta).name, e)
+        return None
+    finally:
+        xml.unlink(missing_ok=True)
+        try:
+            os.rmdir(carpeta)
+        except OSError:
+            pass
+
+
+async def leer_fuente(ruta: str, *, al_paso=None) -> MuxFuente:
     """Lo que la pestaña necesita saber de un MKV.
 
     `mkvmerge -J` (pistas, ids, idiomas IETF, etiquetas de estadísticas,
     adjuntos), los capítulos, MediaInfo (nombre comercial, HDR, tamaños si el
-    MKV no trae las etiquetas) y, en el MKV del vídeo, la muestra de Dolby
-    Vision. MediaInfo y Dolby Vision son enriquecimiento: si fallan, se sigue
-    sin ellos. Lo que no puede fallar es el `-J`.
+    MKV no trae las etiquetas) y la muestra de Dolby Vision si trae HEVC: de
+    cualquiera de los dos puede acabar saliendo el vídeo. MediaInfo y Dolby
+    Vision son enriquecimiento: si fallan, se sigue sin ellos. Lo que no
+    puede fallar es el `-J`.
 
     `al_paso(paso)` se llama antes de cada uno (`pistas`, `capitulos`,
     `mediainfo`, `dolby_vision`), para el modal.
     """
     from storage import compute_mkv_fingerprint
-    from phases.mkv_analyze import _extract_chapters, _run_dovi_on_mkv
+    from phases.mkv_analyze import _run_dovi_on_mkv
     from phases.phase_a import run_mediainfo
 
     async def paso(nombre):
@@ -225,10 +260,13 @@ async def leer_fuente(ruta: str, *, con_dv: bool, al_paso=None) -> MuxFuente:
     props = contenedor.get("properties") or {}
 
     await paso("capitulos")
-    capitulos = await asyncio.to_thread(_extract_chapters, ruta)
+    capitulos = await leer_capitulos(ruta)
     if capitulos is None:
-        _logger.warning("[mux] no se pudieron leer los capítulos de %s", p.name)
-        capitulos = []
+        # No es «no tiene capítulos»: con una lista vacía la sección diría
+        # que no hay, ni siquiera saldría el aviso de sección vacía, y la
+        # Fase C compararía cero contra cero (revisión de Codex del
+        # 2026-10-27). Crear el proyecto se puede repetir; esto no se vería.
+        raise RuntimeError(tr('mux.no_se_pudieron_leer_los_capitulos', nombre=p.name))
 
     await paso("mediainfo")
     mediainfo = None
@@ -240,7 +278,7 @@ async def leer_fuente(ruta: str, *, con_dv: bool, al_paso=None) -> MuxFuente:
     pistas = pistas_de_j(j, mediainfo)
     dovi = None
     hevc = [x for x in pistas if x.tipo == "video" and "HEVC" in x.codec.upper()]
-    if con_dv and hevc:
+    if hevc:
         await paso("dolby_vision")
         try:
             dovi = await _run_dovi_on_mkv(ruta, len(hevc))
@@ -255,7 +293,7 @@ async def leer_fuente(ruta: str, *, con_dv: bool, al_paso=None) -> MuxFuente:
         titulo_contenedor=props.get("title") or "",
         video=_resumen_de_video(pistas, mediainfo, dovi),
         pistas=pistas,
-        capitulos=capitulos,
+        capitulos=[MuxCapituloOrigen(**c) for c in capitulos],
         adjuntos=[MuxAdjunto(id=_int(a.get("id")), nombre=a.get("file_name") or "",
                              mime=a.get("content_type") or "",
                              tamano=_int(a.get("size")))
@@ -263,17 +301,13 @@ async def leer_fuente(ruta: str, *, con_dv: bool, al_paso=None) -> MuxFuente:
     )
 
 
-def proyecto_nuevo(id_: str, fuente_video: MuxFuente,
-                   fuente_resto: MuxFuente) -> MuxProject:
-    """El proyecto con la selección y el nombre por defecto."""
-    if not any(p.tipo == "video" for p in fuente_video.pistas):
-        raise RuntimeError(tr('mux.el_mkv_del_video_no_tiene_video',
-                              nombre=fuente_video.nombre))
-    proyecto = MuxProject(id=id_, fuentes=[fuente_video, fuente_resto])
-    sel = mux_plan.seleccion_por_defecto(proyecto.fuentes)
-    proyecto.pistas = sel["pistas"]
-    proyecto.capitulos_de = sel["capitulos_de"]
-    proyecto.adjuntos = sel["adjuntos"]
+def proyecto_nuevo(id_: str, fuente_a: MuxFuente, fuente_b: MuxFuente) -> MuxProject:
+    """El proyecto recién leído, SIN NADA ELEGIDO: se va sección a sección
+    eligiendo lo que corresponde, y antes de multiplexar se avisa de lo que
+    se haya quedado vacío (decisión del usuario, 2026-10-27)."""
+    if not any(p.tipo == "video" for f in (fuente_a, fuente_b) for p in f.pistas):
+        raise RuntimeError(tr('mux.ninguno_tiene_video', a=fuente_a.nombre, b=fuente_b.nombre))
+    proyecto = MuxProject(id=id_, esquema=ESQUEMA_MUX, fuentes=[fuente_a, fuente_b])
     proyecto.nombre_salida = mux_plan.nombre_por_defecto(proyecto)
     return proyecto
 
@@ -301,13 +335,7 @@ def pareja_de(proyecto: MuxProject) -> tuple[int, int] | None:
     return mux_sync.pareja_de_referencia(a, b)
 
 
-def duracion_de_video(fuente: MuxFuente) -> float:
-    """Lo que dura el vídeo: frames / cadencia si se saben, y si no el
-    contenedor (que puede alargarse por un subtítulo o un audio más largo)."""
-    v = fuente.video
-    if v.frames and v.cadencia_num:
-        return v.frames * v.cadencia_den / v.cadencia_num
-    return fuente.duracion_s
+duracion_de_video = mux_plan.duracion_de_video
 
 
 async def medir_sincronia(proyecto: MuxProject, *, al_avanzar=None,
@@ -353,9 +381,11 @@ async def medir_sincronia(proyecto: MuxProject, *, al_avanzar=None,
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  La combinación: fases A, B y C
+#  El multiplexado: fases A, B y C
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Los ids NO cambiaron con el nombre de la pestaña: `combinar` es la clave de
+# la fase B en los `MuxEjecucion.fases` ya guardados y en la interfaz.
 FASES = ("comprobar_origenes", "combinar", "comprobar_y_guardar")
 
 
@@ -386,7 +416,7 @@ async def _log(log, linea: str) -> None:
 
 def _comprobar_cancelado(cancelado) -> None:
     if cancelado and cancelado():
-        raise CombinacionCancelada()
+        raise MultiplexadoCancelado()
 
 
 async def fase_a_comprobar_origenes(proyecto: MuxProject, plan_: dict, log,
@@ -402,9 +432,9 @@ async def fase_a_comprobar_origenes(proyecto: MuxProject, plan_: dict, log,
         ahora = await asyncio.to_thread(compute_mkv_fingerprint, f.ruta)
         if not (ahora and f.huella and _fingerprint_content_match(f.huella, ahora)):
             raise RuntimeError(tr('mux.el_mkv_cambio', nombre=f.nombre))
-    if not plan_["puede_combinar"]:
+    if not plan_["puede_multiplexar"]:
         ids = ", ".join(m["id"] for m in plan_["motivos"])
-        raise RuntimeError(tr('mux.no_se_puede_combinar_motivos', motivos=ids))
+        raise RuntimeError(tr('mux.no_se_puede_multiplexar_motivos', motivos=ids))
     final = ruta_final(proyecto)
     if final.exists():
         raise RuntimeError(tr('mux.ya_existe_un_mkv_con_ese_nombre',
@@ -420,52 +450,47 @@ async def fase_a_comprobar_origenes(proyecto: MuxProject, plan_: dict, log,
     await _log(log, '[Fase A] ' + tr('mux.log_origenes_ok'))
 
 
-def duracion_final(proyecto: MuxProject, plan_: dict) -> float:
-    """Lo que durará el vídeo del MKV final: sus frames a la cadencia final."""
-    fuente = proyecto.fuentes[0]
-    cad = mux_plan._fr(plan_.get("retimar_video")) or mux_plan.cadencia(fuente)
-    if fuente.video.frames and cad:
-        return fuente.video.frames / float(cad)
-    return duracion_de_video(fuente)
+def duracion_final(proyecto: MuxProject, plan_: dict) -> float | None:
+    """Lo que durará el vídeo del MKV final (ver `mux_plan.duracion_final`)."""
+    return mux_plan.duracion_final(proyecto, plan_)
 
 
 def capitulos_esperados(proyecto: MuxProject, plan_: dict) -> list[int]:
-    """Los inicios (ns) de los capítulos que tiene que traer el MKV final
-    cuando van tal cual, sin reescribir (si se reescriben, salen del XML)."""
-    cap = plan_["capitulos"]
-    if cap["de"] == "ninguno":
-        return []
-    fuente = proyecto.fuentes[0 if cap["de"] == "video" else 1]
-    return [mux_plan._ns_de(c.timestamp) for c in fuente.capitulos]
+    return mux_plan.capitulos_esperados(proyecto, plan_)
 
 
 async def _capitulos_xml(proyecto: MuxProject, plan_: dict,
                          carpeta: Path) -> tuple[str | None, list[int]]:
-    """El XML de capítulos ya llevado a la línea de tiempo final (o None si no
-    hace falta reescribirlos) y los inicios que tiene que traer el MKV."""
-    if not mux_plan.capitulos_necesitan_xml(plan_):
+    """El XML de capítulos compuesto con lo elegido (o None si no hace falta:
+    sin capítulos, o todos los de una fuente que va tal cual) y los inicios
+    que tiene que traer el MKV final."""
+    lista = [x for x in plan_["capitulos"]["lista"] if x["queda"] != "fuera"]
+    if not lista or mux_plan.capitulos_nativos(proyecto, plan_) is not None:
         return None, capitulos_esperados(proyecto, plan_)
-    cap = plan_["capitulos"]
-    fuente = proyecto.fuentes[0 if cap["de"] == "video" else 1]
-    crudo = carpeta / f"_caps_origen_{proyecto.id}.xml"
+    xmls: dict[int, str] = {}
+    for f in sorted({x["fuente"] for x in lista}):
+        crudo = carpeta / f"_caps_origen_{proyecto.id}_{f}.xml"
+        try:
+            rc, out, err = await _ejecutar(
+                [MKVEXTRACT_BIN, proyecto.fuentes[f].ruta, "chapters", str(crudo)],
+                _TOPE_LECTURA_S)
+            if rc not in (0, 1) or not crudo.exists():
+                raise RuntimeError(tr('mux.no_se_pudieron_extraer_los_capitulos',
+                                      error=(err or out).strip()[:200]))
+            xmls[f] = crudo.read_text(encoding="utf-8", errors="replace")
+        finally:
+            crudo.unlink(missing_ok=True)
     try:
-        rc, out, err = await _ejecutar(
-            [MKVEXTRACT_BIN, fuente.ruta, "chapters", str(crudo)], _TOPE_LECTURA_S)
-        if rc not in (0, 1) or not crudo.exists():
-            raise RuntimeError(tr('mux.no_se_pudieron_extraer_los_capitulos',
-                                  error=(err or out).strip()[:200]))
-        xml = crudo.read_text(encoding="utf-8", errors="replace")
-    finally:
-        crudo.unlink(missing_ok=True)
-    mapeado = mux_plan.mapear_capitulos_xml(xml, mux_plan._fr(cap["factor"]),
-                                           cap["retraso_ms"],
-                                           duracion_final(proyecto, plan_))
+        xml, esperados = mux_plan.componer_capitulos_xml(
+            xmls, proyecto, plan_, mux_plan.duracion_final(proyecto, plan_))
+    except RuntimeError:
+        raise RuntimeError(tr('mux.los_capitulos_cambiaron')) from None
     destino = carpeta / f"_caps_{proyecto.id}.xml"
-    destino.write_text(mapeado, encoding="utf-8")
-    return str(destino), mux_plan.capitulos_mapeados(mapeado)
+    destino.write_text(xml, encoding="utf-8")
+    return str(destino), esperados
 
 
-async def fase_b_combinar(proyecto: MuxProject, plan_: dict, log, *,
+async def fase_b_multiplexar(proyecto: MuxProject, plan_: dict, log, *,
                           al_lanzar=None, cancelado=None,
                           al_progreso=None) -> tuple[Path, list[int]]:
     """mkvmerge al nombre de trabajo. Devuelve su ruta y los inicios (ns) de
@@ -547,7 +572,7 @@ async def fase_b_combinar(proyecto: MuxProject, plan_: dict, log, *,
     if colgado or proc.returncode not in (0, 1) or (cancelado and cancelado()):
         trabajo.unlink(missing_ok=True)
         if cancelado and cancelado():
-            raise CombinacionCancelada()
+            raise MultiplexadoCancelado()
         if colgado:
             raise RuntimeError(tr('mux.mkvmerge_colgado',
                                   minutos=MKVMERGE_INACTIVIDAD_S // 60))
@@ -555,8 +580,9 @@ async def fase_b_combinar(proyecto: MuxProject, plan_: dict, log, *,
     if not trabajo.exists():
         raise RuntimeError(tr('mux.mkvmerge_sin_salida'))
     if avisos:
-        await _log(log, '[Fase B] ' + tr('mux.log_mkvmerge_con_avisos', n=avisos))
-    await _log(log, '[Fase B] ' + tr('mux.log_combinado',
+        await _log(log, '[Fase B] ' + tr('mux.log_mkvmerge_con_avisos_uno' if avisos == 1
+                                         else 'mux.log_mkvmerge_con_avisos_varios', n=avisos))
+    await _log(log, '[Fase B] ' + tr('mux.log_multiplexado',
                                      gb=f"{trabajo.stat().st_size / 1e9:.1f}"))
     return trabajo, caps_esperados
 
@@ -569,25 +595,28 @@ def plan_texto_para_el_log(proyecto: MuxProject, plan_: dict) -> str:
     """El plan en una línea, para el log: qué línea de tiempo manda y qué se
     mueve. Es lo que permite leer, meses después, por qué el MKV salió así."""
     trozos = []
-    cad_v = mux_sync.texto_de_cadencia(mux_plan._fr(plan_["cadencia_video"]))
-    if plan_.get("retimar_video"):
-        trozos.append(tr('mux.log_plan_retimar', de=cad_v,
-                         a=mux_sync.texto_de_cadencia(mux_plan._fr(plan_["retimar_video"]))))
+    vel = plan_.get("velocidad_video")
+    if vel:
+        trozos.append(tr('mux.log_plan_velocidad', letra="AB"[plan_["video_de"]],
+                         otra="AB"[1 - plan_["video_de"]],
+                         de=mux_sync.texto_de_cadencia(mux_plan._fr(vel["de"])),
+                         a=mux_sync.texto_de_cadencia(mux_plan._fr(vel["a"]))))
     movidas = len(plan_["sync"])
     if movidas:
-        trozos.append(tr('mux.log_plan_movidas', n=movidas))
+        trozos.append(tr('mux.log_plan_movidas_uno' if movidas == 1
+                         else 'mux.log_plan_movidas_varios', n=movidas))
     if not trozos:
         trozos.append(tr('mux.log_plan_tal_cual'))
     return " · ".join(trozos)
 
 
 def _salida_de_pista(proyecto: MuxProject, fuente: int, tid: int) -> int | None:
-    """El id que tendrá en el MKV final una pista elegida: los vídeos van
-    primero y después las pistas en su orden."""
-    videos = sum(1 for p in proyecto.fuentes[0].pistas if p.tipo == "video")
-    for i, p in enumerate(proyecto.pistas):
+    """El puesto (desde 0) que tendrá en el MKV final una pista elegida: el de
+    la lista, que ya trae el vídeo delante. Sumarle los vídeos aparte lo
+    contaba dos veces (revisión de Codex)."""
+    for i, p in enumerate(mux_plan._elegidas(proyecto)):
         if p.fuente == fuente and p.id == tid:
-            return videos + i
+            return i
     return None
 
 
@@ -609,24 +638,27 @@ async def fase_c_comprobar_y_guardar(proyecto: MuxProject, plan_: dict,
     j = await identificar(str(trabajo))
     checks += mux_plan.comprobar_pistas(mux_plan.pistas_esperadas(proyecto, plan_), j)
 
-    # El vídeo del MKV final dura lo que dicen sus frames a la cadencia del
-    # plan. Es lo que demuestra que el vídeo se retimó de verdad: la
+    # El vídeo del MKV final dura lo que dicen sus frames a la velocidad del
+    # plan. Es lo que demuestra que su velocidad se ajustó de verdad: la
     # comprobación de audio de abajo mide el audio contra el ORIGINAL, y sin
-    # esto un vídeo sin retimar con el audio bien puesto pasaría.
+    # esto un vídeo sin ajustar con el audio bien puesto pasaría.
     checks += _comprobar_duracion_del_video(proyecto, plan_, j)
 
     checks += await _comprobar_capitulos(
         trabajo, capitulos_ns if capitulos_ns is not None
         else capitulos_esperados(proyecto, plan_))
     adjuntos = len(j.get("attachments") or [])
-    checks.append({"id": "adjuntos", "ok": adjuntos == len(proyecto.adjuntos),
-                   "esperado": len(proyecto.adjuntos), "real": adjuntos})
+    pedidos = len(mux_plan.adjuntos_validos(proyecto))
+    checks.append({"id": "adjuntos", "ok": adjuntos == pedidos,
+                   "esperado": pedidos, "real": adjuntos})
 
-    fuente_v = proyecto.fuentes[0].video
-    if fuente_v.dv_profile:
+    v = plan_.get("video_de")
+    fuente_v = proyecto.fuentes[v].video if v is not None else None
+    if fuente_v is not None and fuente_v.dv_profile:
         _comprobar_cancelado(cancelado)
-        hevc = sum(1 for p in proyecto.fuentes[0].pistas
-                   if p.tipo == "video" and "HEVC" in p.codec.upper())
+        claves = mux_plan._por_clave(proyecto)
+        hevc = sum(1 for p in mux_plan._elegidas(proyecto, "video")
+                   if "HEVC" in (claves[(p.fuente, p.id)].codec or "").upper())
         dovi = None
         try:
             dovi = await _run_dovi_on_mkv(str(trabajo), hevc)
@@ -653,6 +685,11 @@ async def fase_c_comprobar_y_guardar(proyecto: MuxProject, plan_: dict,
     if fallos:
         raise ValidacionFallida(validacion)
 
+    # Lo último antes de publicar: con todo de un MKV sin Dolby Vision no se
+    # pasa por la muestra ni por la sincronía, que eran los únicos sitios
+    # donde se miraba, y una cancelación aceptada acababa en `done` (revisión
+    # de Codex del 2026-10-27).
+    _comprobar_cancelado(cancelado)
     final = ruta_final(proyecto)
     if not await asyncio.to_thread(_publicar_sin_pisar, trabajo, final,
                                    proyecto.nombre_salida):
@@ -666,17 +703,18 @@ async def fase_c_comprobar_y_guardar(proyecto: MuxProject, plan_: dict,
 async def _comprobar_capitulos(mkv: Path, esperados_ns: list[int]) -> list[dict]:
     """Los capítulos del MKV final contra los esperados: cuántos y dónde
     empieza cada uno, al milisegundo (contar solo cuántos dejaba pasar un
-    mapeo con el signo cambiado; revisión de Codex del plan)."""
-    from phases.mkv_analyze import _extract_chapters
-    reales = await asyncio.to_thread(_extract_chapters, str(mkv))
+    mapeo con el signo cambiado; revisión de Codex del plan). Se leen del XML,
+    como al crear el proyecto: los de primer nivel, de todas las ediciones."""
+    reales = await leer_capitulos(str(mkv))
     if reales is None:
         return [{"id": "capitulos", "ok": None, "aviso": True,
                  "esperado": len(esperados_ns), "real": None}]
-    reales_ns = [mux_plan._ns_de(c.timestamp) for c in reales]
+    reales_ns = sorted(c["inicio_ns"] for c in reales)
+    esperados_ns = sorted(esperados_ns)
     if len(reales_ns) != len(esperados_ns):
         return [{"id": "capitulos", "ok": False,
                  "esperado": len(esperados_ns), "real": len(reales_ns)}]
-    # `mkvextract --simple` da milisegundos: la comparación tolera eso.
+    # Un milisegundo y medio de tolerancia: la que tenía con el formato simple.
     peor = max((abs(r - e) for r, e in zip(reales_ns, esperados_ns)), default=0)
     return [{"id": "capitulos", "ok": peor <= 1_500_000,
              "esperado": len(esperados_ns), "real": len(reales_ns),
@@ -684,11 +722,12 @@ async def _comprobar_capitulos(mkv: Path, esperados_ns: list[int]) -> list[dict]
 
 
 class ValidacionFallida(RuntimeError):
-    """El MKV combinado no es lo que el plan pedía. Lleva la validación."""
+    """El MKV multiplexado no es lo que el plan pedía. Lleva la validación."""
 
     def __init__(self, validacion: dict):
         self.validacion = validacion
-        super().__init__(tr('mux.validacion_fallida', n=validacion["fallos"]))
+        super().__init__(tr('mux.validacion_fallida_uno' if validacion["fallos"] == 1
+                            else 'mux.validacion_fallida_varios', n=validacion["fallos"]))
 
 
 def _segundos_de_tag(valor) -> float | None:
@@ -701,8 +740,12 @@ def _segundos_de_tag(valor) -> float | None:
 
 
 def _comprobar_duracion_del_video(proyecto: MuxProject, plan_: dict, j: dict) -> list[dict]:
-    fuente = proyecto.fuentes[0]
-    cad = mux_plan._fr(plan_.get("retimar_video")) or mux_plan.cadencia(fuente)
+    v = plan_.get("video_de")
+    if v is None:
+        return []
+    fuente = proyecto.fuentes[v]
+    cad = (mux_plan._fr((plan_.get("velocidad_video") or {}).get("a"))
+           or mux_plan.cadencia(fuente))
     if not (cad and fuente.video.frames):
         return []
     video = next((t for t in j.get("tracks") or [] if t.get("type") == "video"), None)
@@ -718,74 +761,88 @@ def _comprobar_duracion_del_video(proyecto: MuxProject, plan_: dict, j: dict) ->
 
 async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
                                      trabajo: Path, al_lanzar, cancelado) -> list[dict]:
-    """Cada pista de audio que viene del otro MKV, ya combinada, contra la de
-    referencia del MKV del vídeo.
+    """Cada pista de audio que viene del MKV que NO da el vídeo, ya en el MKV
+    final, contra la de referencia del que sí lo da (de su fichero ORIGINAL).
 
-    La que se usó para medir (o la primera, si esa no va) es la comprobación
-    de que mkvmerge hizo lo que el plan pedía —un signo cambiado o un factor
-    mal escrito se ven aquí— y es la única que puede tumbar el trabajo. Las
-    demás son AVISOS: una que no cuadre viene desfasada dentro de su propio
-    release (revisión de Codex del plan), y eso no lo arregla la combinación,
-    pero hay que decirlo. Con el riesgo aceptado, tampoco la de referencia
-    tumba nada: el usuario ya decidió seguir sabiendo que no cuadraba.
+    Con el vídeo de A es lo de siempre —el audio de B contra el de A—; con el
+    vídeo de B, al revés. Si se ajustó la velocidad del vídeo, el contenido
+    del segundo T del original está en `f_vo·T` del final, y eso es lo que se
+    espera (`f_vo` = α con el vídeo de A, 1/α con el de B).
+
+    La pista de la pareja que se midió (o la primera, si esa no va) es la
+    comprobación de que mkvmerge hizo lo que el plan pedía —un signo cambiado
+    o un factor mal escrito se ven aquí— y es la única que puede tumbar el
+    trabajo. Las demás son AVISOS: una que no cuadre viene desfasada dentro
+    de su propio release (revisión de Codex del plan), y eso no lo arregla
+    multiplexar, pero hay que decirlo. Con el riesgo aceptado, tampoco la de
+    referencia tumba nada: el usuario ya decidió seguir sabiendo que no
+    cuadraba.
+
+    Cada comprobación guarda contra QUÉ pista se midió y de qué fuente
+    (`contra`, `contra_fuente`): la de una validación vieja, sin la fuente,
+    era siempre de A (revisión de Codex).
     """
+    v = plan_.get("video_de")
     pareja = pareja_de(proyecto)
-    audio_b = [p for p in proyecto.pistas
-               if p.fuente == 1 and any(o.id == p.id and o.tipo == "audio"
-                                        for o in proyecto.fuentes[1].pistas)]
-    if pareja is None or not audio_b:
+    if v is None or pareja is None:
         return []
-    ref = next((p for p in audio_b if p.id == pareja[1]), audio_b[0])
-    alfa = mux_plan._fr(plan_["alfa"]) if plan_.get("retimar_video") else Fraction(1)
+    o = 1 - v
+    claves = mux_plan._por_clave(proyecto)
+    audio_o = [p for p in mux_plan._elegidas(proyecto, "audio") if p.fuente == o]
+    if not audio_o:
+        return []
+    ref_v, ref_o = pareja[v], pareja[o]
+    ref = next((p for p in audio_o if p.id == ref_o), audio_o[0])
+    alfa = mux_plan._fr(plan_["alfa"]) or Fraction(1)
+    esperado = (alfa if v == 0 else 1 / alfa) if plan_.get("velocidad_video") else Fraction(1)
     riesgo = bool(plan_.get("motivos"))
-    video = proyecto.fuentes[0]
-    origen_b = {o.id: o for o in proyecto.fuentes[1].pistas}
+    video = proyecto.fuentes[v]
     checks = []
-    for p in [ref] + [q for q in audio_b if q is not ref]:
+    for p in [ref] + [q for q in audio_o if q is not ref]:
         _comprobar_cancelado(cancelado)
         n = _salida_de_audio(proyecto, p)
         if n is None:
             continue
-        # Contra qué pista de A se compara. Medido en el NAS con Toy Story 5
-        # (2026-10-25), y no es lo que parecía:
+        # Contra qué pista del MKV del vídeo se compara. Medido en el NAS con
+        # Toy Story 5 (2026-10-25), y no es lo que parecía:
         #
-        # - la de REFERENCIA de A primero, y con los cuatro puntos: es la que
-        #   la medida alineó con el vídeo. Un doblaje contra ella correla poco
+        # - la de REFERENCIA primero, y con los cuatro puntos: es la que la
+        #   medida alineó con el vídeo. Un doblaje contra ella correla poco
         #   —solo la música y los efectos: r ≈ 0,1-0,2—, así que con dos puntos
         #   no concluía nunca y los tres doblajes salían «no se pudo medir»;
         #   con cuatro, los tres concluyen a ~6 ms, lo mismo que la referencia;
-        # - las demás pistas de A NO valen como primera opción: cada una trae
-        #   su propio desfase dentro de A (el DD 5.1 inglés del disco va
-        #   ~50 ms del TrueHD) y la etiqueta no garantiza el doblaje (su `es`
-        #   no correla con el castellano del otro: es otro doblaje). Solo si
-        #   la de referencia no concluye, hasta dos del mismo idioma, la de la
-        #   misma etiqueta primero.
-        if p.id == pareja[1]:
-            contra, mismas = [pareja[0]], []
+        # - las demás pistas del MKV del vídeo NO valen como primera opción:
+        #   cada una trae su propio desfase dentro de su fichero (el DD 5.1
+        #   inglés del disco va ~50 ms del TrueHD) y la etiqueta no garantiza
+        #   el doblaje (el `es` del disco no correla con el castellano del
+        #   WEB-DL: es otro doblaje). Solo si la de referencia no concluye,
+        #   hasta dos del mismo idioma, la de la misma etiqueta primero.
+        if p.id == ref_o:
+            contra, mismas = [ref_v], []
         else:
-            mismas = [q.id for q in _del_mismo_idioma(video, origen_b.get(p.id))
-                      if q.id != pareja[0]][:2]
-            contra = [pareja[0]] + mismas
+            mismas = [q.id for q in _del_mismo_idioma(video, claves.get((o, p.id)))
+                      if q.id != ref_v][:2]
+            contra = [ref_v] + mismas
         r = {"ok": None, "puntos": [], "residuo_max_ms": None}
         usada = None
-        for id_a in contra:
-            a_n = _posicion_de_audio(video, id_a)
-            if a_n is None:
+        for id_v in contra:
+            v_n = _posicion_de_audio(video, id_v)
+            if v_n is None:
                 continue
             try:
                 r = await mux_sync.comprobar(
-                    video.ruta, a_n, str(trabajo), n,
-                    duracion_s=duracion_de_video(video), alfa=alfa,
+                    video.ruta, v_n, str(trabajo), n,
+                    duracion_s=duracion_de_video(video), alfa=esperado,
                     al_lanzar=al_lanzar)
             except Exception as e:                          # noqa: BLE001
                 _logger.warning("[mux] comprobación de sincronía final fallida: %s", e)
                 r = {"ok": None, "puntos": [], "residuo_max_ms": None}
-            usada = id_a
+            usada = id_v
             # La de la medida es una sola comparación y estricta. En las demás,
             # unos puntos válidos que no coinciden entre sí son una medida que
             # no concluye: con una correlación tan floja, un pico casual da un
             # residuo de un segundo y se leería como «desfasada».
-            if p.id != pareja[1] and r["ok"] is not None and not _puntos_coinciden(r):
+            if p.id != ref_o and r["ok"] is not None and not _puntos_coinciden(r):
                 r = dict(r, ok=None, residuo_max_ms=None)
             if r["ok"] is not None:
                 break
@@ -793,7 +850,7 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
         aviso = (p is not ref) or riesgo
         check = {
             "id": "sincronia" if p is ref else "sincronia_pista",
-            "pista": (_salida_de_pista(proyecto, 1, p.id) or 0) + 1,
+            "pista": (_salida_de_pista(proyecto, o, p.id) or 0) + 1,
             # Lo que es aviso no cuenta como fallo: `ok` False solo si tumba.
             "ok": r["ok"] if not (aviso and r["ok"] is False) else None,
             "aviso": bool(aviso and r["ok"] is False) or r["ok"] is None,
@@ -801,11 +858,12 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
             "real": (f"{r['residuo_max_ms']} ms"
                      if r.get("residuo_max_ms") is not None else None),
             "contra": usada,
+            "contra_fuente": v,
             "puntos": r["puntos"]}
-        if r["ok"] is None and p.id != pareja[1] and not mismas:
-            # Sin medida, y sin otra pista de su idioma en A con la que
-            # compararla: decirlo, que «no se pudo medir» a secas parece un
-            # fallo del MKV.
+        if r["ok"] is None and p.id != ref_o and not mismas:
+            # Sin medida, y sin otra pista de su idioma en el MKV del vídeo con
+            # la que compararla: decirlo, que «no se pudo medir» a secas parece
+            # un fallo del MKV.
             check["motivo"] = "sin_mismo_doblaje"
         checks.append(check)
     return checks
