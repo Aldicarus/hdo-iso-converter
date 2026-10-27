@@ -398,6 +398,12 @@ class WorkflowPlan:
                 "needs_profile8": self.inject.needs_profile8,
                 "hevc_input": self.inject.hevc_input,
                 "hevc_output": self.inject.hevc_output,
+                # La lista del merge, la misma que usa la Fase F. El aviso de
+                # proyecto terminado la deducía del workflow y con un FEL
+                # cuyo L1 o L6 divergen anunciaba la lista FEL.
+                "merge_levels": list(niveles_del_merge(
+                    "FEL" if self.inputs.source_workflow == "p7_fel" else "",
+                    self.inject.conservar_niveles_del_disco)),
             },
             "remux": {
                 "needs_dovi_mux": self.remux.needs_dovi_mux,

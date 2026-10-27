@@ -5348,5 +5348,96 @@
   "modulos": [
    "test_tab4_multiplexar"
   ]
+ },
+ {
+  "id": "T5R-1 el motivo del merge dice siempre la lista conservadora",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "    consecuencia = tr('rpu_analyze.consecuencia_merge_conservador' if conservador\n                      else 'rpu_analyze.consecuencia_merge_fel')\n",
+  "nuevo": "    consecuencia = tr('rpu_analyze.consecuencia_merge_conservador')\n",
+  "modulos": [
+   "test_rpu_analyze"
+  ]
+ },
+ {
+  "id": "T5R-2 el motivo del merge dice siempre la lista FEL",
+  "fichero": "app/phases/rpu_analyze.py",
+  "viejo": "    consecuencia = tr('rpu_analyze.consecuencia_merge_conservador' if conservador\n                      else 'rpu_analyze.consecuencia_merge_fel')\n",
+  "nuevo": "    consecuencia = tr('rpu_analyze.consecuencia_merge_fel')\n",
+  "modulos": [
+   "test_rpu_analyze"
+  ]
+ },
+ {
+  "id": "T5R-3 el plan sirve la lista FEL aunque el L1 o el L6 diverjan",
+  "fichero": "app/phases/cmv40_strategy.py",
+  "viejo": "                    self.inject.conservar_niveles_del_disco)),\n",
+  "nuevo": "                    False)),\n",
+  "modulos": [
+   "test_cmv40_strategy",
+   "test_cmv40_plan_frontend"
+  ]
+ },
+ {
+  "id": "T5R-4 el aviso de terminado vuelve a deducir los niveles del workflow",
+  "fichero": "app/static/tab3.js",
+  "viejo": "  if (Array.isArray(n) && n.length) return n;\n",
+  "nuevo": "  if (false) return n;\n",
+  "modulos": [
+   "test_cmv40_plan_frontend"
+  ]
+ },
+ {
+  "id": "T5R-5 vuelve «Inyectar RPU igualmente»",
+  "fichero": "app/static/i18n/es.json",
+  "viejo": "\"tab3.inyectar_rpu_igualmente\": \"Inyectar el RPU de todos modos\"",
+  "nuevo": "\"tab3.inyectar_rpu_igualmente\": \"Inyectar RPU igualmente\"",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T5R-6 el manual vuelve a decir «chart»",
+  "fichero": "app/static/i18n/manual/es.json",
+  "viejo": "<h3>Qué representa el gráfico</h3>",
+  "nuevo": "<h3>Qué representa el chart</h3>",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T5R-7 el log vuelve a decir «Sniff OK»",
+  "fichero": "app/i18n/es.json",
+  "viejo": "✓ Muestreo correcto — RPU detectado",
+  "nuevo": "✓ Sniff OK — RPU detectado",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T5R-8 el catalán vuelve a «Vols tancar igualment?»",
+  "fichero": "app/static/i18n/ca.json",
+  "viejo": "Vols tancar de totes maneres?",
+  "nuevo": "Vols tancar igualment?",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T5R-9 el inglés vuelve a la grafía británica",
+  "fichero": "app/static/i18n/en.json",
+  "viejo": "\"tab2.muestreo_croma\": \"Color signaling\"",
+  "nuevo": "\"tab2.muestreo_croma\": \"Colour signalling\"",
+  "modulos": [
+   "test_calidad_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T5R-10 el plan del drop-in vuelve a la primera persona",
+  "fichero": "app/i18n/es.json",
+  "viejo": "ruta DROP-IN. El RPU target se inyecta directamente en source.hevc",
+  "nuevo": "ruta DROP-IN. Inyectamos el RPU target directamente en source.hevc",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
  }
 ]

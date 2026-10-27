@@ -1110,7 +1110,7 @@ console.log(JSON.stringify({{ html: timelineDeTrabajo(
         cat = json.loads((APP_DIR / "static" / "i18n" / "es.json")
                          .read_text(encoding="utf-8"))
         aviso = " ".join(cat.get(k, "") for k in claves)
-        self.assertIn("no se tocan", aviso,
+        self.assertIn("no se modifican", aviso,
                       f"el texto de {claves} ya no dice qué se conserva")
 
 

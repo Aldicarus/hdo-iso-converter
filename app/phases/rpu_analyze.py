@@ -1439,26 +1439,21 @@ def recommend_action(session) -> tuple[str, str, str]:
 
     Devuelve (action, label, reason) donde action es:
       - "keep":     no procesar. El reproductor compatible con CMv4.0 (p3i T4
-                    con Auto append) hace la conversión al vuelo con resultado
-                    equivalente. Casos: bin sintético, sin bin, no aporta.
-      - "drop_in":  inyección directa del RPU del bin (rápido, ~30s).
-                    Solo posible si profile match + L2 idéntico.
-      - "merge":    merge selectivo con rpu_levels=[3,8,9,11,254].
-                    Cualquier otro caso "real" — preserva L2 source.
+                    con Auto append) hace la conversión sobre la marcha con
+                    resultado equivalente. Casos: bin sintético, sin bin, no
+                    aporta, o el veredicto «tone_mapping» que pregunta.
+      - "drop_in":  el RPU del bin sustituye entero al del disco. Lo decide
+                    `cmv40_strategy.va_por_drop_in`, no esta función.
+      - "merge":    cualquier otro caso con ajustes de colorista. Qué niveles
+                    trae el bin lo dice el plan de la Fase F
+                    (`cmv40_strategy.niveles_del_merge`), y de ahí salen la
+                    etiqueta y la consecuencia que cuenta el motivo.
       - "unknown":  faltan datos (Fase A no ejecutada o análisis vacío).
 
-    El árbol de decisión coincide con el modelo cerrado tras el chequeo
-    empírico (ver ESTUDIO en histórico de la conversación):
-
-        ¿Hay bin?
-        ├─ NO → KEEP
-        └─ SÍ → ¿L8 del bin trabajado?
-                ├─ NO → KEEP
-                └─ SÍ → ¿Profile match?
-                        ├─ NO → MERGE [3,8,9,11,254]
-                        └─ SÍ → ¿L2 idéntico?
-                                ├─ SÍ → DROP-IN
-                                └─ NO → MERGE [3,8,9,11,254]
+    Hasta el 2026-10-27 este docstring pintaba el árbol viejo (perfil + L2
+    idéntico → drop-in; si no, merge [3,8,9,11,254] preservando el L2), y los
+    cuatro motivos del merge seguían diciéndolo con el merge FEL trayendo el
+    L1, el L2 y el L6 del bin: la tarjeta contradecía su propia etiqueta.
     """
     # Decisión inmediata si pre-flight ya lo resolvió
     if session.preflight_decision in ("keep_l8_default", "keep_no_l8", "abort_no_cmv40"):
@@ -1559,6 +1554,12 @@ def recommend_action(session) -> tuple[str, str, str]:
     conservador = not (source_wf == "p7_fel" and not inject.conservar_niveles_del_disco)
     etiqueta = tr('rpu_analyze.inyectar_merge_conservador' if conservador
                   else 'rpu_analyze.inyectar_merge_fel')
+    # La consecuencia sale de la MISMA lista que la etiqueta. Los motivos la
+    # llevaban escrita —«solo [3,8,9,11,254] preservando el L2»— y con un MKV
+    # P7 FEL cuyos másters concuerdan la tarjeta decía las dos cosas: la
+    # etiqueta «merge: L1, L2 y L6 del bin» y el motivo lo contrario.
+    consecuencia = tr('rpu_analyze.consecuencia_merge_conservador' if conservador
+                      else 'rpu_analyze.consecuencia_merge_fel')
 
     # Merge. El motivo, del más raíz al más fino: `profile_match` y el L2 ya
     # no deciden nada, pero siguen siendo lo que hay que contarle al usuario
@@ -1568,20 +1569,20 @@ def recommend_action(session) -> tuple[str, str, str]:
             'rpu_analyze.perfil_no_coincide',
             perfil_bin=target.profile if target else '?',
             el_bin=(' ' + target.el_type) if target and target.el_type else '',
-            perfil_mkv=perfil_mkv,
+            perfil_mkv=perfil_mkv, consecuencia=consecuencia,
             calidad=quality_label)
     elif l2_verdict != "identical":
         reason = tr('rpu_analyze.l2_difiere', motivo=l2_reason,
-                    calidad=quality_label)
+                    consecuencia=consecuencia, calidad=quality_label)
     elif not (source_wf == "p7_fel"
               and session.target_type == "trusted_p7_fel_final"):
         # Coincide todo y aun así no hay ruta rápida: sustituir el RPU
         # entero solo existe para P7 FEL. Es el caso de 7 de los 10.
-        reason = tr('rpu_analyze.drop_in_solo_fel',
-                    perfil_mkv=perfil_mkv, calidad=quality_label)
+        reason = tr('rpu_analyze.drop_in_solo_fel', perfil_mkv=perfil_mkv,
+                    consecuencia=consecuencia, calidad=quality_label)
     elif (session.trust_override or "auto") == "force_interactive":
         reason = tr('rpu_analyze.drop_in_revision_manual',
-                    calidad=quality_label)
+                    consecuencia=consecuencia, calidad=quality_label)
     else:
         caidos = ", ".join(
             k for k, v in (session.target_trust_gates or {}).items()

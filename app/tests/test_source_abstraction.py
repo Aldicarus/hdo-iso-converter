@@ -54,7 +54,7 @@ class TestSourceDetectType(unittest.TestCase):
     def test_raises_when_path_missing(self):
         with self.assertRaises(SourceError) as ctx:
             Source.detect_type(str(self.root / "missing.iso"))
-        self.assertIn("no encontrado", str(ctx.exception).lower())
+        self.assertIn("no encontrada", str(ctx.exception).lower())
 
     def test_raises_when_unknown_extension(self):
         bad = self.root / "file.mkv"

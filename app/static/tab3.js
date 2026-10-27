@@ -166,6 +166,23 @@ function _cmv40TargetNeedsMerge(s) {
   return false;
 }
 
+/**
+ * Los niveles que el merge trae del bin, del plan (`niveles_del_merge`).
+ *
+ * El aviso de proyecto terminado los deducía del workflow, y un MKV P7 FEL
+ * cuyo L1 o L6 divergían —merge conservador— se anunciaba con la lista FEL
+ * y con «L1/L2/L6 del bin» (2026-10-27). El respaldo es para sesiones que
+ * llegan sin plan, y no sabe de la divergencia.
+ */
+function _cmv40NivelesDelMerge(s) {
+  const plan = _cmv40Plan(s);
+  const n = plan && plan.inject && plan.inject.merge_levels;
+  if (Array.isArray(n) && n.length) return n;
+  return s && s.source_workflow === 'p7_fel'
+    ? [1, 2, 3, 6, 8, 9, 10, 11, 254]
+    : [3, 8, 9, 11, 254];
+}
+
 /** Deduce el label de la siguiente fase que el auto-pipeline disparara,
  *  a partir del phase actual (sin running_phase). Usado en el subtitulo del
  *  overlay durante el "puente" entre fases para mostrar algo util en vez
@@ -3758,10 +3775,9 @@ function _renderCMv40RecommendationCard(s, pid) {
         ${tr('tab3.el_bin_se_inyecto_directo_sobre', {qualitytag: escHtml(qualityTag)})}
       </div>`;
   } else if (s.output_workflow === 'restore_merge') {
-    const mergeLevels = s.source_workflow === 'p7_fel'
-      ? '[1, 2, 3, 6, 8, 9, 10, 11, 254]'
-      : '[3, 8, 9, 11, 254]';
-    const l2Note = s.source_workflow === 'p7_fel'
+    const niveles = _cmv40NivelesDelMerge(s);
+    const mergeLevels = '[' + niveles.join(', ') + ']';
+    const l2Note = niveles.includes(1)
       ? tr('tab3.l1_l2_l6_del_bin_sobrescriben')
       : tr('tab3.l1_l2_l5_l6_del_mkv');
     doneBanner = `

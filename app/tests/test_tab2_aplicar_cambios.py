@@ -190,10 +190,10 @@ class TestAplicarCambios(unittest.TestCase):
         """/mnt/isos se monta de solo lectura como la biblioteca, y el
         backend exige la copia: solo se miraba la biblioteca."""
         c = self.c["confirma_Up.mkv"]
-        self.assertEqual(c["confirmados"], ["MKV en Downloaded (read-only)"])
+        self.assertEqual(c["confirmados"], ["MKV en Downloaded (solo lectura)"])
         self.assertFalse(c["aplicoSinPreguntar"])
         self.assertEqual(self.c["confirma_Coco.mkv"]["confirmados"],
-                         ["MKV en Biblioteca (read-only)"])
+                         ["MKV en Biblioteca (solo lectura)"])
         soul = self.c["confirma_Soul.mkv"]
         self.assertEqual(soul["confirmados"], [])
         self.assertTrue(soul["aplicoSinPreguntar"], "en output se edita in-place")

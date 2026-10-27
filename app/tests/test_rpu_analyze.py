@@ -504,7 +504,10 @@ class TestCompareL2(unittest.TestCase):
         t = [_make_l2(2081, slope=2000), _make_l2(2851, slope=2100)]
         verdict, reason = compare_l2(s, t)
         self.assertEqual(verdict, "identical")
-        self.assertIn("byte-a-byte", reason)
+        # Contra la clave, no contra una palabra: la redacción se reescribe
+        # («byte-a-byte» pasó a «byte a byte» el 2026-10-27).
+        from i18n import t as t_srv
+        self.assertEqual(reason, t_srv('rpu_analyze.l2_byte_a_byte_identico_p1_combos', p1=2))
 
     def test_identical_independente_del_orden(self):
         # El orden de combos en la lista no importa — comparamos como SET
@@ -668,6 +671,42 @@ class TestLaRecomendacionCuentaLosNivelesQueSeUsan(unittest.TestCase):
         _, etiqueta, motivo = recommend_action(s)
         self.assertIn("l1, l2 y l6 del bin", etiqueta.lower())
         self.assertNotIn("[3,8,9,11,254]", motivo)
+
+    def test_el_motivo_cuenta_la_misma_lista_que_la_etiqueta(self):
+        """El motivo y la etiqueta salen de la MISMA lista de niveles.
+
+        Los cuatro motivos del merge —perfil distinto, L2 distinto, drop-in
+        solo en FEL y revisión manual— llevaban escrito «solo los niveles
+        [3,8,9,11,254] preservando el L2». Con un MKV P7 FEL cuyos másters
+        concuerdan, el merge trae el L1, el L2 y el L6 del bin, y la tarjeta
+        decía las dos cosas a la vez (2026-10-27). Se recorre la rejilla
+        entera y se exige que digan lo mismo.
+        """
+        casos = 0
+        for wf in ("p7_fel", "p7_mel", "p8"):
+            for tipo, dv in (("trusted_p7_fel_final", DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")),
+                             ("trusted_p7_mel_final", DoviInfo(profile=7, el_type="MEL", cm_version="v4.0")),
+                             ("trusted_p8_source", DoviInfo(profile=8, cm_version="v4.0")),
+                             ("generic", DoviInfo(profile=8, cm_version="v4.0"))):
+                for gates in ({"frames": {"ok": False, "severity": "sync_review"}},
+                              {"l1_div": {"ok": False, "severity": "ack_required"}},
+                              {"frames": {"ok": True, "severity": "ok"}}):
+                    for override in ("auto", "force_interactive"):
+                        for l2 in (2000, 1500):
+                            s = self._sesion(source_workflow=wf, target_type=tipo,
+                                             target_dv_info=dv, trust_override=override,
+                                             target_trust_gates=gates,
+                                             target_trust_ok=all(g["ok"] for g in gates.values()),
+                                             target_l2_combos=[_make_l2(2081, slope=l2)])
+                            accion, etiqueta, motivo = recommend_action(s)
+                            if accion != "merge" or "sustituye" in etiqueta.lower():
+                                continue
+                            casos += 1
+                            conservador = "conserva l1, l2, l5 y l6" in etiqueta.lower()
+                            with self.subTest(wf=wf, tipo=tipo, gates=list(gates), override=override, l2=l2):
+                                self.assertEqual("[3,8,9,11,254]" in motivo, conservador, motivo)
+                                self.assertEqual("conserva su L5 y su FEL" in motivo, not conservador, motivo)
+        self.assertGreater(casos, 40, "la rejilla tiene que cubrir los cuatro motivos")
 
     def test_un_p8_de_confianza_se_dice_que_sustituye(self):
         s = self._sesion(source_workflow="p8", target_type="trusted_p8_source",

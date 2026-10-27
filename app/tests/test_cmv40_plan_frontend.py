@@ -195,5 +195,49 @@ class TestNoQuedanReplicas(unittest.TestCase):
             self.assertIn(f"function {h}(", JS)
 
 
+@unittest.skipUnless(NODE, "node no disponible")
+class TestLosNivelesDelMergeSalenDelPlan(unittest.TestCase):
+    """`_cmv40NivelesDelMerge` lee `plan.inject.merge_levels`.
+
+    El aviso de proyecto terminado anunciaba la lista FEL y «L1/L2/L6 del
+    bin» con un merge conservador (2026-10-27): la deducía del workflow.
+    """
+
+    def evaluar(self, session):
+        script = _extraer("_cmv40Plan") + _extraer("_cmv40NivelesDelMerge") + (
+            "\nprocess.stdout.write(JSON.stringify(_cmv40NivelesDelMerge(JSON.parse(process.argv[2]))));")
+        r = subprocess.run(argv_node(script, json.dumps(session)),
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError(f"node falló: {r.stderr[:400]}")
+        return json.loads(r.stdout)
+
+    def test_coincide_con_la_fase_f(self):
+        from models import CMv40Session
+        from phases.cmv40_strategy import niveles_del_merge, resolve_plan
+        for wf in ("p7_fel", "p7_mel", "p8"):
+            for gates in ({"frames": {"ok": False, "severity": "sync_review"}},
+                          {"l1_div": {"ok": False, "severity": "ack_required"}},
+                          {"l6_div": {"ok": False, "severity": "ack_required"}}):
+                s = CMv40Session(id="x", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+                                 source_workflow=wf, target_type="generic",
+                                 target_trust_gates=gates, target_trust_ok=False)
+                plan = resolve_plan(s)
+                esperado = list(niveles_del_merge("FEL" if wf == "p7_fel" else "",
+                                                  plan.inject.conservar_niveles_del_disco))
+                with self.subTest(wf=wf, gates=list(gates)):
+                    self.assertEqual(self.evaluar({"plan": plan.to_dict(), "source_workflow": wf}),
+                                     esperado)
+
+    def test_el_plan_manda_sobre_el_workflow(self):
+        s = {"source_workflow": "p7_fel",
+             "plan": {"inject": {"merge_levels": [3, 8, 9, 11, 254]}}}
+        self.assertEqual(self.evaluar(s), [3, 8, 9, 11, 254])
+
+    def test_sin_plan_cae_al_workflow(self):
+        self.assertEqual(self.evaluar({"source_workflow": "p7_fel"}), [1, 2, 3, 6, 8, 9, 10, 11, 254])
+        self.assertEqual(self.evaluar({"source_workflow": "p8"}), [3, 8, 9, 11, 254])
+
+
 if __name__ == "__main__":
     unittest.main()

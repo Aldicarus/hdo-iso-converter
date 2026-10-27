@@ -82,7 +82,7 @@ class TestElBannerDelSheet(unittest.TestCase):
         # aserción. Hoy es una sola clave del catálogo, así que ese salto ya
         # no existe — y el usuario nunca lo vio.
         self.assertIn("que la hoja no explica", h)
-        self.assertIn("Revisa el chart antes de inyectar", h)
+        self.assertIn("Revisa el gráfico antes de inyectar", h)
         self.assertIn("+300 frames", h)
 
     def test_sin_medida_propia_es_informativo(self):

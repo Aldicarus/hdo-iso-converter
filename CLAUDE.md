@@ -200,7 +200,7 @@ El volumen `/mnt/cmv40_rpus` sigue soportado pero desde v1.8 el usuario puede de
   - Medido sobre las 49 sesiones del NAS: el chip sale en **35** (antes 21) y el peor error contra el fichero real es del **6,8 %** (antes 9,8 %). `fixtures_estimacion/golden_estimacion_tamano.json` recorta 10 discos reales y `test_estimacion_tamano.py` comprueba el valor exacto **y** que el error contra el MKV real cabe en el 10 %. Va en su propio directorio a propósito: `fixtures_discos/` lo recorre entero `test_golden_discos_reales` con un `glob` y un JSON con otra forma le rompe el `setUpClass`.
 - **Botón "🔬 Datos ISO"**: junto a la phase strip, abre modal con datos de diagnóstico en 3 secciones: mkvmerge -J raw, post-heurística, resultado de reglas.
 - **Sin tope de proyectos abiertos** en sub-tabs (`MAX_PROJECTS = Infinity` en `core.js`). El tope de 5 se quitó cuando llegó el modo serie: un disco de una temporada abre un proyecto por episodio y chocaba con el límite. Tab 3 sí mantiene su 5 (`MAX_CMV40_PROJECTS`) — un job CMv4.0 es mucho más pesado y no tiene caso multi-episodio.
-- **Botón de ejecutar adaptativo**: "▶️ Confirmar y ejecutar" (pending), "↻ Re-ejecutar" (done), "⏳ En ejecución…" (running/queued, deshabilitado).
+- **Botón de ejecutar adaptativo**: "▶️ Confirmar y ejecutar" (pending), "↻ Volver a ejecutar" (done), "⏳ En ejecución…" (running/queued, deshabilitado).
 - **Cola de ejecución**: `QueueManager` (FIFO) con drag & drop para reordenar.
 - **Cancelación de ejecución**: botón "🛑 Cancelar" visible en la fase activa del pipeline. Mata el subprocess, limpia temporales, desmonta ISO.
 - **Indicadores de ejecución**: spinner animado en tab "Crear MKV", en el proyecto del sidebar, en el subtab del proyecto, y en la sección "En curso" del panel Cola.
@@ -753,7 +753,7 @@ su explicación tienen que ser el mismo objeto.
 
 ### La UI no re-deriva el plan: lo lee
 
-`GET /api/cmv40/{id}` incluye `session.plan` con las decisiones ya resueltas por `cmv40_strategy` (`drop_in`, `trust_effective`, `target_needs_merge`, y por fase `needs_demux` / `needs_merge` / `needs_profile8` / `needs_dovi_mux` / `fast_path`…). `app.js` lo lee con tres helpers: **`_cmv40Trust`**, **`_cmv40DropIn`** y **`_cmv40TargetNeedsMerge`**.
+`GET /api/cmv40/{id}` incluye `session.plan` con las decisiones ya resueltas por `cmv40_strategy` (`drop_in`, `trust_effective`, `target_needs_merge`, y por fase `needs_demux` / `needs_merge` / `needs_profile8` / `merge_levels` / `needs_dovi_mux` / `fast_path`…). `app.js` lo lee con tres helpers: **`_cmv40Trust`**, **`_cmv40DropIn`** y **`_cmv40TargetNeedsMerge`**.
 
 Antes esas reglas estaban escritas a mano: el trust efectivo **once veces** y en dos variantes sintácticas distintas. Una réplica de una regla del backend se desincroniza en silencio — de esa familia era el bug del overlay.
 
@@ -2324,7 +2324,8 @@ mutaciones de la pestaña son las `T4-*`, `T4P-*` (el plan), `T4R-*`/`T4S-*`/
 `T4L-*`/`T4C-*` (router, persistencia, relato y pipeline), `T4X-*` (los
 arreglos de la revisión de Codex de la implementación), `T4F-*` (la interfaz
 nueva) y `T4V-*` (el registro de los textos y la marca que el log
-anunciaba). Para verificarlas rápido, `mutar.py` acepta una CLASE como módulo
+anunciaba). Las `T5R-*` son de la pasada de registro a toda la app que vino
+después (ver «La app habla tres idiomas»). Para verificarlas rápido, `mutar.py` acepta una CLASE como módulo
 (`test_mux_endpoints.TestCrear`): el módulo entero son ~3 min por mutación y
 una clase, segundos. **En el catálogo van con el módulo entero** —lo exige
 `test_herramienta_de_mutaciones`, que tumbó la primera versión de las
@@ -3858,9 +3859,10 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **593 mutaciones** en
+de entonces seguían en verde. Hoy hay **603 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
-una por cada arreglo que salió de ella y las de la pestaña Multiplexar— y
+una por cada arreglo que salió de ella, las de la pestaña Multiplexar y las
+`T5R-*` de la pasada de registro a toda la app— y
 `app/tools/mutar.py` las caza todas. Lo que se aprendió, por orden de cuántas veces se repitió:
 
 - **Se probaba que algo PASA, no la frontera en que deja de pasar.** Umbrales
@@ -4689,6 +4691,42 @@ app donde el marcado declarativo no llega.
   `test_las_tres_lenguas_en_pantalla`, que sí abre los paneles. El guard
   estático que las habría cazado sin depender de eso es
   `TestNingunaClavePedidaFaltaDelCatalogo`.
+
+### La pasada de registro preciso a toda la app (2026-10-27)
+
+Tras la de Multiplexar, el usuario pidió «la misma pasada en toda la app». Se
+leyeron por zonas las ~3.500 cadenas de los dos catálogos y el manual, y se
+reescribieron ~940 valores (360 en castellano, 267 en inglés y 315 en catalán). La norma está en `REGISTRO.md` («Precisión, no
+jerga de calle», con las dos familias que salieron de más: el inglés mezclado
+que tiene palabra castellana y la primera persona del plural) y la vigila
+`test_registro_de_la_traduccion::TestLaAppHablaConPrecision`, que mira también
+el manual. Lo que no era de registro y salió igual:
+
+- **Textos que ya no eran ciertos.** La Fase F «inyecta el RPU original» si la
+  conversión a Profile 8.1 falla (desde el 17 de octubre se detiene); el gate
+  L1 comparaba un «brillo medio» (es el pico de la película); el perfil de
+  luminancia «sirve para el comparador A/B» (retirado en septiembre); el aviso
+  de un rip en curso mandaba a la sub-pestaña «Cola»; «(audit #13)» en dos
+  errores y «spec §5.2» en el motivo de una pista.
+- **El manual CMv4.0 describía la app de antes** y se reescribió contra el
+  código en las tres lenguas: el árbol «perfil + L2 idéntico», los gates L1/L6
+  que «solo avisan» (piden confirmación), el L5 que «aborta» (pide
+  confirmación), el botón «Detectar offset» (es un aviso automático), la
+  corrección solo al inicio (son los dos extremos), la validación
+  «byte-idéntica» del drop-in, combinaciones source × target que «abortan»
+  (ninguna), un interruptor para forzar la revisión que la interfaz no tiene,
+  P7 FEL + bin P7 MEL descrito como single-layer (es merge y conserva la FEL)
+  y el botón de consulta rápida situado «en el tab CMv4.0» (está en la
+  cabecera). La Fase H se llama como en la app: «Comprobar el MKV y
+  guardarlo».
+- **La tarjeta de recomendación se contradecía** (ver «Decisión de 4
+  caminos»).
+
+El inglés pasó además a la ortografía de EE. UU. donde quedaba la británica
+(*colour*, *centred*, *labelled*, *signalling*, *judgement*, *catalogue*), y el
+guard de ortografía las mira desde ahora; el catalán del manual pasa a
+«l'RPU». Las 372 frases del golden que dejaron de existir van con su motivo en
+`tests/golden_castellano_reescrito.json`.
 
 ### Un regex no puede delimitar una construcción anidada
 
@@ -5532,7 +5570,7 @@ NÚMERO, tiene que decir la unidad de ese número.
 ¿target_preflight_ok=True Y l8="real"?
 ├─ NO  → Mantener MKV actual (keep)
 └─ SÍ  → ¿va por drop-in?   ← lo responde cmv40_strategy.va_por_drop_in
-         ├─ SÍ → Inyectar RPU CMv4.0 (rápido)       ← drop-in, ~30s
+         ├─ SÍ → Inyectar RPU CMv4.0 (rápido)       ← drop-in
          └─ NO → Inyectar RPU CMv4.0 (merge o directo) ← lo que diga el plan de la Fase F
 ```
 
@@ -5576,6 +5614,19 @@ que recorre workflow × target_type × trust × override y exige
 cambio es `drop_in` ↔ `merge`. Lo que **no** re-deriva es `keep`, que sí es
 una decisión: `accept-keep` y `override-recommendation` comparan contra lo
 persistido, y enseñar otra cosa dejaría a la vista un botón que contesta 400.
+
+**Y el motivo cuenta la misma lista que la etiqueta** (2026-10-27). Los
+cuatro motivos del merge —perfil distinto, L2 distinto, drop-in solo en FEL y
+revisión manual pedida— llevaban escrito «solo los niveles [3,8,9,11,254]
+preservando el L2», la política de antes del 17 de octubre. Con un MKV P7 FEL
+cuyos másters concuerdan, el merge trae el L1, el L2 y el L6 del bin, y la
+tarjeta decía las dos cosas a la vez: la etiqueta «merge: L1, L2 y L6 del
+bin» y el motivo lo contrario. Hoy la consecuencia es un parámetro
+(`{consecuencia}`) que sale del mismo `conservador` que la etiqueta, y
+`TestLaRecomendacionCuentaLosNivelesQueSeUsan::test_el_motivo_cuenta_la_misma_lista_que_la_etiqueta`
+recorre la rejilla entera. El aviso de proyecto terminado de la interfaz tenía
+el mismo fallo —deducía la lista del workflow— y hoy lee
+`plan.inject.merge_levels` con `_cmv40NivelesDelMerge`.
 
 Endpoints relacionados:
 - `POST /api/cmv40/{id}/accept-keep` — cierra el proyecto como `done` con `output_workflow="keep_cmv29"`.

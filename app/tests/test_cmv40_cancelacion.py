@@ -122,9 +122,18 @@ class TestUnaFaseSeDetieneEntrePasos(unittest.IsolatedAsyncioTestCase):
         cancelado = {"si": False}
         pipeline.set_cancel_check(lambda: cancelado["si"])
 
+        # El arranque fijo de la línea que anuncia el merge, sacado del
+        # catálogo: con el literal, reescribir la frase dejaba al test
+        # esperando una línea que ya no existe.
+        import json as _json
+        from pathlib import Path as _Path
+        _cat = _json.loads((_Path(pipeline.__file__).resolve().parents[1] / "i18n" / "es.json")
+                           .read_text(encoding="utf-8"))
+        anuncio = _cat["cmv40_pipeline.transferencia_cmv4_0_levels_frame_a"].split("{")[0]
+
         async def _log(msg):
             # En cuanto se anuncia el merge, el usuario cancela.
-            if "Transferencia CMv4.0 levels" in msg:
+            if anuncio in msg:
                 cancelado["si"] = True
 
         with self.assertRaises(pipeline.CMv40Cancelled):

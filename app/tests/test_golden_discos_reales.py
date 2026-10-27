@@ -207,7 +207,7 @@ class TestAvisoDeEmpate(BaseDiscos):
         disco = next(d for d in discos() if d["nombre"].startswith("Te_van_a_matar"))
         _, _, _, _, _, avisos = self.mapear(disco, recuperar=True)
         self.assertTrue(avisos, "debería avisar del empate entre las AC-3 inglesas")
-        self.assertTrue(any("indistinguibles" in a for a in avisos), avisos)
+        self.assertTrue(any("no se distinguen entre sí" in a for a in avisos), avisos)
 
     def test_sin_ambiguedad_no_hay_ruido(self):
         """Con solo las incluidas (Castellano + VO) no hay empate en ningún

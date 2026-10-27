@@ -472,7 +472,7 @@ class TestGuardsDeFaseF(FaseFTestCase):
         from phases.cmv40_pipeline import run_phase_f_inject
         with self.assertRaises(RuntimeError) as cm:
             await run_phase_f_inject(session, self.log)
-        self.assertIn("Frame count mismatch", str(cm.exception))
+        self.assertIn("Frame count distinto", str(cm.exception))
         self.assertFalse(self.tb.ran("dovi_tool", "inject-rpu"),
                          "no se debe inyectar con los frames desalineados")
 
@@ -487,7 +487,7 @@ class TestGuardsDeFaseF(FaseFTestCase):
         from phases.cmv40_pipeline import run_phase_f_inject
         with self.assertRaises(RuntimeError) as cm:
             await run_phase_f_inject(session, self.log)
-        self.assertIn("Frame count mismatch", str(cm.exception))
+        self.assertIn("Frame count distinto", str(cm.exception))
         self.assertFalse(self.tb.ran("dovi_tool", "inject-rpu"))
 
     async def test_sin_rpu_target_aborta(self):

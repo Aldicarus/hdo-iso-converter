@@ -171,7 +171,7 @@ class TestProvenanceHints(unittest.TestCase):
         flags = {"has_l4": False, "has_l9": True, "has_l10": True,
                  "has_l11": False, "has_l254": True}
         hints = _compute_provenance_hints(numeros_de_l8(rpu), "real", "full", flags, False)
-        self.assertTrue(any("pre-L11" in h or "pre-IQ" in h for h in hints))
+        self.assertTrue(any("anterior a Dolby Vision IQ" in h for h in hints))
 
     def test_cmv29_native_with_l2(self):
         rpu = _make_rpu(l2=73, l2_pqs=[62, 2081, 2851, 3079])
@@ -360,8 +360,9 @@ class TestElVeredictoCacheadoNoCongelaElIdioma(unittest.TestCase):
         rpu = _make_rpu(l8=0, cmv40_frames=0, l2=1026, l2_pqs=[2081, 3079])
         with idioma("es"):
             en_disco = _build_quality_audit_from_rpu_analysis(rpu, True)
-        # Las dos cadenas que el usuario pegó del navegador, literales.
-        self.assertIn("trims básicos del master", en_disco["quality_verdict_text"])
+        # Las dos cadenas que el usuario pegó del navegador, literales (con
+        # la tilde de «máster» desde la pasada de registro del 2026-10-27).
+        self.assertIn("trims básicos del máster", en_disco["quality_verdict_text"])
         self.assertIn("combos únicos", en_disco["quality_reason"])
         self.assertEqual("CMv2.9 CORE", en_disco["quality_tier_label"])
 

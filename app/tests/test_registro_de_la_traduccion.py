@@ -9,6 +9,7 @@ un test; eso lo sostiene la guía y quien traduce).
 Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_registro_de_la_traduccion -v
 """
+import html
 import json
 import re
 import sys
@@ -202,7 +203,6 @@ IGUAL_EN_INGLES = {
     "tab3.p1_delta_frames": "dos huecos y la palabra «frames»",
     "tab3.p1_sync_delta_frames": "dos huecos y la palabra «frames»",
     "tab3.p1_workflow":     "un hueco y la palabra «workflow»",
-    "tab3.pct_match":       "un hueco y la palabra «match», que el castellano ya usa en inglés",
     "cmv40_pipeline.per_frame_data_json_frames": "un nombre de fichero, un hueco y «frames»",
     # Rótulos que en castellano ya son término técnico o nombre inglés, y que
     # se habían «traducido» añadiéndoles una palabra que el original no dice.
@@ -854,6 +854,202 @@ class TestMultiplexarHablaConPrecision(CatalogoCase):
         """Con los prefijos mal escritos pasaría en verde sin mirar nada."""
         n = sum(1 for _ in self._del_conjunto())
         self.assertGreater(n, 3 * 350, f"sólo {n} cadenas de la pestaña revisadas")
+
+
+class TestLaAppHablaConPrecision(CatalogoCase):
+    """La norma de Multiplexar, en toda la app y en el manual.
+
+    Tras la pasada de Tab 4 el usuario pidió «la misma pasada en toda la
+    app» (2026-10-27). Estas son las agujas que esa pasada dejó a cero en los
+    dos catálogos y en el manual, en castellano y en catalán: la metáfora que
+    tiene palabra precisa (*cuadrar*, *tal cual*, *a mano*, *igualmente* por
+    *de todos modos*, *en marcha* por *en curso*), el inglés que tiene
+    palabra castellana (*chart*, *sniff*, *skip*, *job*, *link*, *email*,
+    *in-place*, *read-only*, *fallback*, *crash*, *tab*), los calcos verbales
+    (*matchear*, *resetear*, *upgradear*, *mergear*, *re-encodar*), la
+    primera persona del plural —no es la voz de la app— y las referencias
+    internas que el usuario no conoce (*Tab 3*, el comparador A/B retirado).
+
+    **El inglés no lleva agujas**: la pasada era del castellano, y *by hand*
+    o *anyway* son inglés corriente. La clase de Multiplexar sí las tiene,
+    porque allí se escribieron con el resto.
+
+    «Reanalizar» es castellano correcto; lo que no lo es es el guion
+    («re-analizar»), y la aguja mira solo esa forma. «Sobre la marcha» no es
+    «en marcha». Y el término del oficio se queda (*merge*, *drop-in*,
+    *trust gates*, *frame count*): lo que se persigue es el verbo calcado,
+    no el sustantivo técnico.
+    """
+
+    AGUJAS = {
+        "es": {
+            r"\bcuadra": "«cuadrar»: es «coincidir»",
+            r"\btal cual\b": "«tal cual»: es «sin cambios»",
+            r"\ben su sitio\b": "«en su sitio»: hay que decir dónde",
+            r"\bcasa(?:r)? con\b": "«casar con»: es «corresponder a» o «coincidir con»",
+            r"\bde fiar\b|\bfiarte\b": "«fiarse»: es «aceptar» o «comprobar»",
+            r"\ba mano\b": "«a mano»: es «manualmente»",
+            r"\bigualmente\b": "«igualmente» por «de todos modos» es coloquial",
+            r"\ben marcha\b": "la app dice «en curso»",
+            r"\bcolgad[oa]s?\b": "«colgado»: es «bloqueado» o «no avanza»",
+            r"\bsin eso\b": "«eso» no dice de qué habla",
+            r"\bal vuelo\b": "la app dice «sobre la marcha»",
+            r"\bre-analiz": "«reanalizar» va sin guion",
+            r"\bre-ejecut": "«volver a ejecutar»",
+            r"\bre-?encod": "«recodificar»",
+            r"\bmatche": "«buscar coincidencias»",
+            r"\bupgrade(?:ar|ado|ada)\b": "«actualizar»; el sustantivo «upgrade» sí es del oficio",
+            r"\bresete": "«restablecer»",
+            r"\bmergea": "«hacer el merge»",
+            r"\bsniff": "«muestreo»",
+            r"\bskip\b": "«omitir»",
+            r"\bin-place\b": "«sin reescribir el fichero»",
+            r"\bread-only\b": "«de solo lectura»",
+            r"\bchart\b": "«gráfico»",
+            r"\bjobs?\b": "«trabajo»",
+            r"\blinks?\b": "«enlace»",
+            r"\bemail\b": "«correo electrónico»",
+            r"\bfallback\b": "«respaldo» o «alternativa»",
+            r"\bcrash\b": "«fallo»",
+            r"\bcross-correlation\b": "«correlación cruzada»",
+            r"\bon-demand\b": "«bajo demanda»",
+            r"\bcocinad": "«integrado»",
+            r"\btab\b": "«pestaña»",
+            r"\bcomparador A/B\b": "el comparador A/B se retiró el 2026-09-23",
+            r"\b(?:inyectamos|mergeamos|transferimos|descartamos|saltamos|validamos|leemos|"
+            r"confirmamos|necesitamos|abortamos|continuamos|tenemos|usaremos|usamos|"
+            r"preservamos|nos quedamos)\b": "la primera persona del plural no es la voz de la app",
+        },
+        "ca": {
+            r"\bquadr": "«quadrar»: és «coincidir»",
+            r"\btal qual\b": "«tal qual»: és «sense canvis»",
+            r"\bigualment\b": "«igualment» per «de totes maneres» és col·loquial",
+            r"\ben marxa\b": "l'app diu «en curs»",
+            r"\bpenja[td]": "«penjat»: és «bloquejat»",
+            r"\ba mà\b": "«a mà»: és «manualment»",
+            r"\bal vol\b": "l'app diu «sobre la marxa»",
+            r"\bre-?encod": "«recodificar»",
+            r"\bsniff": "«mostreig»",
+            r"\bskip\b": "«ometre»",
+            r"\bchart\b": "«gràfic»",
+            r"\bjobs?\b": "«treball»",
+            r"\bcuinat": "«integrat»",
+            r"\bfallback\b": "«reserva» o «alternativa»",
+            r"\btab\b": "«pestanya»",
+        },
+    }
+    # Sensibles a mayúsculas: «Tab 3» es la numeración interna de las
+    # pestañas, y en minúscula «tab» ya lo cubre la aguja de arriba.
+    AGUJAS_LITERALES = {r"\bTab [1-4]\b": "la numeración interna: la pestaña se nombra por su rótulo"}
+
+    @staticmethod
+    def _manual(idioma):
+        h = json.loads((APP_DIR / "static" / "i18n" / "manual" / f"{idioma}.json").read_text(encoding="utf-8"))
+        for sec, html_ in h.items():
+            yield sec, html.unescape(re.sub(r"<[^>]+>", " ", html_))
+
+    def _textos(self):
+        for donde, cat in self.catalogos():
+            for idioma in ("es", "ca"):
+                for k, v in cat[idioma].items():
+                    # El nombre de un hueco (`{tab}`) no es texto que se lea.
+                    yield idioma, f"[{donde}] {k}", re.sub(r"\{\w+\}", " ", v)
+        for idioma in ("es", "ca"):
+            for sec, txt in self._manual(idioma):
+                yield idioma, f"[manual] {sec}", txt
+
+    def _busca(self, idioma, texto):
+        for aguja, motivo in self.AGUJAS[idioma].items():
+            m = re.search(aguja, texto, re.IGNORECASE)
+            if m:
+                yield aguja, motivo, m
+        for aguja, motivo in self.AGUJAS_LITERALES.items():
+            m = re.search(aguja, texto)
+            if m:
+                yield aguja, motivo, m
+
+    def test_ninguna(self):
+        malas = []
+        for idioma, donde, texto in self._textos():
+            for _a, motivo, m in self._busca(idioma, texto):
+                trozo = " ".join(texto[max(0, m.start() - 40):m.end() + 40].split())
+                malas.append(f"[{idioma}] {donde}: {motivo}\n        «…{trozo}…»")
+        self.assertEqual(sorted(malas), [], "\n  · ".join([""] + sorted(malas)))
+
+    def test_el_guard_detecta_de_verdad(self):
+        """Frases que la app decía antes de la pasada, una por aguja: un
+        guard que da cero no se rompe al quitarle una aguja."""
+        casos = {
+            "es": {
+                "Las líneas con ⚠️ o ❌ dicen qué campo no cuadra": r"\bcuadra",
+                "la corrección se conserva tal cual.": r"\btal cual\b",
+                "Revisa este desglose antes de fiarte del veredicto.": r"\bde fiar\b|\bfiarte\b",
+                "Conviene revisar la sincronización a mano.": r"\ba mano\b",
+                "Inyectar RPU igualmente": r"\bigualmente\b",
+                "La Fase A ya está en marcha.": r"\ben marcha\b",
+                "La inyección se queda colgada o tarda demasiado": r"\bcolgad[oa]s?\b",
+                "Equivale a la conversión al vuelo que hace tu reproductor.": r"\bal vuelo\b",
+                "Proyecto re-analizado": r"\bre-analiz",
+                "Re-ejecutar": r"\bre-ejecut",
+                "el vídeo se re-encodeo sin preservar la metadata DV": r"\bre-?encod",
+                "Sin MKV origen — imposible matchear.": r"\bmatche",
+                "P7 FEL se puede upgradear conservando el EL": r"\bupgrade(?:ar|ado|ada)\b",
+                "Resetear al original": r"\bresete",
+                "La app descarta el EL del MEL y mergea los niveles": r"\bmergea",
+                "✓ Sniff OK — RPU detectado": r"\bsniff",
+                "Drop-in MEL: skip Fase D si gates OK": r"\bskip\b",
+                "mkvpropedit in-place: configurando metadatos…": r"\bin-place\b",
+                "MKV en biblioteca read-only": r"\bread-only\b",
+                "Generando datos per-frame para el chart…": r"\bchart\b",
+                "Asegúrate de no tener jobs activos sobre estos paths.": r"\bjobs?\b",
+                "Recibirás el link por email.": r"\blinks?\b",
+                "(recomendado para HDR10 fallback)": r"\bfallback\b",
+                "Cancelación o crash durante la auditoría del RPU": r"\bcrash\b",
+                "Fase D usa cross-correlation y permite corregir": r"\bcross-correlation\b",
+                "Fallo al regenerar per_frame_data on-demand": r"\bon-demand\b",
+                "Bin P7 FEL · CMv4.0 ya cocinado": r"\bcocinad",
+                "La tab «Carpeta local» del modal": r"\btab\b",
+                "Sirve para el comparador A/B": r"\bcomparador A/B\b",
+                "Inyectamos el RPU target directamente en source.hevc": r"\b(?:inyectamos|mergeamos|transferimos|descartamos|saltamos|validamos|leemos|"
+                                                                        r"confirmamos|necesitamos|abortamos|continuamos|tenemos|usaremos|usamos|"
+                                                                        r"preservamos|nos quedamos)\b",
+            },
+            "ca": {
+                "la senyalització quadri amb el contingut": r"\bquadr",
+                "La metadata original es respecta tal qual": r"\btal qual\b",
+                "Injectar l'RPU igualment": r"\bigualment\b",
+                "La Fase A ja està en marxa.": r"\ben marxa\b",
+                "La injecció es queda penjada": r"\bpenja[td]",
+                "comprova-ho a mà": r"\ba mà\b",
+                "la conversió al vol del reproductor": r"\bal vol\b",
+                "el vídeo es va re-encodar": r"\bre-?encod",
+                "Sniff ràpid de l'origen": r"\bsniff",
+                "skip de la Fase D": r"\bskip\b",
+                "revisa el chart abans d'injectar": r"\bchart\b",
+                "a mig job": r"\bjobs?\b",
+                "CMv4.0 ja cuinat": r"\bcuinat",
+                "recomanat per al fallback HDR10": r"\bfallback\b",
+                "La tab «Carpeta local» del modal": r"\btab\b",
+            },
+        }
+        for idioma, frases in casos.items():
+            for frase, aguja in frases.items():
+                with self.subTest(idioma=idioma, frase=frase):
+                    disparan = [a for a, _m, _x in self._busca(idioma, frase)]
+                    self.assertIn(aguja, disparan)
+        self.assertIn(r"\bTab [1-4]\b",
+                      [a for a, _m, _x in self._busca("es", "se puede actualizar desde Tab 3")])
+        # Y las formas correctas no disparan nada.
+        for frase in ("Reanalizar", "sobre la marcha", "el merge conservador", "pestaña Hoja",
+                      "la tabla de niveles", "trust gates", "frame count"):
+            self.assertEqual([a for a, _m, _x in self._busca("es", frase)], [], frase)
+
+    def test_mira_los_catalogos_y_el_manual(self):
+        """Con el manual mal leído, la mitad del guard vigilaría el vacío."""
+        n_cat = sum(1 for i, d, _t in self._textos() if not d.startswith("[manual]"))
+        n_man = sum(len(t) for i, d, t in self._textos() if d.startswith("[manual]"))
+        self.assertGreater(n_cat, 2 * 3000, f"sólo {n_cat} cadenas de catálogo")
+        self.assertGreater(n_man, 2 * 100_000, f"sólo {n_man} caracteres de manual")
 
 
 if __name__ == "__main__":

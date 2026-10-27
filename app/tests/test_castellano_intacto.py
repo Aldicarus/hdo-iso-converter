@@ -449,6 +449,16 @@ EXCEPCIONES: dict[str, str] = {
         "es como lo llama el resto de la app",
 }
 
+# ── La pasada de registro preciso a toda la app y la reescritura del manual
+#    CMv4.0 contra el código (2026-10-27, a petición del usuario). Son 372
+#    frases y van en su propio fichero para no ahogar esta lista: cada una con
+#    la clave de su motivo, y los dos motivos escritos allí. Valen las mismas
+#    reglas que para el resto —citar una frase del golden y no seguir viva—,
+#    porque las comprueban los mismos tests sobre `EXCEPCIONES`.
+_REESCRITAS = json.loads((APP_DIR / "tests" / "golden_castellano_reescrito.json")
+                         .read_text(encoding="utf-8"))
+EXCEPCIONES.update({f: _REESCRITAS["motivos"][m] for f, m in _REESCRITAS["frases"].items()})
+
 
 class TestLaListaDeExcepcionesNoSeQuedaVieja(unittest.TestCase):
     """Una excepción que ya no corresponde a ninguna frase del golden parece

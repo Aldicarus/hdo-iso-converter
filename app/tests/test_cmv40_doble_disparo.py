@@ -65,7 +65,7 @@ class TestNombreDeSalidaOcupado(unittest.IsolatedAsyncioTestCase):
         msg = str(ctx.exception)
         self.assertIn("salida.mkv", msg)
         # El mensaje tiene que decir qué hacer, no solo que falla
-        self.assertIn("Renombra", msg)
+        self.assertIn("Cambia el nombre de salida", msg)
 
     async def test_pasa_si_el_nombre_esta_libre(self):
         import phases.cmv40_pipeline as pipe

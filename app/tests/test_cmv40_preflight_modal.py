@@ -930,7 +930,7 @@ console.log(JSON.stringify({{f: _cmv40PfChecks({json.dumps(con_relato(sesion))})
                              "target_preflight_ok": True},
                             "La Fase A ya está en marcha.")
         self.assertEqual(v["clase"], "ok")
-        self.assertIn("igualmente", v["titulo"].lower())
+        self.assertIn("de todos modos", v["titulo"].lower())
         self.assertIn("Fase A", v["cuerpo"])
 
     def test_la_decision_es_una_conclusion_mas_del_checklist(self):

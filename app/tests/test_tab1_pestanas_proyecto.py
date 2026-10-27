@@ -102,7 +102,7 @@ console.log(JSON.stringify({{ toast, abiertosVistos }}));
 
     def test_reanalizar_uno_abierto_dice_reanalizado(self):
         r = self._correr([{"id": "p1", "sessionId": "s-nueva"}])
-        self.assertIn("Proyecto re-analizado", r["toast"])
+        self.assertIn("Proyecto reanalizado", r["toast"])
 
     def test_reanalizar_refresca_la_pestana_existente(self):
         """`openProject` es idempotente: se llama en los dos casos.
@@ -220,7 +220,9 @@ console.log(JSON.stringify({{ destruidos, toast, sueltos: {{
         r = self._cerrar(self._base(session={"status": "running"}))
         self.assertIsNotNone(r["toast"])
         self.assertIn("Peli (2024)", r["toast"])
-        self.assertIn("Cola", r["toast"])
+        # La sub-pestaña «Cola» se retiró con la columna de trabajo: el aviso
+        # mandaba a mirar un sitio que ya no existe (2026-10-27).
+        self.assertIn("columna de trabajo", r["toast"])
 
     def test_encolado_avisa(self):
         r = self._cerrar(self._base(session={"status": "queued"}))

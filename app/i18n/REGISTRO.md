@@ -10,6 +10,13 @@ a byte. Lo vigila `test_castellano_intacto.py` contra un golden capturado sobre
 la etiqueta `pre-i18n`. Traducir es producir `en` y `ca`; nunca "mejorar" el
 castellano de paso.
 
+El castellano **sí** cambia cuando lo pide el usuario, y entonces cada frase
+del golden que deja de existir se documenta con su motivo en el mismo commit:
+en `EXCEPCIONES`, o en `tests/golden_castellano_reescrito.json` cuando son
+cientos (la pasada de registro preciso a toda la app y la reescritura del
+manual CMv4.0, 2026-10-27: 372 frases, dos motivos). Lo que no se hace es
+cambiarlo de paso mientras se traduce.
+
 ## El tono del castellano, que es el que hay que reproducir
 
 La app habla como alguien que sabe del tema y lo dice con precisión: no como
@@ -104,6 +111,29 @@ concreto:
   frases del usuario como caso de prueba. No es el detector de tono para
   toda la app que se descartó arriba: es la regresión de lo corregido, y la
   regla vale para todo texto nuevo.
+- **Y en toda la app, la misma pasada** (2026-10-27, «haz la misma pasada en
+  toda la app»). Se leyeron las ~3.500 cadenas de los dos catálogos y el
+  manual, y salieron dos cosas más que las tres familias de arriba:
+  - **el inglés mezclado que tiene palabra castellana** (*chart* → gráfico,
+    *sniff* → muestreo, *skip* → omitir, *job* → trabajo, *link* → enlace,
+    *in-place* → sin reescribir el fichero, *read-only* → de solo lectura,
+    *fallback* → respaldo, *crash* → fallo, *tab* → pestaña) y **el verbo
+    calcado** (*matchear*, *resetear*, *upgradear*, *mergear*,
+    *re-encodar*). El sustantivo del oficio se queda: *merge*, *drop-in*,
+    *trust gates*, *frame count*;
+  - **la primera persona del plural** («inyectamos», «lo necesitamos»,
+    «abortamos ahora»): la app no habla en nombre de nadie. Se dice qué se
+    hace: «se inyecta», «la app lo necesita», «el pipeline se detiene»;
+  - **y lo que ya no era cierto**, que es la otra cara de la precisión: la
+    sub-pestaña «Cola» que ya no existe, «Tab 3» por el nombre de la
+    pestaña, el comparador A/B retirado, la Fase F que «inyecta el RPU
+    original» cuando hoy se detiene, el gate L1 que comparaba un «brillo
+    medio» (es el pico), y un manual CMv4.0 que describía el árbol de
+    decisión, los gates y la Fase D de antes.
+
+  Lo vigila `TestLaAppHablaConPrecision`, sobre los dos catálogos y el
+  manual, en castellano y en catalán. El inglés no lleva agujas: *by hand* o
+  *anyway* son inglés corriente.
 
 ## Inglés
 

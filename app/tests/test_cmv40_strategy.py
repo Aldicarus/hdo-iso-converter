@@ -399,5 +399,38 @@ class TestDesdeUnaSesion(unittest.TestCase):
         self.assertEqual(resolve_plan(s).inputs.source_workflow, "p7_fel")
 
 
+class TestElPlanSirveLosNivelesDelMerge(unittest.TestCase):
+    """La lista del merge viaja en el plan, la misma que usa la Fase F.
+
+    El aviso de proyecto terminado la deducía del workflow, y un MKV P7 FEL
+    cuyo L1 o L6 divergían —merge conservador— se anunciaba con la lista FEL
+    (2026-10-27).
+    """
+
+    def _plan(self, wf, gates):
+        from models import CMv40Session
+        from phases.cmv40_strategy import resolve_plan
+        s = CMv40Session(id="x", source_mkv_path="/x.mkv", source_mkv_name="x.mkv",
+                         source_workflow=wf, target_type="generic",
+                         target_trust_gates=gates, target_trust_ok=False)
+        return resolve_plan(s).to_dict()["inject"]["merge_levels"]
+
+    def test_un_fel_con_los_masters_concordando_trae_la_lista_fel(self):
+        self.assertEqual(self._plan("p7_fel", {"frames": {"ok": False, "severity": "sync_review"}}),
+                         [1, 2, 3, 6, 8, 9, 10, 11, 254])
+
+    def test_un_fel_con_el_l1_o_el_l6_divergentes_trae_la_corta(self):
+        for gate in ("l1_div", "l6_div"):
+            with self.subTest(gate):
+                self.assertEqual(self._plan("p7_fel", {gate: {"ok": False, "severity": "ack_required"}}),
+                                 [3, 8, 9, 11, 254])
+
+    def test_mel_y_p8_siempre_la_corta(self):
+        for wf in ("p7_mel", "p8"):
+            with self.subTest(wf):
+                self.assertEqual(self._plan(wf, {"frames": {"ok": True, "severity": "ok"}}),
+                                 [3, 8, 9, 11, 254])
+
+
 if __name__ == "__main__":
     unittest.main()

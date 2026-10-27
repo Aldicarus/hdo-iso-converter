@@ -158,7 +158,15 @@ class TestLaOrtografiaInglesaEsUnaSola(unittest.TestCase):
              ("cancel(l)ed",     r"\bcancell(ed|ing)\b",      r"\bcancel(ed|ing)\b"),
              ("behaviour",       r"\bbehaviour\b",            r"\bbehavior\b"),
              ("artefact",        r"\bartefact(s?)\b",         r"\bartifact(s?)\b"),
-             ("normalise",       r"\bnormalis\w*\b",          r"\bnormaliz\w*\b")]
+             ("normalise",       r"\bnormalis\w*\b",          r"\bnormaliz\w*\b"),
+             # Se colaron 19 hasta el 2026-10-27, con «colorist» al lado en
+             # la misma pantalla: el guard no miraba estas cinco.
+             ("colour",          r"\bcolour\w*\b",            r"\bcolor\w*\b"),
+             ("centre",          r"\bcentre[ds]?\b",          r"\bcenter(?:ed|s)?\b"),
+             ("labelled",        r"\b(?:mis)?label(?:led|ling)\b", r"\b(?:mis)?label(?:ed|ing)\b"),
+             ("signalling",      r"\bsignall(?:ing|ed)\b",    r"\bsignal(?:ing|ed)\b"),
+             ("judgement",       r"\bjudgement\b",            r"\bjudgment\b"),
+             ("catalogue",       r"\bcatalogu(?:e|ed|es)\b",  r"\bcatalog(?:ed|s)?\b")]
 
     def test_no_se_mezcla_us_con_uk(self):
         malas = []
