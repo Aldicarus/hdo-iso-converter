@@ -12,8 +12,9 @@ castellano de paso.
 
 ## El tono del castellano, que es el que hay que reproducir
 
-La app habla como un colega que sabe del tema, no como un manual y no como un
-asistente. En concreto:
+La app habla como alguien que sabe del tema y lo dice con precisión: no como
+un manual, no como un asistente y tampoco como en la barra de un bar. En
+concreto:
 
 - **Segunda persona del singular, directa**: «Pega aquí tu clave», no «Se debe
   introducir la clave» ni «Por favor, introduzca».
@@ -76,6 +77,33 @@ asistente. En concreto:
   forma de decir lo que treinta cadenas llaman «En curso» — y el relato
   existe justamente para que el mismo estado no tenga dos nombres. Antes de
   redactar un rótulo nuevo, buscar si el estado ya tiene el suyo.
+- **Precisión, no jerga de calle.** Lo señaló el usuario el 2026-10-27 en
+  «Multiplexar MKV» —«el MKV final saldrá sin eso», «Multiplexar sin
+  ellas», «el audio no se estira sin recodificar»: «redacta para que no
+  parezca que hablo con mi colega de la esquina»—. La cercanía la ponen la
+  segunda persona y las frases cortas; el vocabulario es el de quien
+  escribe una herramienta profesional. Tres familias:
+  - **el pronombre que no dice de qué habla**: *eso*, *ellas* en un botón,
+    *lo de B*, *lo elegido*, *lo que corre*. Se nombra la cosa: «el MKV
+    final se creará sin su contenido», «Multiplexar con la selección
+    actual», «las pistas de B», «el trabajo en curso». Un pronombre con su
+    antecedente en la misma frase sí vale: «No hay medida de sincronía: sin
+    ella…»;
+  - **la metáfora coloquial donde hay una palabra exacta**: *cuadrar* →
+    coincidir con el plan; *caer en su sitio* → quedar sincronizado; *casar
+    con* → coincidir con; *estirar* un audio → cambiar su velocidad; *tal
+    cual* → sin ajustes; *de fiar* → fiable; *a mano* → manualmente; *sale
+    de* → procede de; *colgado* → bloqueado; *igualmente* por «de todos
+    modos»;
+  - **y el rótulo dice lo que hace el botón**: «Multiplexar igualmente» no
+    multiplexaba —dejaba aceptado el riesgo, y el que multiplexa es
+    «Multiplexar»—, así que es «Aceptar el riesgo».
+
+  Lo vigila `test_registro_de_la_traduccion::TestMultiplexarHablaConPrecision`
+  sobre el conjunto cerrado de la pestaña y en las tres lenguas, con las
+  frases del usuario como caso de prueba. No es el detector de tono para
+  toda la app que se descartó arriba: es la regresión de lo corregido, y la
+  regla vale para todo texto nuevo.
 
 ## Inglés
 

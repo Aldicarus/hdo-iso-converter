@@ -489,9 +489,19 @@ window.addEventListener('load', () => setTimeout(async function () {
   // ── Lo que dicen el veredicto y el plan ──────────────────────────────
   await caso('veredicto_y_plan', async () => {
     const texto = (f, d) => { const c = document.createElement('div'); c.innerHTML = f(d); return c.textContent; };
+    // El listo (vídeo de A) sin velocidad en el plan: con el audio de A, lo de
+    // B se lleva a la línea de A; con el de B y un vídeo de cadencia variable
+    // no hay ajuste posible, y no se puede decir que ningún audio sea de B.
+    const sinVelocidad = (audio_de) => {
+      const d = copia(D.listo);
+      d.plan = Object.assign({}, d.plan, {velocidad_video: null, audio_de, necesita_sincronia: true});
+      return d;
+    };
     return {retraso: texto(_muxVeredictoHTML, D.marcha), velocidades: texto(_muxVeredictoHTML, D.listo),
             velocidades_reves: texto(_muxVeredictoHTML, D.reves),
             velocidades_vacio: texto(_muxVeredictoHTML, D.vacio),
+            velocidades_audio_de_a: texto(_muxVeredictoHTML, sinVelocidad([0])),
+            velocidades_audio_de_b: texto(_muxVeredictoHTML, sinVelocidad([1])),
             plan_retraso: texto(_muxPlanHTML, D.marcha), plan_listo: texto(_muxPlanHTML, D.listo),
             plan_reves: texto(_muxPlanHTML, D.reves), plan_montaje: texto(_muxPlanHTML, D.cola),
             plan_vacio: texto(_muxPlanHTML, D.vacio)};
@@ -1664,6 +1674,12 @@ class TestLaPestanaMultiplexarEnChrome(unittest.TestCase):
         # Sin nada elegido no hay plan que contar, y el veredicto no inventa.
         self.assertEqual(c["plan_vacio"], "")
         self.assertIn(self.cat["tab4.v_velocidades_sin_elegir"], c["velocidades_vacio"])
+        # «Ninguna pista de audio procede de B» solo cuando es verdad: con el
+        # audio de B y el vídeo de A sin velocidad ajustable, sería falso.
+        estira = self._tr("tab4.v_velocidades_estira", otra="B")
+        self.assertIn(estira, c["velocidades_audio_de_a"])
+        self.assertNotIn(estira, c["velocidades_audio_de_b"])
+        self.assertIn(self.cat["tab4.v_velocidades_sin_elegir"], c["velocidades_audio_de_b"])
 
     def test_el_grafico_solo_dibuja_la_recta_cuando_describe_algo(self):
         c = self.caso("grafico")

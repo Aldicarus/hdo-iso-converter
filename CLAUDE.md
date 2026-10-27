@@ -1903,12 +1903,28 @@ de los ASS elegidos» (otros). Sin atajos globales.
 **El vocabulario cambió con él**, porque «combinar» y «retimar» no decían lo
 que hace: «Multiplexar / Multiplexado» (EN «Multiplex», CA «Multiplexar /
 multiplexació»), «ajustar la velocidad del vídeo», «Velocidades distintas»,
-«Se van separando (N ms por hora)» en vez de «deriva (ppm)», «Medida dudosa»
-en vez de «no concluyente», «Pistas comparadas» en vez de «pareja», «Variación
-entre puntos» y «Desfase que queda». **Lo que NO cambió son los ids**: el tipo
-de trabajo `combinar_mkv` (la cola se persiste y el historial es
-append-only), la fase `combinar` (clave de `MuxEjecucion.fases` ya
-guardadas), el glifo `combinar`, las rutas `/api/mux/*` y el tab `mux`.
+«Desfase creciente (N ms por hora)» en vez de «deriva (ppm)», «Medida
+dudosa» en vez de «no concluyente», «Pistas comparadas» en vez de «pareja»,
+«Variación entre puntos» y «Desfase residual». **Lo que NO cambió son los
+ids**: el tipo de trabajo `combinar_mkv` (la cola se persiste y el historial
+es append-only), la fase `combinar` (clave de `MuxEjecucion.fases` ya
+guardadas), el glifo `combinar`, las rutas `/api/mux/*` y el tab `mux`. Las
+claves del catálogo tampoco se renombraron con los textos
+(`tab4.multiplexar_sin_ellas` dice «Multiplexar con la selección actual»).
+
+**Y el registro se corrigió el mismo día**, a petición del usuario: «el MKV
+final saldrá sin eso», «Multiplexar sin ellas» o «el audio no se estira sin
+recodificar» sonaban a conversación de bar. La regla está en `REGISTRO.md`
+(«Precisión, no jerga de calle»): se nombra la cosa en vez del pronombre, y
+la metáfora coloquial (*cuadrar*, *caer en su sitio*, *casar con*, *estirar*,
+*tal cual*, *de fiar*) deja sitio a la palabra exacta. Lo vigila
+`test_registro_de_la_traduccion::TestMultiplexarHablaConPrecision` en las
+tres lenguas. De paso salieron dos fallos que no eran de estilo: el botón
+«Multiplexar igualmente» no multiplexaba —acepta el riesgo; ahora se llama
+así— y **el log anunciaba la marca de procedencia** («comprobado y
+firmado»), contra la regla de `firma.py`; lo cazan
+`test_mux_endpoints::TestMultiplexar::test_la_marca_no_se_anuncia_en_el_log`
+y su gemelo sobre los tres catálogos.
 
 ### La sincronía se mide por el audio (`phases/mux_sync.py`)
 
@@ -1995,7 +2011,7 @@ confirmaron las fórmulas en las dos direcciones antes de implementarlas.
 - **`video_sin_velocidad_fija`**: un vídeo VFR (`FrameRate_Mode` de
   MediaInfo), sin duración de frame o con la BL y la EL en pistas de
   duraciones distintas no se ajusta. Lo que se mira es el vídeo ELEGIDO.
-- Los motivos que se pueden pasar por alto con **«Multiplexar igualmente»**:
+- Los motivos que se pueden pasar por alto con **«Aceptar el riesgo»**:
   `sin_medida`, `medida_vieja`, `deriva`, `montaje_distinto`,
   `no_concluyente`. Lo acepta el usuario con un diálogo delante, y una medida
   nueva lo retira. Los demás no tienen salida que no sea cambiar algo.
@@ -2306,10 +2322,13 @@ proyectos de `mux_payloads.py` hechos por el backend (vacío, listo, al revés,
 pendiente de decisión, terminado, en marcha, en cola y midiendo). Las
 mutaciones de la pestaña son las `T4-*`, `T4P-*` (el plan), `T4R-*`/`T4S-*`/
 `T4L-*`/`T4C-*` (router, persistencia, relato y pipeline), `T4X-*` (los
-arreglos de la revisión de Codex de la implementación) y `T4F-*` (la interfaz
-nueva). Para verificarlas rápido, `mutar.py` acepta una CLASE como módulo
+arreglos de la revisión de Codex de la implementación), `T4F-*` (la interfaz
+nueva) y `T4V-*` (el registro de los textos y la marca que el log
+anunciaba). Para verificarlas rápido, `mutar.py` acepta una CLASE como módulo
 (`test_mux_endpoints.TestCrear`): el módulo entero son ~3 min por mutación y
-una clase, segundos. En el catálogo van con el módulo entero.
+una clase, segundos. **En el catálogo van con el módulo entero** —lo exige
+`test_herramienta_de_mutaciones`, que tumbó la primera versión de las
+`T4V-*`—.
 
 Dos cosas que el rediseño destapó en el arnés:
 
@@ -3070,8 +3089,9 @@ Cinco decisiones que no son obvias:
   serlo, y el usuario no tiene ninguna decisión que tomar sobre ella. Lo que
   falle va a `logger`. Hay un test que lo guarda — y ojo con la palabra
   «marca» como aguja: sale en «marcados con ⚠️» del propio pipeline.
-- **Se escribe en DOS sitios, no en cinco.** El orquestador de Tab 1
-  (`_run_pipeline`) y la Fase H de CMv4.0, en sus dos ramas. En Tab 1 va en
+- **Se escribe en TRES sitios, no en cinco.** El orquestador de Tab 1
+  (`_run_pipeline`), la Fase H de CMv4.0, en sus dos ramas, y la Fase C de
+  «Multiplexar MKV». En Tab 1 va en
   el orquestador y **no** dentro de Fase E porque las dos rutas de salida
   —directa y propedit— pasan por ese punto: puesta en la fase habría que
   ponerla dos veces, y la tercera ruta que alguien añada saldría sin ella.
@@ -3083,6 +3103,11 @@ Cinco decisiones que no son obvias:
     viaja DENTRO del fichero, así que firmar antes lo dejaría atado a un
     nombre que deja de existir. La rama `already_renamed` firma también, y
     es como un proyecto anterior a esto gana la marca sin migrar nada.
+  - **Tab 4 es el tercer sitio**: la Fase C de `mux_pipeline` firma tras
+    `_publicar_sin_pisar`, con el mismo criterio que la Fase H. Su log
+    cerraba con «comprobado y firmado» hasta el 2026-10-27 — la regla de
+    arriba no tenía guard en esa pestaña; hoy lo tiene en
+    `test_mux_endpoints::TestMultiplexar`.
 - **No puede tumbar un trabajo.** `firmar` se traga cualquier error y
   devuelve un booleano: se llama al final de algo que ha podido durar
   cuarenta minutos y que ya produjo su fichero. Mismo criterio que
@@ -3833,7 +3858,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **587 mutaciones** en
+de entonces seguían en verde. Hoy hay **593 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella y las de la pestaña Multiplexar— y
 `app/tools/mutar.py` las caza todas. Lo que se aprendió, por orden de cuántas veces se repitió:

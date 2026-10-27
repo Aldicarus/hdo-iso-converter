@@ -5294,5 +5294,59 @@
   "modulos": [
    "test_tab4_multiplexar"
   ]
+ },
+ {
+  "id": "T4V-1 el log de Multiplexar anuncia la firma",
+  "fichero": "app/i18n/es.json",
+  "viejo": "\"mux.log_resultado\": \": {nombre} está en Output y ha superado la comprobación\"",
+  "nuevo": "\"mux.log_resultado\": \": {nombre} está en Output, comprobado y firmado\"",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4V-2 el log catalán de Multiplexar anuncia la firma",
+  "fichero": "app/i18n/ca.json",
+  "viejo": "\"mux.log_resultado\": \": {nombre} és a Output i ha superat la comprovació\"",
+  "nuevo": "\"mux.log_resultado\": \": {nombre} és a Output, comprovat i signat\"",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4V-3 vuelve «el MKV final saldrá sin eso»",
+  "fichero": "app/static/i18n/es.json",
+  "viejo": "\"tab4.hay_secciones_sin_nada_elegido_texto\": \"No has elegido ningún elemento en {secciones}. El MKV final se creará sin su contenido.\"",
+  "nuevo": "\"tab4.hay_secciones_sin_nada_elegido_texto\": \"En {secciones} no has elegido nada: el MKV final saldrá sin eso.\"",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T4V-4 vuelve «el audio no se estira sin recodificar»",
+  "fichero": "app/i18n/es.json",
+  "viejo": "el de uno de ellos quedaría desincronizado, y cambiar la velocidad de un audio exige recodificarlo.\"",
+  "nuevo": "uno de los dos se desincronizaría, y el audio no se puede estirar sin recodificar.\"",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T4V-5 el inglés vuelve a «Multiplex anyway»",
+  "fichero": "app/static/i18n/en.json",
+  "viejo": "\"tab4.multiplexar_igualmente\": \"Accept the risk\"",
+  "nuevo": "\"tab4.multiplexar_igualmente\": \"Multiplex anyway\"",
+  "modulos": [
+   "test_registro_de_la_traduccion"
+  ]
+ },
+ {
+  "id": "T4V-6 «ningún audio procede de B» aunque lo haya",
+  "fichero": "app/static/mux.js",
+  "viejo": "        : v != null && plan.necesita_sincronia && !(plan.audio_de || []).includes(1 - v)\n",
+  "nuevo": "        : v != null && plan.necesita_sincronia\n",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
  }
 ]

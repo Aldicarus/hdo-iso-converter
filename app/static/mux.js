@@ -1295,7 +1295,11 @@ function _muxVeredictoHTML(d) {
         ? tr('tab4.v_velocidades_ajuste', { letra: v === 0 ? 'A' : 'B', otra: v === 0 ? 'B' : 'A',
                                             fps: _muxFps(vel.a, true) })
         : (plan.audio_de || []).length === 2 ? tr('tab4.v_velocidades_dos_audios')
-        : v != null && plan.necesita_sincronia ? tr('tab4.v_velocidades_estira', { otra: v === 0 ? 'B' : 'A' })
+        // «Ninguna pista de audio procede del otro»: solo cuando es verdad.
+        // Con el audio del otro y un vídeo que no admite el ajuste (cadencia
+        // variable) no hay velocidad en el plan, y decirlo sería falso.
+        : v != null && plan.necesita_sincronia && !(plan.audio_de || []).includes(1 - v)
+          ? tr('tab4.v_velocidades_estira', { otra: v === 0 ? 'B' : 'A' })
         : tr('tab4.v_velocidades_sin_elegir');
       clase = 'mux-v-info'; glifo = 'sincronia';
       break;

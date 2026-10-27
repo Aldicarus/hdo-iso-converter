@@ -703,6 +703,33 @@ class TestMultiplexar(MuxCase):
         self.assertEqual(linea["ref_log"], f"mux:{p['id']}#1")
         self.assertEqual(q.historial[-1].run_number, 1)
 
+    def test_la_marca_no_se_anuncia_en_el_log(self):
+        """La regla de `firma.py`, que Tab 1 ya vigilaba en su log: una marca
+        discreta que se anuncia deja de serlo. El de Tab 4 terminaba en
+        «está en Output, comprobado y firmado» (2026-10-27)."""
+        p = self.crear()
+        self.elegir(p["id"], A_VIDEO, B_DCP, B_DDP, B_INGLES, B_SUB, capitulos=[(1, 0), (1, 1), (1, 2)])
+        self.con_medida(p["id"])
+        q = self.multiplexar(p["id"])
+        self.assertEqual(q.status, "done", (q.error_message, q.validacion))
+        self.assertTrue(self.tb.ran("mkvpropedit"), "sin firmar, el test no prueba nada")
+        texto = "\n".join(q.historial[-1].output_log).lower()
+        self.assertIn("🎯 resultado", texto, "el log no tiene su cierre: el test miraría otra cosa")
+        for palabra in ("firma", "firmad", "segment-uid", "segment_uid", "procedencia", "huella"):
+            self.assertNotIn(palabra, texto, f"el log menciona «{palabra}»")
+
+    def test_el_log_tampoco_la_anuncia_en_ingles_ni_en_catalan(self):
+        """El test de arriba lee el log en castellano; las otras dos lenguas
+        son las mismas claves, y se miran en el catálogo."""
+        prohibidas ={"es": ("firma", "firmad"), "en": ("signed", "signature"),
+                      "ca": ("signat", "signatura")}
+        for idioma, palabras in prohibidas.items():
+            cat = json.loads((APP_DIR / "i18n" / f"{idioma}.json").read_text(encoding="utf-8"))
+            for k, v in cat.items():
+                if k.startswith("mux.log_"):
+                    for palabra in palabras:
+                        self.assertNotIn(palabra, v.lower(), f"[{idioma}] {k}: «{v}»")
+
     def test_al_reves_el_video_de_b_con_el_audio_de_a(self):
         """El caso de Toy Story con los papeles cambiados (lo que se probará
         en el NAS): el vídeo del WEB-DL pasa a 23,976 y el audio del remux se

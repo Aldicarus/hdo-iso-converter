@@ -756,6 +756,105 @@ class TestNingunaCadenaJustificaUnCambioDeLaApp(CatalogoCase):
         self.assertGreater(n, 5000, f"sólo {n} cadenas revisadas")
 
 
+class TestMultiplexarHablaConPrecision(CatalogoCase):
+    """La pestaña «Multiplexar MKV» no habla como en la barra de un bar.
+
+    Lo señaló el usuario el 2026-10-27: «el MKV final saldrá sin eso»,
+    «Multiplexar sin ellas», «el audio no se estira sin recodificar» —
+    «redacta para que no parezca que hablo con mi colega de la esquina».
+    Son dos familias: el pronombre que no dice de qué habla (*eso*, *lo
+    de B*, *lo elegido*) y la metáfora coloquial donde hay una palabra
+    precisa (*cuadrar*, *caer en su sitio*, *casar con*, *estirar*, *tal
+    cual*, *de fiar*, *a mano*).
+
+    **Sobre un conjunto cerrado de claves**, como
+    `TestLasDefinicionesDeNivelSonNominales`: un detector de tono para
+    toda la app ya se midió y se descartó (ver «El tono del castellano»
+    en `REGISTRO.md`). Aquí las agujas son las que se corrigieron, en las
+    tres lenguas, y vigilan que no vuelvan a la pestaña que se escribió
+    con ellas.
+    """
+
+    PREFIJOS = ("tab4.", "mux.", "relato.mux_", "ui.multiplexa", "ui.elige_los_dos_mkv")
+
+    AGUJAS = {
+        "es": {
+            r"\bcuadra": "«cuadrar»: es «coincidir con el plan»",
+            r"\btal cual\b": "«tal cual»: es «sin ajustes» o «sin cambios»",
+            r"\ben su sitio\b": "«caer en su sitio»: es «quedar sincronizado»",
+            r"\bca(?:e|en|erá|erán|ería|erían)\b": "«caer»: dice dónde queda algo sin decir qué",
+            r"\bcasar con\b": "«casar con»: es «coincidir con»",
+            r"\bestira": "«estirar» un audio: es «cambiar su velocidad»",
+            r"\bsin eso\b": "«eso» no dice de qué habla",
+            r"\blo de\b": "«lo de»: hay que nombrar la cosa",
+            r"\blo elegido\b": "«lo elegido»: es «la selección» o lo que se eligió",
+            r"\blo que (?:corre|esté corriendo|haga falta)\b": "hay que nombrar la cosa",
+            r"\bde fiar\b": "«de fiar»: es «fiable»",
+            r"\ba mano\b": "«a mano»: es «manualmente»",
+            r"\bsabiendo esto\b": "coletilla de conversación",
+            r"\bigualmente\b": "«igualmente» por «de todos modos» es coloquial",
+            r"\bsale(?:n|rá|rán)?\b": "«sale de»: es «procede de»",
+            r"\ben marcha\b": "la app dice «en curso» (ver «la palabra que la app YA usa»)",
+            r"\bcolgado\b": "«colgado»: es «bloqueado»",
+        },
+        "en": {
+            r"\blands? in place\b": "«land in place»: is «in sync»",
+            r"\bas (?:it|they) (?:is|are)\b": "«as it is»: is «without adjustment»",
+            r"\bstretch": "«stretch» audio: is «change its speed»",
+            r"\banyway\b": "colloquial filler",
+            r"\bhung\b": "«hung»: is «unresponsive»",
+            r"\bby hand\b": "«by hand»: is «manually»",
+        },
+        "ca": {
+            r"\bquadr": "«quadrar»: és «coincidir amb el pla»",
+            r"\btal com és\b": "«tal com és»: és «sense ajustos»",
+            r"\bal seu lloc\b": "«caure al seu lloc»: és «quedar sincronitzat»",
+            r"\bcasar amb\b": "«casar amb»: és «coincidir amb»",
+            r"\bestira": "«estirar» un àudio: és «canviar-ne la velocitat»",
+            r"\bsense això\b": "«això» no diu de què parla",
+            r"\bigualment\b": "«igualment» per «de totes maneres» és col·loquial",
+            r"\ben marxa\b": "l'app diu «en curs»",
+            r"\bpenjat\b": "«penjat»: és «bloquejat»",
+            r"\ba mà\b": "«a mà»: és «manualment»",
+        },
+    }
+
+    def _del_conjunto(self):
+        for donde, cat in self.catalogos():
+            for idioma in IDIOMAS:
+                for k, v in cat[idioma].items():
+                    if k.startswith(self.PREFIJOS):
+                        yield donde, idioma, k, v
+
+    def test_ninguna(self):
+        malas = []
+        for _donde, idioma, k, v in self._del_conjunto():
+            for aguja, motivo in self.AGUJAS[idioma].items():
+                if re.search(aguja, v, re.IGNORECASE):
+                    malas.append(f"[{idioma}] {k}: {motivo}\n        «{v[:96]}»")
+        self.assertEqual(sorted(malas), [], "\n  · ".join([""] + sorted(malas)))
+
+    def test_el_guard_detecta_de_verdad(self):
+        """Las tres frases exactas que señaló el usuario, y cada una dispara
+        su aguja: un guard de agujas con cero incidencias no se rompe al
+        quitarle una, así que se comprueba contra el caso real."""
+        casos = {
+            "En Otros no has elegido nada: el MKV final saldrá sin eso.": r"\bsin eso\b",
+            "Multiplexar igualmente": r"\bigualmente\b",
+            "uno de los dos quedaría desincronizado, y el audio no se estira sin recodificar": r"\bestira",
+            "si cuadra, va a Output": r"\bcuadra",
+            "así cae en su sitio con el vídeo": r"\ben su sitio\b",
+            "Positivo: lo de B suena más tarde que lo de A": r"\blo de\b",
+        }
+        for frase, aguja in casos.items():
+            disparan = [a for a in self.AGUJAS["es"] if re.search(a, frase, re.IGNORECASE)]
+            self.assertIn(aguja, disparan, frase)
+
+    def test_el_conjunto_no_esta_vacio(self):
+        """Con los prefijos mal escritos pasaría en verde sin mirar nada."""
+        n = sum(1 for _ in self._del_conjunto())
+        self.assertGreater(n, 3 * 350, f"sólo {n} cadenas de la pestaña revisadas")
+
 
 if __name__ == "__main__":
     unittest.main()
