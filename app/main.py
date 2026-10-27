@@ -836,18 +836,34 @@ def _scan_orphans() -> list[dict]:
             pass
 
     # 5. Cache MKV (Tab 2) — 4 sub-categorías:
-    #    (a) huérfano: original_file_path no existe en disco
+    #    (a) huérfano: el MKV no está en su ruta NI en otra carpeta de la app
     #    (b) quality basura: payload con frames=0 (bug timeout 60s histórico)
     #    (c) stale-version: versions.basic|quality != actual
     #    (d) corrupt: JSON inválido
     # Los caches válidos NO se listan — el scan solo muestra lo que sobra.
     try:
         from storage import list_mkv_audit_entries
+        from phases import mkv_reubicar
         from phases.mkv_analyze import (
             CACHE_VERSION_BASIC as _CVB, CACHE_VERSION_QUALITY as _CVQ,
             _quality_payload_is_valid as _qpv,
         )
-        for entry in list_mkv_audit_entries():
+        entradas = list_mkv_audit_entries()
+        # Un MKV que no está en su ruta pero sí en otra carpeta de la app NO
+        # es un huérfano: la caché va por contenido y su análisis vale entero
+        # —el extendido son ~10 min de `extract-rpu`—. Se ofrecía borrarlo
+        # como seguro, y es justo lo que el precache de CMv4.0 deja en Output
+        # y el usuario mueve a la biblioteca. Se busca SIN escribir (el scan
+        # es de solo lectura) y forzando, porque esto decide qué se borra; y
+        # solo es huérfano lo que la búsqueda CONCLUYÓ que no está —con todo
+        # mirado—: lo no buscado (desapareció después de buscar) o buscado
+        # sin poder concluir puede estar justo donde no se ha mirado.
+        try:
+            hallazgo = mkv_reubicar.buscar(entradas, forzar=True)
+        except Exception as e:                          # noqa: BLE001
+            _logger.warning("[scan_orphans] búsqueda de los MKV movidos fallida: %s", e)
+            hallazgo = None
+        for entry in entradas:
             cache_path = entry["cache_path"]
             size = entry["size_bytes"]
             age = entry["age_seconds"]
@@ -864,9 +880,13 @@ def _scan_orphans() -> list[dict]:
                                or tr('main.orfano_json_corrupto')),
                 })
                 continue
-            # (a) huérfano — el MKV original ya no existe
+            # (a) huérfano — el MKV no está en su ruta ni en otra carpeta de
+            # la app. Movido, o sin poder saberlo, NO es huérfano: pasa a los
+            # chequeos de abajo, que no dependen de dónde esté el fichero.
             orig = entry.get("original_file_path")
-            if orig and not Path(orig).exists():
+            if (orig and not Path(orig).exists()
+                    and hallazgo is not None
+                    and entry.get("fingerprint_sha") in hallazgo.no_encontrados):
                 out.append({
                     "category": "mkv_cache_orphan",
                     "label": tr('main.orfano_cache_huerfano'),

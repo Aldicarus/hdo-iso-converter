@@ -85,6 +85,7 @@ FUNCIONES = (
     "toggleMkvRecientesSortDir", "_actualizarBotonOrdenMkvRecientes",
     "onMkvRecientesFilterClick", "_situacionDeMkv", "_renderMkvRecientes",
     "_mkvToggleSeleccionReciente", "abrirMkvReciente",
+    "_mkvRecogerReubicados", "_mkvVolverABuscar",
     # De otras piezas, pero reales: son las que dan el formato de la tarjeta.
     "escHtml", "normalizeSearch", "formatRelativeDate", "_fmtBytes",
     "_fmtDuration",
@@ -196,10 +197,15 @@ globalThis.__toasts = [];
 function showToast(msg, tipo) { globalThis.__toasts.push({ msg, tipo }); }
 globalThis.__respuesta = null;            // lo que devuelve el endpoint
 globalThis.__peticiones = [];
-async function apiFetch(url) { __peticiones.push(url); return globalThis.__respuesta; }
+async function apiFetch(url, opts) {
+  __peticiones.push({ url, silent: !!(opts && opts.silent) });
+  return globalThis.__respuesta;
+}
 const MAX_MKV_PROJECTS = 5;
 const openMkvProjects = [];
 function _mkvRutaDe(p) { return p.filePath; }
+globalThis.__subpestanas = [];
+function _mkvRefreshSubTab(p) { __subpestanas.push(p.filePath); }
 globalThis.__aperturas = [];
 function _mkvAbrirRuta(ruta, nombre) { __aperturas.push({ ruta, nombre }); }
 globalThis.__cambiosDePestana = [];
@@ -387,14 +393,180 @@ class TestLaListaSePinta(ColumnaEnNode):
 
 class TestElMkvQueYaNoEstá(ColumnaEnNode):
 
-    def test_la_tarjeta_sale_apagada_y_sin_botón_de_abrir(self):
+    def test_la_tarjeta_sale_apagada_sin_abrir_y_con_volver_a_buscar(self):
+        """Antes era un botón desactivado: la tarjeta no ofrecía nada que
+        hacer con un análisis válido. Abrir sigue sin ofrecerse —daría un 404
+        seco—; lo que se ofrece es buscarlo."""
         r = self.evaluar(self.salida(
             "({clases: tarjetas()[0].className, html: tarjetas()[0].innerHTML, "
-            "  boton: tarjetas()[0].querySelector('[data-abrir]')})",
+            "  abrir: tarjetas()[0].querySelector('[data-abrir]'), "
+            "  buscar: !!tarjetas()[0].querySelector('[data-buscar]')})",
             "cargar([entrada('Movido.mkv', {existe: false})]);"))
         self.assertIn("no-encontrado", r["clases"])
-        self.assertIn("disabled", r["html"])
-        self.assertIsNone(r["boton"], "no puede ofrecer un botón que va a dar 404")
+        self.assertIsNone(r["abrir"], "no puede ofrecer un botón que va a dar 404")
+        self.assertTrue(r["buscar"])
+        self.assertIn("Volver a buscar", r["html"])
+        self.assertNotIn("disabled", r["html"])
+
+    def test_una_tarjeta_que_está_no_ofrece_buscarla(self):
+        r = self.evaluar(self.salida(
+            "!!tarjetas()[0].querySelector('[data-buscar]')",
+            "cargar([entrada('Aqui.mkv')]);"))
+        self.assertFalse(r)
+
+    def test_volver_a_buscar_pide_la_búsqueda_forzada_y_dice_si_no_aparece(self):
+        r = self.evaluar(self.salida(
+            "({peticiones: __peticiones, avisos: __toasts})", """
+            cargar([entrada('Movido.mkv', {existe: false})]);
+            globalThis.__respuesta = {
+              recientes: [entrada('Movido.mkv', {existe: false, buscado: true})],
+              total: 1, reubicados: []};
+            await _mkvVolverABuscar(_mkvRecientes[0]);
+            """))
+        self.assertEqual(r["peticiones"], [{"url": "/api/mkv/recientes?buscar=true",
+                                            "silent": False}],
+                         "lo pide el usuario con un botón: la búsqueda va forzada y "
+                         "un fallo se enseña")
+        self.assertEqual([a["tipo"] for a in r["avisos"]], ["warning"])
+        self.assertIn("Movido.mkv", r["avisos"][0]["msg"])
+        self.assertIn("Biblioteca, Output ni Downloaded", r["avisos"][0]["msg"])
+
+    def test_si_la_búsqueda_no_pudo_mirarlo_todo_no_dice_que_no_está(self):
+        """`buscado` falso: alguna carpeta no se dejó leer o se agotó el
+        tiempo. Afirmar que no está sería decir lo que no se ha comprobado."""
+        r = self.evaluar(self.salida("__toasts", """
+            cargar([entrada('Movido.mkv', {existe: false})]);
+            globalThis.__respuesta = {
+              recientes: [entrada('Movido.mkv', {existe: false, buscado: false})],
+              total: 1, reubicados: []};
+            await _mkvVolverABuscar(_mkvRecientes[0]);
+            """))
+        self.assertEqual(len(r), 1)
+        self.assertNotIn("Biblioteca, Output ni Downloaded", r[0]["msg"])
+        self.assertIn("todas las carpetas", r[0]["msg"])
+
+    def test_el_botón_de_la_tarjeta_busca(self):
+        r = self.evaluar(self.salida("__peticiones.map(p => p.url)", """
+            cargar([entrada('Movido.mkv', {existe: false})]);
+            globalThis.__respuesta = {recientes: [], total: 0, reubicados: []};
+            tarjetas()[0].querySelector('[data-buscar]').onclick({stopPropagation() {}});
+            await new Promise(r => setTimeout(r, 0));
+            """))
+        self.assertEqual(r, ["/api/mkv/recientes?buscar=true"])
+
+    def test_si_aparece_no_se_avisa_de_que_no_está(self):
+        r = self.evaluar(self.salida("__toasts.map(a => a.tipo)", """
+            cargar([entrada('Movido.mkv', {existe: false})]);
+            globalThis.__respuesta = {
+              recientes: [entrada('Movido.mkv', {ruta: '/mnt/library/Pelis/Movido.mkv'})],
+              total: 1,
+              reubicados: [{nombre: 'Movido.mkv', antes: '/mnt/library/Movido.mkv',
+                            ahora: '/mnt/library/Pelis/Movido.mkv'}]};
+            await _mkvVolverABuscar(_mkvRecientes[0]);
+            """))
+        self.assertEqual(r, ["info"], "lo encontrado se dice una vez, y no con un "
+                                      "«no está» detrás")
+
+
+class TestLoQueElServidorEncontróEnOtraCarpeta(ColumnaEnNode):
+    """`reubicados` trae lo que el servidor encontró por contenido en ESTA
+    petición: la tarjeta ya viene con la ruta nueva, y aquí se dice una vez."""
+
+    UNO = """
+    globalThis.__respuesta = {
+      recientes: [entrada('Dune.mkv', {ruta: '/mnt/library/Pelis/Dune.mkv'})],
+      total: 1,
+      reubicados: [{nombre: 'Dune.mkv', antes: '/mnt/output/Dune.mkv',
+                    ahora: '/mnt/library/Pelis/Dune.mkv'}]};
+    """
+
+    def test_se_dice_con_un_aviso_que_nombra_el_mkv(self):
+        r = self.evaluar(self.salida("__toasts", self.UNO + "await refrescarMkvRecientes();"))
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]["tipo"], "info")
+        self.assertIn("Dune.mkv", r[0]["msg"])
+
+    def test_varios_van_en_un_solo_aviso(self):
+        r = self.evaluar(self.salida("__toasts", """
+            globalThis.__respuesta = {recientes: [], total: 0, reubicados: [
+              {nombre: 'A.mkv', antes: '/mnt/output/A.mkv', ahora: '/mnt/library/A.mkv'},
+              {nombre: 'B.mkv', antes: '/mnt/output/B.mkv', ahora: '/mnt/library/B.mkv'}]};
+            await refrescarMkvRecientes();
+            """))
+        self.assertEqual(len(r), 1)
+        self.assertIn("2", r[0]["msg"])
+
+    def test_sin_nada_reubicado_no_hay_aviso(self):
+        r = self.evaluar(self.salida("__toasts", """
+            globalThis.__respuesta = {recientes: [entrada('Dune.mkv')], total: 1, reubicados: []};
+            await refrescarMkvRecientes();
+            """))
+        self.assertEqual(r, [])
+
+    def test_la_sub_pestaña_abierta_pasa_a_la_ruta_nueva(self):
+        """Con la ruta vieja, «Aplicar cambios» daría «no encontrado». Y se
+        cambia también en `originalAnalysis`: si no, la ruta contaría como
+        un cambio pendiente."""
+        r = self.evaluar(self.salida(
+            "({p: openMkvProjects[0], refrescos: __subpestanas})",
+            """
+            openMkvProjects.push({id: 'p1', filePath: '/mnt/output/Dune.mkv', fileName: 'Dune.mkv',
+              analysis: {file_path: '/mnt/output/Dune.mkv', file_name: 'Dune.mkv'},
+              originalAnalysis: {file_path: '/mnt/output/Dune.mkv', file_name: 'Dune.mkv'}});
+            openMkvProjects.push({id: 'p2', filePath: '/mnt/output/Otra.mkv', fileName: 'Otra.mkv'});
+            """ + self.UNO + "await refrescarMkvRecientes();"))
+        self.assertEqual(r["p"]["filePath"], "/mnt/library/Pelis/Dune.mkv")
+        self.assertEqual(r["p"]["analysis"]["file_path"], "/mnt/library/Pelis/Dune.mkv")
+        self.assertEqual(r["p"]["originalAnalysis"]["file_path"], "/mnt/library/Pelis/Dune.mkv")
+        self.assertEqual(r["refrescos"], ["/mnt/library/Pelis/Dune.mkv"],
+                         "solo la de ese MKV, y repintada")
+
+    DOS_DESDE_LA_MISMA_RUTA = """
+    globalThis.__respuesta = {recientes: [], total: 0, reubicados: [
+      {nombre: 'Dune.mkv', antes: '/mnt/output/Dune.mkv', ahora: '/mnt/library/A/Dune.mkv', huella: 'hA'},
+      {nombre: 'Dune.mkv', antes: '/mnt/output/Dune.mkv', ahora: '/mnt/library/B/Dune.mkv', huella: 'hB'}]};
+    """
+
+    def test_la_sub_pestaña_sigue_a_SU_mkv_por_la_huella(self):
+        """Dos entradas estuvieron en la misma ruta, una tras otra, y las dos
+        aparecen en otra carpeta. Emparejar solo por ruta pasaba la pestaña de
+        B al fichero de A, con sus cambios pendientes listos para aplicarse en
+        el MKV equivocado (revisión de Codex del 2026-10-27)."""
+        r = self.evaluar(self.salida("openMkvProjects[0].filePath", """
+            openMkvProjects.push({id: 'p1', filePath: '/mnt/output/Dune.mkv', fileName: 'Dune.mkv',
+              analysis: {file_path: '/mnt/output/Dune.mkv', huella: 'hB'}});
+            """ + self.DOS_DESDE_LA_MISMA_RUTA + "await refrescarMkvRecientes();"))
+        self.assertEqual(r, "/mnt/library/B/Dune.mkv")
+
+    def test_sin_huella_y_con_dos_desde_la_misma_ruta_no_se_mueve(self):
+        """Una pestaña abierta con una versión anterior no sabe qué contenido
+        tiene: si dos venían de su ruta, no hay forma de elegir."""
+        r = self.evaluar(self.salida("openMkvProjects[0].filePath", """
+            openMkvProjects.push({id: 'p1', filePath: '/mnt/output/Dune.mkv', fileName: 'Dune.mkv',
+              analysis: {file_path: '/mnt/output/Dune.mkv'}});
+            """ + self.DOS_DESDE_LA_MISMA_RUTA + "await refrescarMkvRecientes();"))
+        self.assertEqual(r, "/mnt/output/Dune.mkv")
+
+    def test_una_copia_idéntica_abierta_desde_otra_ruta_no_se_mueve(self):
+        """La huella coincide, pero su ruta no es la de la que se fue el MKV:
+        es otra copia del mismo contenido, que sigue donde estaba."""
+        r = self.evaluar(self.salida("openMkvProjects[0].filePath", """
+            openMkvProjects.push({id: 'p1', filePath: '/mnt/library/Copia/Dune.mkv',
+              fileName: 'Dune.mkv',
+              analysis: {file_path: '/mnt/library/Copia/Dune.mkv', huella: 'hA'}});
+            globalThis.__respuesta = {recientes: [], total: 0, reubicados: [
+              {nombre: 'Dune.mkv', antes: '/mnt/output/Dune.mkv',
+               ahora: '/mnt/library/Pelis/Dune.mkv', huella: 'hA'}]};
+            await refrescarMkvRecientes();
+            """))
+        self.assertEqual(r, "/mnt/library/Copia/Dune.mkv")
+
+    def test_el_refresco_normal_no_fuerza_la_búsqueda(self):
+        r = self.evaluar(self.salida("__peticiones", """
+            globalThis.__respuesta = {recientes: [], total: 0, reubicados: []};
+            await refrescarMkvRecientes();
+            """))
+        self.assertEqual(r, [{"url": "/api/mkv/recientes", "silent": True}])
 
     def test_pulsarla_avisa_y_no_llama_al_backend(self):
         r = self.evaluar(self.salida(

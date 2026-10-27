@@ -3425,9 +3425,16 @@ let _mkvRecienteSeleccion = null;
 let _mkvRecientesDebounce = null;
 
 /** Pide la lista y repinta. Silencioso: se llama al entrar en la pestaña y
- *  después de cada análisis, y un timeout puntual no es accionable. */
-async function refrescarMkvRecientes() {
-  const data = await apiFetch('/api/mkv/recientes', { silent: true });
+ *  después de cada análisis, y un timeout puntual no es accionable.
+ *
+ *  El servidor busca por contenido los MKV que ya no están en su ruta y los
+ *  devuelve con la ruta nueva (`reubicados`); `buscar` fuerza esa búsqueda
+ *  aunque se haya hecho hace poco, y entonces el fallo sí se enseña: lo ha
+ *  pedido el usuario con un botón. Devuelve la respuesta, o null. */
+async function refrescarMkvRecientes({ buscar = false } = {}) {
+  const data = await apiFetch(
+    buscar ? '/api/mkv/recientes?buscar=true' : '/api/mkv/recientes',
+    { silent: !buscar });
   if (!data) {
     // NO vaciar la lista: machacarla con [] dejaría la columna en «0» y sería
     // indistinguible de «no has analizado nada», que es una conclusión mucho
@@ -3435,11 +3442,67 @@ async function refrescarMkvRecientes() {
     // navegación, no un monitor: volver a entrar en la pestaña la repide.
     if (_mkvRecientes.length) _renderMkvRecientes();
     else _renderMkvRecientesErrorDeCarga();
-    return;
+    return null;
   }
   _mkvRecientes = data.recientes || [];
   _mkvRecientesTotal = data.total || _mkvRecientes.length;
+  _mkvRecogerReubicados(data.reubicados || []);
   _renderMkvRecientes();
+  return data;
+}
+
+/** Lo que el servidor ha encontrado en otra carpeta en ESTA petición.
+ *
+ *  Se dice una vez, con un aviso: la tarjeta cambia de ruta sin que el
+ *  usuario haya hecho nada, y sin aviso parecería que la lista se ha
+ *  arreglado sola sin motivo. Y una sub-pestaña abierta sobre ese MKV pasa a
+ *  la ruta nueva: con la vieja, «Aplicar cambios» daría «no encontrado», y
+ *  la nueva puede estar en la biblioteca, que pide copia. Se cambia también
+ *  en `originalAnalysis`, o la ruta contaría como un cambio pendiente.
+ *
+ *  **Qué sub-pestaña es la de ese MKV lo dice su CONTENIDO, no su ruta**:
+ *  dos entradas pueden haber estado en la misma ruta, una tras otra, y
+ *  emparejar solo por ruta pasaba la pestaña de uno al fichero del otro —con
+ *  sus cambios pendientes listos para aplicarse en el MKV equivocado
+ *  (revisión de Codex del 2026-10-27)—. Hacen falta las dos cosas: su huella
+ *  y la ruta de la que se fue, porque otra copia idéntica abierta desde una
+ *  ruta que SIGUE existiendo no se ha movido. Una pestaña sin huella (abierta
+ *  con una versión anterior) solo se mueve si nadie más venía de su ruta. */
+function _mkvRecogerReubicados(reubicados) {
+  if (!Array.isArray(reubicados) || !reubicados.length) return;
+  for (const r of reubicados) {
+    const ambigua = reubicados.filter(x => x.antes === r.antes).length > 1;
+    for (const p of openMkvProjects) {
+      if (_mkvRutaDe(p) !== r.antes) continue;
+      const huella = p.analysis && p.analysis.huella;
+      if (huella ? huella !== r.huella : ambigua) continue;
+      p.filePath = r.ahora;
+      p.fileName = r.nombre;
+      for (const a of [p.analysis, p.originalAnalysis]) {
+        if (a) { a.file_path = r.ahora; a.file_name = r.nombre; }
+      }
+      _mkvRefreshSubTab(p);
+    }
+  }
+  showToast(reubicados.length === 1
+    ? tr('tab2.reubicado_uno', {nombre: reubicados[0].nombre})
+    : tr('tab2.reubicados_varios', {n: reubicados.length}), 'info');
+}
+
+/** «Volver a buscar» de una tarjeta que no aparece: fuerza la búsqueda por
+ *  contenido y, si sigue sin aparecer, dice cuál de las dos cosas pasó —que
+ *  no está en ninguna carpeta, o que la búsqueda no pudo mirarlas todas
+ *  (`buscado`)—. Si aparece, el aviso lo da `_mkvRecogerReubicados`. */
+async function _mkvVolverABuscar(r) {
+  const data = await refrescarMkvRecientes({ buscar: true });
+  if (!data) return;
+  const sigue = (data.recientes || []).find(x => x.ruta === r.ruta && !x.existe);
+  if (sigue) {
+    const nombre = r.nombre || r.ruta;
+    showToast(sigue.buscado
+      ? tr('tab2.no_esta_en_ninguna_carpeta', {nombre})
+      : tr('tab2.busqueda_incompleta', {nombre}), 'warning');
+  }
 }
 
 function _renderMkvRecientesErrorDeCarga() {
@@ -3651,8 +3714,8 @@ function _renderMkvRecientes() {
         ${r.existe
           ? `<button class="btn btn-primary btn-sm" data-abrir="1"
                data-i18n-tip="tab2.abrir_este_mkv_en_una_sub" data-i18n="tab1.abrir"></button>`
-          : `<button class="btn btn-ghost btn-sm" disabled
-               data-tooltip="${tr('tab2.no_esta_en_p1_el_analisis', {p1: escHtml(r.ruta)})}" data-i18n="tab2.fichero_no_encontrado"></button>`}
+          : `<button class="btn btn-ghost btn-sm" data-buscar="1"
+               data-i18n-tip="tab2.volver_a_buscar_tip" data-i18n="tab2.volver_a_buscar"></button>`}
         <button class="btn btn-danger btn-sm" data-borrar="1" data-i18n="tab2.borrar" data-i18n-tip="tab2.quita_el_analisis_guardado_de_la"></button>`,
     });
     // Los handlers se cuelgan aquí y NO como `onclick="…('${r.ruta}')"` en la
@@ -3666,6 +3729,8 @@ function _renderMkvRecientes() {
     fila.ondblclick = () => abrirMkvReciente(r.ruta);
     const abrir = card.querySelector('[data-abrir]');
     if (abrir) abrir.onclick = (ev) => { ev.stopPropagation(); abrirMkvReciente(r.ruta); };
+    const buscar = card.querySelector('[data-buscar]');
+    if (buscar) buscar.onclick = (ev) => { ev.stopPropagation(); _mkvVolverABuscar(r); };
     const borrar = card.querySelector('[data-borrar]');
     if (borrar) borrar.onclick = (ev) => { ev.stopPropagation(); _mkvBorrarReciente(r); };
     lista.appendChild(card);

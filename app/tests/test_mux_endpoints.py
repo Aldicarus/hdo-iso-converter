@@ -925,6 +925,199 @@ class TestMultiplexar(MuxCase):
         self.assertEqual(q.historial[-1].status, "cancelled")
 
 
+class TestElAnalisisDelMkvFinal(MuxCase):
+    """El MKV multiplexado sale con su análisis de «Consultar / Editar MKV»
+    hecho, como el de CMv4.0. El básico siempre; el extendido, heredado del
+    MKV del que sale el vídeo si ya lo tiene: el vídeo es una copia sin
+    cambios, así que su RPU —y con él los combos y el perfil de luminancia—
+    es el mismo. Sin él no se calcula: serían ~650 s de `extract-rpu`."""
+
+    def extendido(self, ruta: Path, frames: int, *, version=None) -> dict:
+        """El bloque `quality` que dejaría el análisis extendido de `ruta`."""
+        from phases.mkv_analyze import CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY
+        q = {"quality_total_frames_rpu": frames, "quality_classification": "real",
+             "quality_tier": "full", "quality_l8_unique_count": 120,
+             "quality_l2_target_pqs": [2081, 2851],
+             "light_profile": {"total_frames": frames, "stats": {"peak": 1000}}}
+        self.storage.write_mkv_cache_quality(
+            fingerprint=self.storage.compute_mkv_fingerprint(str(ruta)),
+            cache_version_basic_existing=CACHE_VERSION_BASIC,
+            cache_version_quality=CACHE_VERSION_QUALITY if version is None else version,
+            quality_payload=q, original_file_path=str(ruta))
+        return q
+
+    def con_el_analisis_tocado(self, tocar):
+        """Ejecuta el `analyze_mkv` de verdad y, antes de devolver, le hace
+        `tocar(resultado)`: lo que pasaría si un paso fallara o si el fichero
+        cambiara mientras se analiza."""
+        from phases import mkv_analyze
+        original = mkv_analyze.analyze_mkv
+
+        async def _tocado(*a, **kw):
+            r = await original(*a, **kw)
+            tocar(r)
+            return r
+
+        mkv_analyze.analyze_mkv = _tocado
+        self.addCleanup(setattr, mkv_analyze, "analyze_mkv", original)
+
+    def cache_del_final(self, q) -> dict | None:
+        """Lo que la caché sirve para el MKV final TAL COMO QUEDÓ (firmado):
+        con la huella de antes de la firma, el análisis nacería huérfano."""
+        from phases.mkv_analyze import CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY
+        final = self.output_dir / q.nombre_salida
+        fp = self.storage.compute_mkv_fingerprint(str(final))
+        return self.storage.read_mkv_cache(fp, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
+
+    def multiplexar_a(self, *claves):
+        p = self.crear()
+        self.elegir(p["id"], *claves, capitulos=[(0, 0)])
+        q = self.multiplexar(p["id"])
+        self.assertEqual(q.status, "done", (q.error_message, q.validacion))
+        return q
+
+    def test_sin_extendido_en_el_origen_deja_el_básico(self):
+        from i18n import t as tr
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        cache = self.cache_del_final(q)
+        self.assertTrue(cache and cache["basic"], "el básico va siempre")
+        self.assertIsNone(cache["quality"])
+        self.assertEqual(cache["basic"]["file_path"], str(self.output_dir / q.nombre_salida))
+        log = "\n".join(q.historial[-1].output_log)
+        self.assertIn(tr("mux.log_analisis_basico", fuente="A"), log)
+        # Y no recorre el MKV final entero para sacarle el RPU: lo que lee de
+        # él es la muestra de siempre (`--limit`, o `-t` si va por ffmpeg).
+        rpu_del_final = [c for c in self.tb.find("dovi_tool", "extract-rpu")
+                         if any(Path(a).name == q.nombre_salida for a in c.argv)]
+        self.assertTrue(rpu_del_final, "sin la muestra, esto no mira nada")
+        self.assertTrue(all(c.has("--limit") for c in rpu_del_final), rpu_del_final)
+        self.assertEqual([c for c in self.tb.find("ffmpeg")
+                          if c.opt_name("-i") == q.nombre_salida and not c.has("-t")], [])
+
+    def test_hereda_el_extendido_del_mkv_del_vídeo(self):
+        from i18n import t as tr
+        heredado = self.extendido(self.a, FRAMES)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        cache = self.cache_del_final(q)
+        self.assertTrue(cache["basic"])
+        self.assertEqual(cache["quality"], heredado, "el bloque entero, no una parte")
+        self.assertIn(tr("mux.log_analisis_completo", fuente="A"),
+                      "\n".join(q.historial[-1].output_log))
+        # Y la columna de «Consultar / Editar MKV» lo enseña ya completo.
+        r = self.client.get("/api/mkv/recientes")
+        [t] = [t for t in r.json()["recientes"] if t["nombre"] == q.nombre_salida]
+        self.assertTrue(t["existe"] and t["tiene_extendido"] and t["tiene_luminancia"])
+
+    def test_no_lo_hereda_del_otro_mkv(self):
+        """El vídeo es el de A: el análisis de B describe otro RPU. Va con los
+        frames de A a propósito, para que lo que lo impida sea la fuente y no
+        la comprobación de frames."""
+        self.extendido(self.b, FRAMES)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertIsNone(self.cache_del_final(q)["quality"])
+
+    def test_con_el_vídeo_de_b_lo_hereda_de_b(self):
+        self.tb.define_rpu(self.b.name, profile=8, el_type="", cm_version="v4.0", frames=FRAMES_B)
+        self.extendido(self.a, FRAMES)
+        heredado = self.extendido(self.b, FRAMES_B)
+        p = self.crear()
+        self.elegir(p["id"], B_VIDEO, B_DCP, capitulos=[(1, 0)])
+        q = self.multiplexar(p["id"])
+        self.assertEqual(q.status, "done", (q.error_message, q.validacion))
+        cache = self.cache_del_final(q)
+        self.assertEqual(cache["quality"]["quality_total_frames_rpu"], FRAMES_B)
+        self.assertEqual(cache["quality"]["light_profile"], heredado["light_profile"])
+
+    def test_si_los_frames_no_coinciden_no_lo_hereda(self):
+        """La evidencia de que es el mismo vídeo son sus frames, leídos del
+        MKV final: un análisis que cuenta otros describe otra cosa."""
+        self.extendido(self.a, FRAMES + 100)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertIsNone(self.cache_del_final(q)["quality"])
+
+    def test_con_dos_frames_de_diferencia_lo_hereda(self):
+        """La tolerancia de la Fase H de CMv4.0, en su borde."""
+        self.extendido(self.a, FRAMES + 2)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertIsNotNone(self.cache_del_final(q)["quality"])
+
+    def test_con_tres_frames_de_diferencia_no(self):
+        self.extendido(self.a, FRAMES - 3)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertIsNone(self.cache_del_final(q)["quality"])
+
+    def test_un_extendido_de_una_version_vieja_no_se_hereda(self):
+        """La caché no lo serviría al abrir el MKV de origen; heredarlo lo
+        guardaría con la versión actual, como si se acabara de calcular."""
+        from phases.mkv_analyze import CACHE_VERSION_QUALITY
+        self.extendido(self.a, FRAMES, version=CACHE_VERSION_QUALITY - 1)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertIsNone(self.cache_del_final(q)["quality"])
+
+    def test_si_el_análisis_salió_incompleto_no_deja_nada(self):
+        """Un paso que falló no se guarda —medio análisis con pinta de
+        entero—, y sin el básico tampoco se hereda el extendido."""
+        self.extendido(self.a, FRAMES)
+        self.con_el_analisis_tocado(lambda r: r._lectura_incompleta.append("pgs"))
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertIsNone(self.cache_del_final(q))
+        self.assertFalse([p for p in (self.config_dir / "mkv_audits").glob("*.json")
+                          if json.loads(p.read_text()).get("original_file_path")
+                          == str(self.output_dir / q.nombre_salida)],
+                         "ni una entrada con solo el extendido")
+
+    def test_si_el_mkv_cambia_mientras_se_analiza_no_hereda_bajo_otra_huella(self):
+        """Lo heredado va atado al contenido ANALIZADO: guardarlo con la huella
+        del fichero cuando se escribe lo pegaría a otro vídeo (revisión de
+        Codex del 2026-10-27)."""
+        self.extendido(self.a, FRAMES)
+
+        def _cambia(r):
+            with open(r.file_path, "r+b") as f:
+                f.write(b"otro contenido")
+
+        self.con_el_analisis_tocado(_cambia)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertIsNone(self.cache_del_final(q),
+                          "el extendido del vídeo de A acabó bajo la huella de otro fichero")
+
+    def test_si_cambia_entre_el_básico_y_el_extendido_tampoco(self):
+        """La otra ventana: el básico ya está guardado y el fichero cambia
+        antes de heredar. El extendido va a la huella de lo analizado, no a
+        la del fichero nuevo."""
+        self.extendido(self.a, FRAMES)
+        final = []
+        original = self.storage.read_mkv_cache
+
+        def _y_cambia(fp, *a):
+            r = original(fp, *a)
+            if fp == self.storage.compute_mkv_fingerprint(str(self.a)) and final:
+                with open(final[0], "r+b") as f:
+                    f.write(b"otro contenido")
+            return r
+
+        self.storage.read_mkv_cache = _y_cambia
+        self.addCleanup(setattr, self.storage, "read_mkv_cache", original)
+        self.con_el_analisis_tocado(lambda r: final.append(r.file_path))
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertEqual(len(final), 1, "el análisis no pasó por donde se esperaba")
+        self.assertIsNone(self.cache_del_final(q))
+
+    def test_un_fallo_del_análisis_no_tumba_el_trabajo(self):
+        """El MKV ya está entregado y comprobado cuando esto corre."""
+        from phases import mkv_analyze
+
+        async def _falla(*a, **kw):
+            raise RuntimeError("análisis roto")
+
+        original = mkv_analyze.analyze_mkv
+        mkv_analyze.analyze_mkv = _falla
+        self.addCleanup(setattr, mkv_analyze, "analyze_mkv", original)
+        q = self.multiplexar_a(A_VIDEO, A_TRUEHD)
+        self.assertTrue((self.output_dir / q.nombre_salida).exists())
+        self.assertIsNone(self.cache_del_final(q))
+
+
 class TestMedida(MuxCase):
 
     def test_mide_la_velocidad_y_el_desfase_de_verdad(self):

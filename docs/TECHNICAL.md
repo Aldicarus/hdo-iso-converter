@@ -224,6 +224,8 @@ Selection by click + "Select" button (or double click). Incremental search insid
 
 The left column lists every MKV analysed before. Reopening one is instant, because the analysis is cached by the file's content, not by its path: moving an MKV to another folder keeps its analysis.
 
+And the column follows it. When an analysed MKV is no longer where it was analysed — typically moved from Output to the library — the app looks for it in the three folders by its content: same exact size, then the fingerprint of its first megabyte, never the name (on a QNAP the library holds thousands of thumbnail files also called `*.mkv`). Hidden, recycle-bin and snapshot folders are skipped, and so are symbolic links. When it turns up, the card points to the new path and a notice says so once; an open sub-tab on that MKV follows it too, matched by content and not by path. What can't be found stays marked, with a **Search again** button, and the app only says it is in none of the folders when the search covered everything — a folder that could not be read, or too many same-size files, leave it undecided. **Cleanup** (⚙︎ Settings) uses the same search, without writing anything, and only offers to delete the analysis of an MKV that such a complete search found nowhere.
+
 ### In-place editing (no re-encoding)
 
 Only metadata is changed, through `mkvpropedit` (instant):
@@ -253,7 +255,7 @@ A single **"Extended analysis"** button produces both the classified L8/L2 combo
 1. `ffmpeg | dovi_tool extract-rpu` in a single pass, through a pipe (the intermediate HEVC is never written to disk).
 2. `dovi_tool export` by levels → frame-by-frame parsing of L1 max_pq/avg_pq/min_pq, L2, L5, L6 and L8.
 
-It takes around 10 minutes for a UHD film, almost all of it in the extraction. The result is cached with the rest of the analysis, so it is only paid once per file. MKVs produced by the CMv4.0 upgrade come out with the extended analysis already done, because the pipeline has already extracted their RPU.
+It takes around 10 minutes for a UHD film, almost all of it in the extraction. The result is cached with the rest of the analysis, so it is only paid once per file. MKVs produced by the CMv4.0 upgrade come out with the extended analysis already done, because the pipeline has already extracted their RPU. Multiplexed MKVs come out with the basic analysis done, and with the extended one too when the MKV their video comes from already had it: the video is copied unchanged, so its RPU — and with it the combos and the luminance profile — is the same, and the frame counts are checked to match before reusing it.
 
 > **Note:** L1 max_pq values are the DV metadata encoded by the colorist — not the luminance you will see after tone mapping. Some films (Blade Runner 2049, among others) are tagged conservatively and can show low peaks even though real on-screen measurements are higher.
 
@@ -409,7 +411,7 @@ The selection patterns ("All" and "None" per column, "My languages", "Forced onl
 
 1. **Source check** — both files still there and unchanged, the plan still allows it, the output name free, enough room in Output.
 2. **Track multiplexing** — one `mkvmerge` into a `.mkv.tmp`, never under the final name, with the chapters in a composed XML when they are mixed or shifted.
-3. **Check and save** — the multiplexed file read back against the plan: every track (the video included: name and flags too), the video's frame rate, frame count and duration (the proof that its speed was adjusted), the chapters to the millisecond, the attachments, the Dolby Vision of the chosen video and the sync of every audio track from o against the reference track of the video's MKV, at four points: a different dub only correlates through the music and effects, and two points were not enough. If it all matches, it is published without overwriting anything; if not, the `.mkv.tmp` stays for inspection.
+3. **Check and save** — the multiplexed file read back against the plan: every track (the video included: name and flags too), the video's frame rate, frame count and duration (the proof that its speed was adjusted), the chapters to the millisecond, the attachments, the Dolby Vision of the chosen video and the sync of every audio track from o against the reference track of the video's MKV, at four points: a different dub only correlates through the music and effects, and two points were not enough. If it all matches, it is published without overwriting anything and left with its "Inspect / Edit MKV" analysis already done (see "Extended analysis"); if not, the `.mkv.tmp` stays for inspection.
 
 Projects saved before the redesign (with the video fixed in A) carry no `esquema` and are not loaded; the tab never reached a release, so they only existed on the author's NAS.
 
@@ -509,7 +511,7 @@ hdo-iso-converter/                ← repository / Docker image (technical name)
 
 ### Tab 2 — Inspect / Edit MKV
 - `GET /api/library/browse?root=library|output|downloaded&path=...` — file browser
-- `GET /api/mkv/recientes` — the MKVs analysed before (left column)
+- `GET /api/mkv/recientes` — the MKVs analysed before (left column); the ones no longer at their path are looked for by content and repointed (`?buscar=true` forces the search)
 - `POST /api/mkv/analyze` — analysis (mkvmerge -J + MediaInfo + dovi_tool)
 - `POST /api/mkv/quality-audit` — extended analysis (L8/L2 combos + luminance profile)
 - `GET /api/mkv/quality-audit/progress` · `POST /api/mkv/quality-audit/cancel` — its progress and cancellation

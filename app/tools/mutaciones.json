@@ -5439,5 +5439,528 @@
   "modulos": [
    "test_registro_de_la_traduccion"
   ]
+ },
+ {
+  "id": "T2R-1 reubica por tamaño sin mirar la huella",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                if (fp and fp.get(\"sha256_1mb\") == sha\n                        and fp.get(\"size_bytes\") == tamano):",
+  "nuevo": "                if (fp and fp.get(\"size_bytes\") == tamano):",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-2 recorre las carpetas de sistema",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "    return nombre[:1] in _PREFIJOS_DE_SISTEMA or nombre in paths.LIBRARY_HIDDEN_DIRS",
+  "nuevo": "    return False",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-3 solo salta las carpetas de LIBRARY_HIDDEN_DIRS",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "    return nombre[:1] in _PREFIJOS_DE_SISTEMA or nombre in paths.LIBRARY_HIDDEN_DIRS",
+  "nuevo": "    return nombre in paths.LIBRARY_HIDDEN_DIRS",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-4 sigue los enlaces simbólicos de carpeta",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                        if e.is_dir(follow_symlinks=False):",
+  "nuevo": "                        if e.is_dir():",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-5 sigue los enlaces simbólicos de fichero",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                              and e.is_file(follow_symlinks=False)):\n                            tamano = e.stat(follow_symlinks=False).st_size",
+  "nuevo": "                              and e.is_file()):\n                            tamano = e.stat().st_size",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-6 sin memoria: busca en cada petición",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "        if not forzar:\n            ahora = time.monotonic()",
+  "nuevo": "        if False:\n            ahora = time.monotonic()",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-7 forzar no se salta la memoria",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "        if not forzar:\n            ahora = time.monotonic()",
+  "nuevo": "        if True:\n            ahora = time.monotonic()",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-8 un recorrido sin mirar todo concluye",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "            concluye = completo and len(candidatos) <= MAX_CANDIDATOS",
+  "nuevo": "            concluye = len(candidatos) <= MAX_CANDIDATOS",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-9 una carpeta ilegible no corta la conclusión",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "            completo = False\n    return hallados, completo",
+  "nuevo": "            pass\n    return hallados, completo",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-10 una entrada que no se deja mirar no corta la conclusión",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                        _logger.info(\"[reubicar] no se puede mirar %s: %s\", e.path, err)\n                        completo = False",
+  "nuevo": "                        _logger.info(\"[reubicar] no se puede mirar %s: %s\", e.path, err)",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-11 más candidatos que el tope concluyen",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "            concluye = completo and len(candidatos) <= MAX_CANDIDATOS",
+  "nuevo": "            concluye = completo",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-12 un candidato ilegible no corta la conclusión",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                    _logger.info(\"[reubicar] no se puede leer %s: %s\", c, err)\n                    concluye = False",
+  "nuevo": "                    _logger.info(\"[reubicar] no se puede leer %s: %s\", c, err)",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-13 una carpeta de la app que falta cuenta como vacía",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "        completo = completo and len(presentes) == len(raices)",
+  "nuevo": "        completo = completo",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-14 el tope de candidatos es uno",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "MAX_CANDIDATOS = 5",
+  "nuevo": "MAX_CANDIDATOS = 1",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-15 la huella no vuelve a mirar el tamaño",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                        and fp.get(\"size_bytes\") == tamano):",
+  "nuevo": "                        and True):",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-16 solo encuentra «.mkv» en minúsculas",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                        elif (e.name.lower().endswith(\".mkv\")",
+  "nuevo": "                        elif (e.name.endswith(\".mkv\")",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-17 el recorrido sin cerrojo",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "    with _cerrojo:\n        if not forzar:",
+  "nuevo": "    if True:\n        if not forzar:",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-18 lo que está también se busca",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "        try:\n            if Path(e[\"original_file_path\"]).exists():\n                continue\n        except OSError:\n            continue\n        out.append(e)",
+  "nuevo": "        out.append(e)",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-19 la versión vieja sustituida no se olvida",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "            if invalidate_mkv_cache(sha):",
+  "nuevo": "            if False:",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-20 la versión vieja se olvida sin buscarla",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "        otra = _buscar_por_contenido(desplazadas, forzar=True)",
+  "nuevo": "        otra = Busqueda(no_encontrados={e[\"fingerprint_sha\"] for e in desplazadas})",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-21 toda entrada cuenta como desplazada",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                   if e[\"original_file_path\"] in rutas_nuevas\n                   and e[\"fingerprint_sha\"] != rutas_nuevas[e[\"original_file_path\"]]\n",
+  "nuevo": "                   if e[\"fingerprint_sha\"] not in rutas_nuevas.values()\n",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-22 la columna busca pero no reapunta",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        hallazgo = mkv_reubicar.reubicar(entradas, forzar=buscar)",
+  "nuevo": "        hallazgo = mkv_reubicar.buscar(entradas, forzar=buscar)",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-23 la columna no busca",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        hallazgo = mkv_reubicar.reubicar(entradas, forzar=buscar)",
+  "nuevo": "        hallazgo = mkv_reubicar.Busqueda()",
+  "modulos": [
+   "test_tab2_reubicar",
+   "test_tab2_recientes"
+  ]
+ },
+ {
+  "id": "T2R-24 la tarjeta sale con la ruta vieja",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "            ruta = nueva\n",
+  "nuevo": "\n",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-25 «buscado» sin mirar la memoria",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        tarjetas[-1][\"buscado\"] = (not tarjetas[-1][\"existe\"]\n                                   and mkv_reubicar.buscado_sin_exito(sha))",
+  "nuevo": "        tarjetas[-1][\"buscado\"] = not tarjetas[-1][\"existe\"]",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-26 la tarjeta no lleva la huella",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "            \"huella\": sha,\n            \"nombre\": Path(ruta).name,",
+  "nuevo": "            \"nombre\": Path(ruta).name,",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-27 abrir no devuelve la huella",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        datos[\"huella\"] = (result._huella_inicial or {}).get(\"sha256_1mb\", \"\")\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-28 abrir desde la caché no devuelve la huella",
+  "fichero": "app/phases/mkv_analyze.py",
+  "viejo": "                result._huella_inicial = fingerprint\n                await _emit(\"cache_hit\")",
+  "nuevo": "                await _emit(\"cache_hit\")",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-29 el porqué no distingue lo buscado",
+  "fichero": "app/phases/tab2_relato.py",
+  "viejo": "    if situacion == relato.NO_DISPONIBLE and t.get(\"buscado\"):",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-30 Limpieza: huérfano lo no encontrado, sin concluir",
+  "fichero": "app/main.py",
+  "viejo": "                    and entry.get(\"fingerprint_sha\") in hallazgo.no_encontrados):",
+  "nuevo": "                    and entry.get(\"fingerprint_sha\") not in hallazgo.encontrados):",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-31 Limpieza ofrece borrar lo movido",
+  "fichero": "app/main.py",
+  "viejo": "                    and hallazgo is not None\n                    and entry.get(\"fingerprint_sha\") in hallazgo.no_encontrados):",
+  "nuevo": "                    ):",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-32 el escaneo de Limpieza escribe",
+  "fichero": "app/main.py",
+  "viejo": "            hallazgo = mkv_reubicar.buscar(entradas, forzar=True)",
+  "nuevo": "            hallazgo = mkv_reubicar.reubicar(entradas, forzar=True)",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-33 Limpieza se fía de la memoria de la columna",
+  "fichero": "app/main.py",
+  "viejo": "            hallazgo = mkv_reubicar.buscar(entradas, forzar=True)",
+  "nuevo": "            hallazgo = mkv_reubicar.buscar(entradas, forzar=False)",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-34 reapuntar sin el cerrojo de la caché",
+  "fichero": "app/storage.py",
+  "viejo": "        with _MKV_CACHE_LOCK:\n            if not path.exists():\n                return False",
+  "nuevo": "        if True:\n            if not path.exists():\n                return False",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-35 escribir el básico sin el cerrojo de la caché",
+  "fichero": "app/storage.py",
+  "viejo": "    with _MKV_CACHE_LOCK:\n        existing_quality = None",
+  "nuevo": "    if True:\n        existing_quality = None",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2R-36 escribir el extendido sin el cerrojo de la caché",
+  "fichero": "app/storage.py",
+  "viejo": "    with _MKV_CACHE_LOCK:\n        existing_basic = None",
+  "nuevo": "    if True:\n        existing_basic = None",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T2F-1 «Volver a buscar» no fuerza la búsqueda",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    buscar ? '/api/mkv/recientes?buscar=true' : '/api/mkv/recientes',",
+  "nuevo": "    '/api/mkv/recientes',",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-2 el botón de la tarjeta no busca",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    if (buscar) buscar.onclick = (ev) => { ev.stopPropagation(); _mkvVolverABuscar(r); };",
+  "nuevo": "",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-3 la sub-pestaña abierta se queda en la ruta vieja",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      p.filePath = r.ahora;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-4 originalAnalysis se queda en la ruta vieja",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      for (const a of [p.analysis, p.originalAnalysis]) {",
+  "nuevo": "      for (const a of [p.analysis]) {",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-5 lo reubicado no se recoge",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (!Array.isArray(reubicados) || !reubicados.length) return;",
+  "nuevo": "  return;",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-6 avisa de «no está» aunque aparezca",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  const sigue = (data.recientes || []).find(x => x.ruta === r.ruta && !x.existe);",
+  "nuevo": "  const sigue = true;",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-7 la tarjeta ausente vuelve a ofrecer «Abrir»",
+  "fichero": "app/static/tab2.js",
+  "viejo": "        ${r.existe\n          ? `<button class=\"btn btn-primary btn-sm\" data-abrir=\"1\"",
+  "nuevo": "        ${true\n          ? `<button class=\"btn btn-primary btn-sm\" data-abrir=\"1\"",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-8 la sub-pestaña se empareja solo por la ruta",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      if (huella ? huella !== r.huella : ambigua) continue;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-9 sin huella no mira si la ruta es ambigua",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      if (huella ? huella !== r.huella : ambigua) continue;",
+  "nuevo": "      if (huella && huella !== r.huella) continue;",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-10 la copia idéntica abierta desde otra ruta se mueve",
+  "fichero": "app/static/tab2.js",
+  "viejo": "      if (_mkvRutaDe(p) !== r.antes) continue;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T2F-11 «Volver a buscar» no distingue lo que no pudo mirar",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    showToast(sigue.buscado\n",
+  "nuevo": "    showToast(true\n",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T4A-1 hereda el extendido del otro MKV",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    fuente = proyecto.fuentes[v]\n    letra = \"AB\"[v]",
+  "nuevo": "    fuente = proyecto.fuentes[1 - v]\n    letra = \"AB\"[v]",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-2 hereda sin comprobar los frames",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            if (q and _quality_payload_is_valid(q) and frames\n                    and abs((q.get(\"quality_total_frames_rpu\") or 0) - frames) <= 2):",
+  "nuevo": "            if (q and _quality_payload_is_valid(q)):",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-3 el análisis va antes de la firma",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    await firma.firmar(str(final))\n    # Con el MKV ya en su nombre definitivo y firmado: la huella de la caché\n    # es el primer MB, que la marca cambia.\n    await _dejar_hecho_el_analisis(proyecto, plan_, final, log)",
+  "nuevo": "    await _dejar_hecho_el_analisis(proyecto, plan_, final, log)\n    await firma.firmar(str(final))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-4 no deja el análisis hecho",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    await _dejar_hecho_el_analisis(proyecto, plan_, final, log)\n    await _log(log",
+  "nuevo": "    await _log(log",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-5 un fallo del análisis tumba el multiplexado",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    except Exception as e:                              # noqa: BLE001\n        _logger.info(\"[mux] no se pudo dejar hecho el análisis de %s: %s\", final.name, e)",
+  "nuevo": "    except ZeroDivisionError as e:\n        _logger.info(\"[mux] no se pudo dejar hecho el análisis de %s: %s\", final.name, e)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-6 el log anuncia el completo sin extendido",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            'mux.log_analisis_completo' if (quedo or {}).get(\"quality\")\n            else 'mux.log_analisis_basico', fuente=letra))",
+  "nuevo": "            'mux.log_analisis_completo', fuente=letra))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-7 el extendido va a la huella del fichero al escribir",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "                    write_mkv_cache_quality, fingerprint=huella,",
+  "nuevo": "                    write_mkv_cache_quality, fingerprint=__import__(\"storage\").compute_mkv_fingerprint(str(final)),",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-8 hereda sin que el básico haya quedado",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "        if not (quedo and quedo.get(\"basic\")):\n            _logger.info(\"[mux] el análisis de %s no quedó en la caché\", final.name)\n            return\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-9 hereda un extendido de otra versión",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "            cache_fuente = await asyncio.to_thread(\n                read_mkv_cache, fuente.huella, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)",
+  "nuevo": "            from storage import _read_cache_raw\n            cache_fuente = await asyncio.to_thread(\n                _read_cache_raw, fuente.huella[\"sha256_1mb\"])",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-10 hereda el extendido a medias",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "                    quality_payload=q, original_file_path=str(final))",
+  "nuevo": "                    quality_payload={k: v for k, v in q.items() if k != \"quality_l8_unique_count\"}, original_file_path=str(final))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4A-11 la tolerancia de frames se abre",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "                    and abs((q.get(\"quality_total_frames_rpu\") or 0) - frames) <= 2):",
+  "nuevo": "                    and abs((q.get(\"quality_total_frames_rpu\") or 0) - frames) <= 20):",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
  }
 ]

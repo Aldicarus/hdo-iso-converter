@@ -312,6 +312,11 @@
       "body": [],
       "params": [
         [
+          "buscar",
+          "query",
+          false
+        ],
+        [
           "limite",
           "query",
           false

@@ -14,8 +14,10 @@ NUEVAS y las aporta esta pestaña, porque describen algo que las otras dos no
 tenían cómo decir:
 
 - **`no_disponible`** — el fichero ya no está donde se analizó. No es un
-  error: el análisis sigue siendo válido y se reaprovecha en cuanto el MKV
-  reaparezca, porque la caché va por fingerprint y la ruta es solo una pista.
+  error: la caché va por fingerprint y la ruta es solo una pista, así que el
+  MKV que se movió a otra carpeta de la app se encuentra por su contenido
+  (`phases.mkv_reubicar`) y su tarjeta deja de estar aquí. Lo que queda es lo
+  que no apareció, y si se buscó hasta el final el porqué lo dice.
 - **`caducado`** — hay análisis, pero de una versión anterior de la app, así
   que `read_mkv_cache` no lo sirve y abrir ese MKV lo reanaliza. Anunciarlo
   como hecho sería prometer algo que la app va a recalcular.
@@ -78,7 +80,11 @@ def _hechos(t: dict) -> list[dict]:
     ]
 
 
-def _porque(situacion: str) -> str:
+def _porque(situacion: str, t: dict) -> str:
+    if situacion == relato.NO_DISPONIBLE and t.get("buscado"):
+        # Se buscó por contenido en las tres carpetas de la app hasta el final
+        # (`phases.mkv_reubicar`): ya no es «puede que esté en otro sitio».
+        return tr('relato.mkv_porque_no_disponible_buscado')
     return {
         relato.NO_DISPONIBLE: tr('relato.mkv_porque_no_disponible'),
         relato.CADUCADO: tr('relato.mkv_porque_caducado'),
@@ -98,7 +104,7 @@ def resolver(t: dict) -> dict:
         # sería maquinaria que no usa.
         "etapas": [],
         "etapa": {},
-        "porque": _porque(situacion),
+        "porque": _porque(situacion, t),
         "decision": {"estado": relato.DECISION_NO_PROCEDE},
         "hechos": _hechos(t),
         "siguiente": "",

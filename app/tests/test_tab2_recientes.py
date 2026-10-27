@@ -114,7 +114,7 @@ class TestLoQueDevuelve(RecientesTestCase):
 
     def test_sin_caché_la_lista_está_vacía(self):
         cuerpo = self.pedir()
-        self.assertEqual(cuerpo, {"recientes": [], "total": 0})
+        self.assertEqual(cuerpo, {"recientes": [], "total": 0, "reubicados": []})
 
     def test_una_tarjeta_trae_todo_lo_que_la_columna_pinta(self):
         ruta = self.escribir_mkv("Dune (2021).mkv")

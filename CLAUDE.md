@@ -101,6 +101,7 @@ ISO2MKVFEL/
     │   ├── phase_d.py         ← Extracción: mkvmerge desde MPLS montado
     │   ├── phase_e.py         ← Escritura final: flags, metadatos, validación
     │   ├── mkv_analyze.py     ← Tab 2: análisis + edición de MKVs (mkvmerge + MediaInfo + light-profile DV L1)
+    │   ├── mkv_reubicar.py    ← Tab 2: encontrar por contenido el MKV analizado que cambió de carpeta
     │   ├── rpu_analyze.py     ← Clasificación L8 (classify_l8 + tiers) para el modelo Mantener/Inyectar (pre-flight)
     │   ├── cmv40_strategy.py  ← Tab 3: la matriz (workflow × target_type × trust) como datos
     │   ├── cmv40_pipeline.py  ← Tab 3: pipeline CMv4.0 (ffmpeg + dovi_tool + sync + pre-flight)
@@ -348,7 +349,7 @@ Sesiones legacy (anteriores a v2.5) cargan sin problema con `media_type="movie"`
 
 ### Endpoints
 - `GET /api/mkv/files` — lista MKVs en `/mnt/output`
-- `GET /api/mkv/recientes` — los MKVs analizados (columna izquierda). Solo lee `/config/mkv_audits/`; no analiza nada
+- `GET /api/mkv/recientes` — los MKVs analizados (columna izquierda). Lee `/config/mkv_audits/` y no analiza nada; lo que no está en su ruta lo busca por contenido en las tres carpetas y lo reapunta (`?buscar=true` fuerza la búsqueda; ver «El MKV que cambió de carpeta se encuentra solo»)
 - `POST /api/mkv/analyze` — identifica pistas + capítulos + enriquece con MediaInfo
 - `POST /api/mkv/quality-audit` — **análisis extendido**: combos L8/L2 + perfil de luminancia, con una sola extracción del RPU. Cachea los dos. (La URL conserva el nombre viejo; `POST /api/mkv/light-profile` ya no existe.)
 - `POST /api/mkv/apply` — aplica ediciones (mkvpropedit). Soporta `copy_to_output: true` para MKVs de Library.
@@ -370,17 +371,21 @@ que es justo lo que hace útil la columna.
 
 Cinco decisiones que la definen:
 
-- **El MKV que ya no está en su ruta se MARCA, no se oculta.** La caché va por
-  fingerprint y `original_file_path` es una pista: el análisis sigue siendo
-  válido y se reaprovecha si el fichero reaparece. La tarjeta sale apagada, con
-  chip ⚠️, y **sin botón de abrir** — llamar al backend daría un 404 seco.
+- **El MKV que ya no está en su ruta se BUSCA, y lo que no aparece se MARCA,
+  no se oculta.** La caché va por fingerprint y `original_file_path` es una
+  pista: el que se movió a otra carpeta de la app se encuentra por su
+  contenido y la tarjeta sale con la ruta nueva (ver abajo). El que no aparece
+  sale apagada, con chip ⚠️, **sin botón de abrir** —llamar al backend daría
+  un 404 seco— y con «Volver a buscar».
 - **Un bloque con la versión caducada NO cuenta como análisis hecho.**
   `read_mkv_cache` no lo sirve, así que abrir ese MKV lo reanaliza: anunciar
   «🔬 extendido» sería prometer algo que la app va a recalcular. Arrastra al
   perfil de luminancia, que vive DENTRO del bloque `quality`.
-- **El fingerprint NO se recalcula al listar.** Serían 1 MB leídos por MKV sobre
-  el pool del NAS cada vez que se entra en la pestaña. Solo se comprueba que el
-  fichero exista; de que el contenido coincida ya se encarga la apertura.
+- **El fingerprint de lo que ESTÁ no se recalcula al listar.** Serían 1 MB
+  leídos por MKV sobre el pool del NAS cada vez que se entra en la pestaña.
+  Solo se comprueba que el fichero exista; de que el contenido coincida ya se
+  encarga la apertura. Lo que se lee es 1 MB del CANDIDATO de un MKV que no
+  está, y una vez.
 - **Los cuatro pills cubren TODAS las tarjetas.** «Sin extendido» (📋) incluye
   también las de caché caducada; si exigiera `tiene_basico`, esas solo saldrían
   con «Todos» y quien filtra las daría por desaparecidas.
@@ -398,6 +403,100 @@ El recorrido del directorio va en un `asyncio.to_thread` y lo lee
 `storage.list_mkv_audit_entries`, que es **el único lector de `mkv_audits/`**
 (lo comparte con el scan de huérfanos). Ojo con su `size_bytes`: es el del
 fichero de caché; el del MKV es `mkv_size_bytes` y sale del fingerprint.
+
+### El MKV que cambió de carpeta se encuentra solo (`phases/mkv_reubicar.py`)
+
+Mover un MKV analizado de Output a la biblioteca no invalida su análisis —la
+caché va por contenido—, pero la columna lo pintaba «No encontrado» y sin
+botón de abrir. Y es el flujo NORMAL: CMv4.0 y Multiplexar dejan el análisis
+hecho con el MKV en Output y el usuario lo mueve acto seguido. Lo único que lo
+arreglaba era abrirlo desde su sitio nuevo con «Abrir MKV» (el cache hit
+reapunta, `repoint_mkv_cache`), y nada lo decía. Medido en el NAS el
+2026-10-27: **3 de los 10 MKV de la columna**, los tres de Output con el
+extendido del precache; dos estaban en la biblioteca con el tamaño exacto, y
+el tercero no era un movimiento (el MKV analizado se usó en Multiplexar y se
+borró; el de la biblioteca es otro fichero, de otro tamaño), así que sigue
+marcado, que es lo correcto.
+
+Ahora `GET /api/mkv/recientes` busca lo que no está en su ruta en las tres
+carpetas que la app puede abrir (`paths.LIBRARY_ROOTS`) y lo reapunta. La
+biblioteca del NAS son 212 carpetas y 1.639 MKV; recorrerla por metadatos,
+~0,2 s. Las decisiones:
+
+- **Por tamaño exacto y huella, nunca por nombre.** El tamaño (del
+  fingerprint) filtra sin leer nada y la huella —1 MB del candidato— confirma
+  el MISMO contenido. El nombre no sirve: se renombra al mover, un MKV editado
+  con el mismo nombre no puede heredar el análisis viejo, y la biblioteca del
+  NAS tiene **4.733 ficheros «.mkv» en `.@__thumb`** (las miniaturas de QNAP)
+  frente a 1.639 de verdad.
+- **Las carpetas de sistema no se recorren** (`.`, `@`, `#`, `$` y
+  `LIBRARY_HIDDEN_DIRS`): una copia en un snapshot o en la papelera tiene el
+  mismo contenido y reapuntar ahí daría por vivo un fichero borrado. **Ni los
+  enlaces simbólicos**: la ruta nueva tiene que poder abrirse, y eso exige que
+  viva bajo una de las tres carpetas.
+- **Lo que no aparece se recuerda 10 min** (`REBUSCAR_TRAS_S`, en memoria): la
+  columna se pide al entrar en la pestaña, y sin memoria un MKV borrado de
+  verdad recorrería las carpetas en cada petición. Uno que acaba de
+  desaparecer no está en la memoria, así que se busca en la primera petición
+  —es el que el usuario acaba de mover—, y «Volver a buscar» la salta.
+- **«No está» solo se concluye habiéndolo mirado TODO**: el recorrido llegó
+  al final (`TOPE_RECORRIDO_S`), ninguna carpeta —ni una raíz: un montaje
+  caído no es una carpeta vacía— ni entrada falló al leerse, y se comprobaron
+  todos los candidatos del tamaño (más de `MAX_CANDIDATOS` deja la búsqueda
+  sin concluir: el que no se miró puede ser el bueno). Si no, el resultado es
+  «no se sabe»: ni entra en la memoria, ni el porqué del relato afirma que se
+  buscó, ni «Volver a buscar» dice que no está (dice que no pudo mirarlo
+  todo), ni Limpieza lo ofrece borrar.
+- **La entrada vieja de la ruta nueva se BUSCA también** al reapuntar: la
+  huella acaba de demostrar que en esa ruta hay otro contenido, así que el
+  suyo o se movió o ya no existe. Si aparece en otra carpeta se reapunta;
+  solo si se concluye que no está se olvida (la regla de
+  `invalidate_mkv_cache_by_path`), y sin concluir se queda. Pasa al sustituir
+  en la biblioteca una versión vieja por la nueva con el mismo nombre: sin
+  esto la columna pintaba dos tarjetas con la misma ruta, y «Borrar» en una
+  (que va por ruta) se llevaba las dos. La primera versión la olvidaba sin
+  buscarla, y tiraba el análisis de una versión que solo se había archivado
+  en otra carpeta (revisión de Codex del 2026-10-27).
+- **Lo encontrado se dice una vez** (`reubicados` en la respuesta, un aviso),
+  y la sub-pestaña abierta sobre ese MKV pasa a la ruta nueva —también en
+  `originalAnalysis`, o contaría como un cambio pendiente—. **Qué sub-pestaña
+  es la de ese MKV lo dice su contenido**: las tarjetas, `reubicados` y la
+  respuesta de abrir un MKV llevan su `huella`, y hacen falta la huella Y la
+  ruta de la que se fue. Solo por ruta, dos entradas que estuvieron en la
+  misma pasaban la pestaña de una al fichero de la otra, con sus cambios
+  pendientes listos para aplicarse en el MKV equivocado; solo por huella, una
+  copia idéntica abierta desde una ruta que sigue existiendo se movería. Una
+  pestaña sin huella (abierta con una versión anterior) solo se mueve si nadie
+  más venía de su ruta.
+- **Limpieza (⚙︎) busca antes de ofrecer borrar.** «Cache MKV huérfano» se
+  ofrecía borrar, como seguro, con solo que la ruta guardada no existiera: el
+  análisis de todo MKV movido, ~10 min de `extract-rpu` cada uno. El escaneo
+  usa `buscar` —no escribe: es de solo lectura— y **forzando**, porque decide
+  qué se borra y la memoria de la columna no le vale; y **solo es huérfano lo
+  que la búsqueda concluyó que no está** (`Busqueda.no_encontrados`), no «lo
+  que no se encontró»: un MKV que estaba en su ruta al buscar —y por eso no se
+  buscó— y se movió antes de que el escaneo la mirara salía huérfano. El
+  borrado vuelve a escanear, así que tampoco borra uno que se pueda reubicar.
+- **Las escrituras de una entrada van con un cerrojo** (`storage._MKV_CACHE_LOCK`):
+  son leer + cambiar + escribir el JSON entero, y reapuntar desde la columna
+  (un thread) se cruza con la apertura o el análisis extendido de la misma
+  entrada; la segunda escritura llevaba la copia que leyó antes de la primera
+  y el bloque nuevo se perdía.
+
+Lo que **no** se hizo: si la reubicación la consume OTRA petición (otro
+navegador lista la columna, o una apertura reapunta), la sub-pestaña abierta
+aquí no se entera —`reubicados` es de cada respuesta— y se queda en la ruta
+vieja. Converger exigiría saber si su ruta sigue existiendo, y con dos copias
+idénticas moverla por la huella sería mover la equivocada. No es destructivo:
+«Aplicar cambios» sobre ella da «fichero no encontrado», y reabrirla desde la
+columna lo arregla.
+
+`test_tab2_reubicar.py` (40 tests) y los de la columna en
+`test_tab2_columna_izquierda.py`, con 47 mutaciones (`T2R-*` y `T2F-*`). La
+revisión de Codex del 2026-10-27 propuso ocho mutaciones que sobrevivían a la
+primera tanda —el tope de candidatos, el tamaño releído con la huella, las
+mayúsculas, el cerrojo…— y encontró siete fallos del diff; todo comprobado y
+arreglado con su test.
 
 ### Editable
 - Pistas audio: nombre, flag default
@@ -2087,7 +2186,7 @@ confirmaron las fórmulas en las dos direcciones antes de implementarlas.
 |---|---|
 | A · Comprobación de los orígenes | los dos MKV siguen ahí y sin cambios (huella), el plan sigue permitiendo multiplexar, el nombre de salida está libre y hay sitio (+5 %) |
 | B · Multiplexado de las pistas | un `mkvmerge` al `.mkv.tmp` del destino, nunca al nombre final, con el progreso de `--gui-mode`; solo entran las fuentes que aportan algo, y el `--track-order` usa el puesto de cada una en esa lista |
-| C · Comprobación y guardado | lo que se leyó del MKV contra el plan; si cuadra, `_publicar_sin_pisar` y la firma |
+| C · Comprobación y guardado | lo que se leyó del MKV contra el plan; si cuadra, `_publicar_sin_pisar`, la firma y su análisis de «Consultar / Editar MKV» (ver «El MKV final sale con su análisis…») |
 
 La Fase C es la que hace que esto sea de fiar, y comprueba cosas que el
 multiplexado a mano no comprueba:
@@ -2308,6 +2407,45 @@ con BL y EL entero, «Nada» que pide nada, renombrar con el mismo id en A y B,
 arrastrar los subtítulos y los tiempos de los capítulos finales) tienen hoy su
 test.
 
+### El MKV final sale con su análisis de «Consultar / Editar MKV»
+
+Lo mismo que CMv4.0 al final de su Fase H, al final de la Fase C y con el MKV
+ya publicado y **firmado** (la huella de la caché es el primer MB, que la
+marca cambia): `mux_pipeline._dejar_hecho_el_analisis`. Pedido por el usuario
+el 2026-10-27, al ver que el MKV multiplexado era el único que llegaba a la
+biblioteca sin análisis.
+
+- **El básico siempre** (`analyze_mkv`, ~1 min en un UHD, dominado por el
+  conteo PGS) y **persistido a mano y PRIMERO**: `analyze_mkv` no persiste, y
+  sin `basic` cacheado el extendido no se re-inyecta hasta la segunda
+  apertura. Si alguno de sus pasos falló (`_lectura_incompleta`), el writer no
+  lo guarda y tampoco se hereda nada: medio análisis con pinta de entero es
+  peor que ninguno.
+- **El extendido se HEREDA, no se calcula.** Aquí no hay ningún RPU extraído
+  —la diferencia con CMv4.0—, pero el vídeo es una copia sin cambios del de
+  una fuente, así que su RPU, sus combos y su perfil de luminancia son los de
+  esa fuente. Si su caché tiene el bloque `quality` vigente y válido —lo
+  normal cuando sale de CMv4.0, que lo deja hecho—, se copia; si no, no se
+  calcula: serían ~650 s de `extract-rpu`, el 97 % del análisis extendido, y
+  el usuario lo lanza con su botón.
+- **Se hereda con evidencia**: de la fuente del VÍDEO (`plan["video_de"]`,
+  nunca de la otra), con su bloque vigente (`read_mkv_cache`: uno de una
+  versión vieja se guardaría como si se acabara de calcular) y con sus frames
+  coincidiendo (±2, la tolerancia de la Fase H de CMv4.0) con los del vídeo
+  del MKV final, leídos de ese fichero.
+- **Todo va atado a la huella del contenido ANALIZADO**
+  (`analisis._huella_inicial`), y el extendido solo se escribe si el básico
+  quedó guardado bajo ella. Escrito con la huella del fichero en el momento
+  de guardar —lo que hace `persist_mkv_quality_to_cache`—, un MKV que
+  cambiara a mitad recibía el extendido del vídeo de antes (revisión de
+  Codex del 2026-10-27).
+- **El log dice lo que quedó en la caché**, releído de ella: «análisis
+  completo» solo si el extendido está.
+- **No lanza**: el MKV ya está entregado y comprobado.
+
+`test_mux_endpoints::TestElAnalisisDelMkvFinal` (12 tests, mutaciones
+`T4A-*`).
+
 ### Los tests, y lo que el arnés aprendió
 
 `test_mux_plan` (el plan en las dos direcciones, con las pistas reales de
@@ -2323,8 +2461,8 @@ pendiente de decisión, terminado, en marcha, en cola y midiendo). Las
 mutaciones de la pestaña son las `T4-*`, `T4P-*` (el plan), `T4R-*`/`T4S-*`/
 `T4L-*`/`T4C-*` (router, persistencia, relato y pipeline), `T4X-*` (los
 arreglos de la revisión de Codex de la implementación), `T4F-*` (la interfaz
-nueva) y `T4V-*` (el registro de los textos y la marca que el log
-anunciaba). Las `T5R-*` son de la pasada de registro a toda la app que vino
+nueva), `T4V-*` (el registro de los textos y la marca que el log
+anunciaba) y `T4A-*` (el análisis del MKV final). Las `T5R-*` son de la pasada de registro a toda la app que vino
 después (ver «La app habla tres idiomas»). Para verificarlas rápido, `mutar.py` acepta una CLASE como módulo
 (`test_mux_endpoints.TestCrear`): el módulo entero son ~3 min por mutación y
 una clase, segundos. **En el catálogo van con el módulo entero** —lo exige
@@ -3240,7 +3378,10 @@ casi no pasaba porque el MKV se analizaba donde vivía; **con el precache es
 el caso normal**, porque la caché se escribe con el fichero en `/mnt/output`
 y el usuario lo mueve acto seguido. Lo resuelve
 **`storage.repoint_mkv_cache`**, que el cache hit llama cuando la ruta no es
-la persistida.
+la persistida — y, desde el 2026-10-27, también la columna sin que haya que
+abrir nada: busca el MKV por contenido en las tres carpetas al listar (ver
+«El MKV que cambió de carpeta se encuentra solo», en Tab 2). Antes eso solo
+pasaba si el usuario lo abría con «Abrir MKV», y la tarjeta no lo decía.
 
 - **No reescribe si la ruta no ha cambiado.** Abrir un MKV es navegación: no
   puede tocar el disco cada vez.
@@ -3859,10 +4000,11 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **603 mutaciones** en
+de entonces seguían en verde. Hoy hay **661 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
-una por cada arreglo que salió de ella, las de la pestaña Multiplexar y las
-`T5R-*` de la pasada de registro a toda la app— y
+una por cada arreglo que salió de ella, las de la pestaña Multiplexar, las
+`T5R-*` de la pasada de registro a toda la app y las `T2R-*`/`T2F-*`/`T4A-*`
+de la reubicación de los MKV movidos y del análisis del MKV multiplexado— y
 `app/tools/mutar.py` las caza todas. Lo que se aprendió, por orden de cuántas veces se repitió:
 
 - **Se probaba que algo PASA, no la frontera en que deja de pasar.** Umbrales

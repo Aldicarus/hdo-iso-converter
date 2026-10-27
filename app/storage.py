@@ -1016,6 +1016,16 @@ def list_mux_projects_summary() -> list[dict]:
 
 MKV_AUDIT_DIR = CONFIG_DIR / "mkv_audits"
 
+# Las escrituras de una entrada son LEER + CAMBIAR + ESCRIBIR el JSON entero
+# (el bloque `basic` conserva el `quality` y al revés; reapuntar conserva los
+# dos), así que dos a la vez se pisan: la que escribe la segunda lleva la
+# copia que leyó ANTES de la primera, y el bloque nuevo se pierde. Se cruzan
+# de verdad desde que la columna de Tab 2 reapunta al listar, en un thread,
+# mientras una apertura o un análisis extendido escriben la misma entrada
+# (revisión de Codex del 2026-10-27). Es de hilos porque escriben threads y
+# el bucle de eventos; lo que guarda son unos milisegundos de JSON.
+_MKV_CACHE_LOCK = threading.Lock()
+
 
 def compute_mkv_fingerprint(mkv_path: str) -> dict | None:
     """Fingerprint de un MKV: SHA-256(primer 1 MB) + size + mtime_ns.
@@ -1184,22 +1194,24 @@ def repoint_mkv_cache(fingerprint: dict, nueva_ruta: str) -> bool:
         if not fingerprint:
             return False
         path = _mkv_audit_path(fingerprint["sha256_1mb"])
-        if not path.exists():
-            return False
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not _fingerprint_content_match(data.get("fingerprint") or {}, fingerprint):
-            return False
-        if data.get("original_file_path") == nueva_ruta:
-            return False
-        data["original_file_path"] = nueva_ruta
-        basic = data.get("basic")
-        if isinstance(basic, dict):
-            basic["file_path"] = nueva_ruta
-            basic["file_name"] = Path(nueva_ruta).name
-        # El fingerprint se reescribe entero: el mtime cambia al mover y, aunque
-        # la comparación no lo mire, dejarlo viejo describiría otro fichero.
-        data["fingerprint"] = fingerprint
-        _atomic_write_json(path, json.dumps(data, ensure_ascii=False))
+        with _MKV_CACHE_LOCK:
+            if not path.exists():
+                return False
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not _fingerprint_content_match(data.get("fingerprint") or {}, fingerprint):
+                return False
+            if data.get("original_file_path") == nueva_ruta:
+                return False
+            data["original_file_path"] = nueva_ruta
+            basic = data.get("basic")
+            if isinstance(basic, dict):
+                basic["file_path"] = nueva_ruta
+                basic["file_name"] = Path(nueva_ruta).name
+            # El fingerprint se reescribe entero: el mtime cambia al mover y,
+            # aunque la comparación no lo mire, dejarlo viejo describiría otro
+            # fichero.
+            data["fingerprint"] = fingerprint
+            _atomic_write_json(path, json.dumps(data, ensure_ascii=False))
         logger.info("MKV cache reapuntado a %s", nueva_ruta)
         return True
     except (OSError, ValueError, KeyError) as e:
@@ -1227,25 +1239,26 @@ def write_mkv_cache_basic(
     detectar caches cuyo MKV ya no existe. Si no se pasa pero el cache
     existente ya lo tenía, se preserva.
     """
-    existing_quality = None
-    existing_orig_path = None
-    if fingerprint:
-        existing_raw = _read_cache_raw(fingerprint["sha256_1mb"])
-        if existing_raw:
-            persisted_fp = existing_raw.get("fingerprint") or {}
-            # Solo preservar si fingerprint coincide (MKV no cambió)
-            if _fingerprint_content_match(persisted_fp, fingerprint):
-                versions = existing_raw.get("versions") or {}
-                if versions.get("quality") == cache_version_quality_existing:
-                    existing_quality = existing_raw.get("quality")
-                existing_orig_path = existing_raw.get("original_file_path")
-    versions = {"basic": cache_version_basic}
-    if existing_quality is not None:
-        versions["quality"] = cache_version_quality_existing
-    _write_mkv_cache_full(
-        fingerprint, versions, basic_payload, existing_quality,
-        original_file_path=original_file_path or existing_orig_path,
-    )
+    with _MKV_CACHE_LOCK:
+        existing_quality = None
+        existing_orig_path = None
+        if fingerprint:
+            existing_raw = _read_cache_raw(fingerprint["sha256_1mb"])
+            if existing_raw:
+                persisted_fp = existing_raw.get("fingerprint") or {}
+                # Solo preservar si fingerprint coincide (MKV no cambió)
+                if _fingerprint_content_match(persisted_fp, fingerprint):
+                    versions = existing_raw.get("versions") or {}
+                    if versions.get("quality") == cache_version_quality_existing:
+                        existing_quality = existing_raw.get("quality")
+                    existing_orig_path = existing_raw.get("original_file_path")
+        versions = {"basic": cache_version_basic}
+        if existing_quality is not None:
+            versions["quality"] = cache_version_quality_existing
+        _write_mkv_cache_full(
+            fingerprint, versions, basic_payload, existing_quality,
+            original_file_path=original_file_path or existing_orig_path,
+        )
 
 
 def write_mkv_cache_quality(
@@ -1258,26 +1271,27 @@ def write_mkv_cache_quality(
     """Persiste el bloque quality del cache. Preserva el bloque basic
     existente si su versión coincide con la actual, y el original_file_path
     si ya estaba persistido (o lo añade si se pasa nuevo)."""
-    existing_basic = None
-    existing_basic_version = None
-    existing_orig_path = None
-    if fingerprint:
-        existing_raw = _read_cache_raw(fingerprint["sha256_1mb"])
-        if existing_raw:
-            persisted_fp = existing_raw.get("fingerprint") or {}
-            if _fingerprint_content_match(persisted_fp, fingerprint):
-                versions = existing_raw.get("versions") or {}
-                if versions.get("basic") == cache_version_basic_existing:
-                    existing_basic = existing_raw.get("basic")
-                    existing_basic_version = versions.get("basic")
-                existing_orig_path = existing_raw.get("original_file_path")
-    versions = {"quality": cache_version_quality}
-    if existing_basic_version is not None:
-        versions["basic"] = existing_basic_version
-    _write_mkv_cache_full(
-        fingerprint, versions, existing_basic, quality_payload,
-        original_file_path=original_file_path or existing_orig_path,
-    )
+    with _MKV_CACHE_LOCK:
+        existing_basic = None
+        existing_basic_version = None
+        existing_orig_path = None
+        if fingerprint:
+            existing_raw = _read_cache_raw(fingerprint["sha256_1mb"])
+            if existing_raw:
+                persisted_fp = existing_raw.get("fingerprint") or {}
+                if _fingerprint_content_match(persisted_fp, fingerprint):
+                    versions = existing_raw.get("versions") or {}
+                    if versions.get("basic") == cache_version_basic_existing:
+                        existing_basic = existing_raw.get("basic")
+                        existing_basic_version = versions.get("basic")
+                    existing_orig_path = existing_raw.get("original_file_path")
+        versions = {"quality": cache_version_quality}
+        if existing_basic_version is not None:
+            versions["basic"] = existing_basic_version
+        _write_mkv_cache_full(
+            fingerprint, versions, existing_basic, quality_payload,
+            original_file_path=original_file_path or existing_orig_path,
+        )
 
 
 def list_mkv_audit_entries() -> list[dict]:

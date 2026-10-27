@@ -172,6 +172,12 @@ class ApiTestCase(unittest.TestCase):
         import analysis_progress
         analysis_progress.fijar()
 
+        # La memoria de los MKV que no aparecieron en ninguna carpeta también
+        # es de proceso: sin vaciarla, un test heredaría el «ya se buscó» de
+        # otro que usara la misma huella, y no buscaría.
+        from phases import mkv_reubicar
+        mkv_reubicar.olvidar()
+
         # Caches en memoria que sobreviven entre tests y verían ficheros de
         # otro tmpdir.
         for nombre in ("_sessions_summary_by_file", "_cmv40_summary_by_file"):

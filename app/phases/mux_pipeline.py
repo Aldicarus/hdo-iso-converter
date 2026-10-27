@@ -705,9 +705,89 @@ async def fase_c_comprobar_y_guardar(proyecto: MuxProject, plan_: dict,
                                    proyecto.nombre_salida):
         raise RuntimeError(tr('mux.no_se_pudo_publicar', nombre=proyecto.nombre_salida))
     await firma.firmar(str(final))
+    # Con el MKV ya en su nombre definitivo y firmado: la huella de la caché
+    # es el primer MB, que la marca cambia.
+    await _dejar_hecho_el_analisis(proyecto, plan_, final, log)
     await _log(log, '[Fase C] 🎯 Resultado' + tr('mux.log_resultado',
                                                nombre=proyecto.nombre_salida))
     return validacion
+
+
+async def _dejar_hecho_el_analisis(proyecto: MuxProject, plan_: dict,
+                                   final: Path, log) -> None:
+    """Entrega el MKV con su análisis de «Consultar / Editar MKV» ya hecho.
+
+    Es lo que CMv4.0 hace al final de su Fase H (`_precachear_analisis_de_tab2`),
+    con una diferencia que decide lo que cuesta: aquí no hay ningún RPU
+    extraído. Pero el vídeo es una COPIA sin cambios del de una fuente, así que
+    su RPU es el mismo, y con él los combos L8/L2 y el perfil de luminancia: si
+    esa fuente ya tiene el análisis extendido en la caché (lo normal cuando sale
+    de CMv4.0, que lo deja hecho), se hereda. Si no, no se calcula: extraer el
+    RPU son ~650 s, el 97 % del análisis extendido, y el usuario lo lanza con
+    su botón cuando lo quiera.
+
+    * **El básico va siempre y PRIMERO**, y se persiste a mano: `analyze_mkv`
+      no persiste, y sin `basic` cacheado el extendido no se re-inyecta hasta
+      la segunda apertura (la misma razón que en CMv4.0). Son ~1 min en un
+      UHD, dominado por el conteo PGS. Si un paso del análisis falló, el
+      writer no lo guarda —medio análisis con pinta de entero—, y entonces
+      tampoco se hereda nada.
+    * **Se hereda con evidencia**: el bloque tiene que ser vigente y válido, y
+      sus frames tienen que coincidir (±2, la tolerancia de la Fase H de
+      CMv4.0) con los del vídeo del MKV final, leídos de ESE fichero.
+    * **Todo va atado a la huella del contenido ANALIZADO**
+      (`analisis._huella_inicial`), no a la del fichero cuando se escribe: si
+      el MKV cambiara a mitad, el extendido del vídeo de antes acabaría
+      guardado bajo la huella de otro (revisión de Codex del 2026-10-27).
+    * **El log dice lo que quedó en la caché**, releído de ella: un básico que
+      no se pudo guardar no se anuncia.
+    * **No lanza**: el MKV ya está entregado y comprobado, y perder un análisis
+      que se rehace al abrirlo no justifica manchar el trabajo.
+    """
+    from phases.mkv_analyze import (CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY,
+                                    _quality_payload_is_valid, analyze_mkv,
+                                    persist_mkv_basic_to_cache)
+    from storage import read_mkv_cache, write_mkv_cache_quality
+
+    v = plan_.get("video_de")
+    if v is None:
+        return
+    fuente = proyecto.fuentes[v]
+    letra = "AB"[v]
+    try:
+        await _log(log, '[Fase C] ' + tr('mux.log_analisis_empieza'))
+        analisis = await analyze_mkv(str(final), use_cache=False)
+        huella = analisis._huella_inicial
+        if not huella:
+            return
+        await asyncio.to_thread(persist_mkv_basic_to_cache, str(final), analisis)
+        quedo = await asyncio.to_thread(
+            read_mkv_cache, huella, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
+        if not (quedo and quedo.get("basic")):
+            _logger.info("[mux] el análisis de %s no quedó en la caché", final.name)
+            return
+
+        if fuente.huella:
+            cache_fuente = await asyncio.to_thread(
+                read_mkv_cache, fuente.huella, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
+            q = (cache_fuente or {}).get("quality")
+            frames = next((t.frame_count for t in analisis.tracks
+                           if t.type == "video" and t.frame_count), 0)
+            if (q and _quality_payload_is_valid(q) and frames
+                    and abs((q.get("quality_total_frames_rpu") or 0) - frames) <= 2):
+                await asyncio.to_thread(
+                    write_mkv_cache_quality, fingerprint=huella,
+                    cache_version_basic_existing=CACHE_VERSION_BASIC,
+                    cache_version_quality=CACHE_VERSION_QUALITY,
+                    quality_payload=q, original_file_path=str(final))
+                quedo = await asyncio.to_thread(
+                    read_mkv_cache, huella, CACHE_VERSION_BASIC, CACHE_VERSION_QUALITY)
+
+        await _log(log, '[Fase C] ' + tr(
+            'mux.log_analisis_completo' if (quedo or {}).get("quality")
+            else 'mux.log_analisis_basico', fuente=letra))
+    except Exception as e:                              # noqa: BLE001
+        _logger.info("[mux] no se pudo dejar hecho el análisis de %s: %s", final.name, e)
 
 
 async def _comprobar_capitulos(mkv: Path, esperados_ns: list[int]) -> list[dict]:

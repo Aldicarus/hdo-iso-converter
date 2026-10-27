@@ -367,6 +367,9 @@ async def analyze_mkv(
                     result.file_path = mkv_path
                     result.file_name = Path(mkv_path).name
                     repoint_mkv_cache(fingerprint, mkv_path)
+                # La huella de lo que se ha servido, también desde la caché:
+                # la interfaz la usa para saber qué MKV tiene abierto.
+                result._huella_inicial = fingerprint
                 await _emit("cache_hit")
                 return result
             except Exception as e:
