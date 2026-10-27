@@ -1939,6 +1939,15 @@ en B en `t_B = α·t_A + β`—; qué hacer con ella depende de lo elegido.
   debajo de 10 ms es ruido y se toma 0), dispersión 4,5 ms, 7/7 puntos, 18
   s. Comparando dos idiomas distintos no concluye (3/7): las pistas
   comparadas por defecto son las del mismo idioma si las hay.
+- **Y de los idiomas comunes, primero la versión original** (la de la ficha
+  de TMDb) **y después el inglés** (`mux_pipeline.idiomas_para_comparar`):
+  el mismo idioma no es el mismo doblaje. Lo destapó la prueba real al revés
+  (2026-10-27): con el WEB-DL como A mandaba el orden de A, su pista por
+  defecto es el castellano DCP, y se comparó con el castellano del disco —otro
+  doblaje—: 1 de 7 puntos. Con la inglesa de los dos, 7 de 7 y la medida
+  simétrica de la del primer día (α = 1,000994554, cuyo inverso es el
+  0,999006434; β = −4 ms). Al crear, la medida espera hasta 15 s a la ficha,
+  que se busca a la vez (`_esperar_la_ficha`).
 
 Seis veredictos: `en_sincronia`, `retraso`, `otro_ritmo`, `deriva`,
 `montaje_distinto`, `no_concluyente` (los ids de siempre; la interfaz los
@@ -3824,7 +3833,7 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **583 mutaciones** en
+de entonces seguían en verde. Hoy hay **587 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella y las de la pestaña Multiplexar— y
 `app/tools/mutar.py` las caza todas. Lo que se aprendió, por orden de cuántas veces se repitió:

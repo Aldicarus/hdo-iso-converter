@@ -484,7 +484,8 @@ def _es_comentario(p: dict) -> bool:
     return bool(p.get("comentario")) or "comment" in nombre or "comentari" in nombre
 
 
-def pareja_de_referencia(audio_a: list[dict], audio_b: list[dict]) -> tuple[int, int] | None:
+def pareja_de_referencia(audio_a: list[dict], audio_b: list[dict],
+                         preferidos: tuple[str, ...] | list[str] = ()) -> tuple[int, int] | None:
     """Qué pista de cada MKV se compara: `(id_a, id_b)`, o None si a alguno le
     falta audio.
 
@@ -492,6 +493,14 @@ def pareja_de_referencia(audio_a: list[dict], audio_b: list[dict]) -> tuple[int,
     comentarios del director y con más canales. Si no comparten idioma, la
     principal de cada uno: correlan por la música y los efectos, que en un
     doblaje son los mismos.
+
+    De los idiomas que comparten, primero los de `preferidos` (ISO 639-2, en
+    orden): el mismo idioma no es el mismo doblaje —el castellano de un disco
+    y el de un WEB-DL suelen ser dos grabaciones, r ≈ 0,08 medido con Toy
+    Story 5— y la versión original sí lo es. Sin preferencia manda el orden
+    de A, que con A y B sin papeles depende de qué fichero se eligió primero:
+    con el WEB-DL como A salía su doblaje, y la medida no concluía (prueba
+    real del 2026-10-27).
     """
     def utiles(lista):
         return [p for p in lista if not _es_comentario(p)] or list(lista)
@@ -509,6 +518,8 @@ def pareja_de_referencia(audio_a: list[dict], audio_b: list[dict]) -> tuple[int,
     comunes = [l for l in dict.fromkeys(idioma(p) for p in sorted(a, key=clave))
                if l != "und" and any(idioma(q) == l for q in b)]
     if comunes:
+        orden = {x: i for i, x in enumerate(preferidos or ())}
+        comunes.sort(key=lambda x: orden.get(x, len(orden)))
         l = comunes[0]
         pa = sorted((p for p in a if idioma(p) == l), key=clave)[0]
         pb = sorted((p for p in b if idioma(p) == l), key=clave)[0]

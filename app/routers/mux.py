@@ -268,7 +268,7 @@ async def mux_crear(body: CrearMux, job: str = ""):
         if _creacion.get("job") == sello:
             _creacion["activo"] = False
     pid = provisional.id
-    asyncio.create_task(_hidratar_tmdb(pid))
+    _fichas[pid] = asyncio.create_task(_hidratar_tmdb(pid))
     _lanzar_medida(pid)
     return await _payload(pid)
 
@@ -574,6 +574,7 @@ async def mux_borrar(project_id: str):
         if m:
             m["cancelar"] = True
             _matar(m.get("procs"))
+        _fichas.pop(project_id, None)
         await asyncio.to_thread(storage.delete_mux_project, project_id)
     return {"ok": True}
 
@@ -606,6 +607,23 @@ def _turno_de_medida():
     if lock is None:
         lock = _cerrojos[clave] = asyncio.Lock()
     return lock
+
+
+# La ficha que se busca al crear, mientras arranca la medida: su versión
+# original decide qué pistas se comparan (`mux_pipeline.pareja_de`), así que
+# la medida la espera un momento. En memoria y de un solo uso.
+_fichas: dict[str, asyncio.Task] = {}
+_ESPERA_DE_LA_FICHA_S = 15
+
+
+async def _esperar_la_ficha(pid: str) -> None:
+    ficha = _fichas.pop(pid, None)
+    if ficha is None or ficha.done() or ficha.get_loop() is not asyncio.get_running_loop():
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(ficha), _ESPERA_DE_LA_FICHA_S)
+    except Exception:                                   # noqa: BLE001
+        pass                                            # sin ficha, el inglés
 
 
 def _lo_que_decide(s: MuxSincronia | None):
@@ -647,6 +665,7 @@ async def mux_medir_cancelar(project_id: str):
 async def _medir(pid: str, estado: dict) -> None:
     clave = f"mux_sincronia:{pid}"
     inicio = datetime.now(timezone.utc)
+    await _esperar_la_ficha(pid)
     async with _cerrojo(pid):
         p = await _cargar(pid)
         if p is None:

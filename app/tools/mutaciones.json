@@ -4935,6 +4935,43 @@
   ]
  },
  {
+  "id": "T4X-14 la pareja por defecto sigue el orden de A",
+  "fichero": "app/phases/mux_sync.py",
+  "viejo": "        comunes.sort(key=lambda x: orden.get(x, len(orden)))\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_sync",
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-15 la versión original no cuenta para la pareja",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    return list(dict.fromkeys(codigos + [\"eng\"]))",
+  "nuevo": "    return [\"eng\"]",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-16 el inglés no va de respaldo en la pareja",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    return list(dict.fromkeys(codigos + [\"eng\"]))",
+  "nuevo": "    return list(dict.fromkeys(codigos))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T4X-17 la medida no espera a la ficha",
+  "fichero": "app/routers/mux.py",
+  "viejo": "    await _esperar_la_ficha(pid)\n    async with _cerrojo(pid):",
+  "nuevo": "    async with _cerrojo(pid):",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
   "id": "T4F-1 el PUT sin el esquema",
   "fichero": "app/static/mux.js",
   "viejo": "{ method: 'PUT', body: JSON.stringify({ esquema: _MUX_ESQUEMA, ...cuerpo }) }));",

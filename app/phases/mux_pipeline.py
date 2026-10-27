@@ -323,16 +323,26 @@ def _audio_como_dicts(fuente: MuxFuente) -> list[dict]:
             for p in fuente.pistas if p.tipo == "audio"]
 
 
+def idiomas_para_comparar(proyecto: MuxProject) -> list[str]:
+    """Los idiomas (ISO 639-2) que se prefieren para medir, en orden: la
+    versión original de la ficha de TMDb y, detrás, el inglés. La original es
+    la misma grabación en los dos ficheros; un doblaje con la misma etiqueta,
+    no siempre."""
+    vo = ((proyecto.tmdb_info or {}).get("original_language") or "").lower()
+    codigos = [k for k, v in mux_plan._ISO639_1.items() if v == vo] if vo else []
+    return list(dict.fromkeys(codigos + ["eng"]))
+
+
 def pareja_de(proyecto: MuxProject) -> tuple[int, int] | None:
     """La pareja con la que se mide: la elegida si sigue existiendo, o la de
-    `mux_sync.pareja_de_referencia`."""
+    `mux_sync.pareja_de_referencia` con la versión original delante."""
     a = _audio_como_dicts(proyecto.fuentes[0])
     b = _audio_como_dicts(proyecto.fuentes[1])
     if proyecto.pareja and len(proyecto.pareja) == 2:
         ia, ib = proyecto.pareja
         if any(x["id"] == ia for x in a) and any(x["id"] == ib for x in b):
             return ia, ib
-    return mux_sync.pareja_de_referencia(a, b)
+    return mux_sync.pareja_de_referencia(a, b, idiomas_para_comparar(proyecto))
 
 
 duracion_de_video = mux_plan.duracion_de_video

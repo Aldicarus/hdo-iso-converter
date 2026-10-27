@@ -380,7 +380,7 @@ A and B have no fixed roles. A project starts **with nothing chosen** and is fil
 
 ### Measuring the sync (`phases/mux_sync.py`)
 
-- One audio track from each file (the same language when there is one), seven 30 s windows between 5 % and 88 % of the movie, decoded to mono at 4 kHz and reduced to a 100 Hz onset envelope — independent of the codec, the level and the mix.
+- One audio track from each file (the same language when there is one — the original version, from TMDb, first, then English: the same language is not always the same dub), seven 30 s windows between 5 % and 88 % of the movie, decoded to mono at 4 kHz and reduced to a 100 Hz onset envelope — independent of the codec, the level and the mix.
 - Normalised cross-correlation by FFT, in pure Python. Two anchor points search ±60 s; the rest search ±6 s around where the anchors' rate puts them, with a wide retry for a cut.
 - B's envelope is rescaled to A's timeline before correlating, so a 23.976/24 pair does not smear the peak.
 - A straight line through the valid points, always **B relative to A** — the sound that is at `t_A` in A is at `t_B = α·t_A + β` in B — gives the verdict: `en_sincronia`, `retraso` (constant offset), `otro_ritmo` (different speeds, explained by the frame rates), `deriva` (they drift apart at a rate nobody declares), `montaje_distinto` (a jump: a different cut) or `no_concluyente` (an uncertain measurement).

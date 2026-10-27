@@ -306,6 +306,28 @@ class TestPareja(unittest.TestCase):
              {"id": 4, "idioma": "eng", "nombre": "Inglés DD+ 5.1", "canales": 6}]
         self.assertEqual(pareja_de_referencia(a, b), (1, 4))
 
+    def test_sin_papeles_el_mismo_idioma_con_a_y_b_cambiados(self):
+        """Con el WEB-DL como A, su pista por defecto es el doblaje: el orden
+        de A elegía castellano contra castellano, dos grabaciones distintas,
+        y la medida no concluía (prueba real del 2026-10-27). Con el inglés
+        preferido sale la misma pareja en las dos direcciones."""
+        remux = [{"id": 1, "idioma": "eng", "nombre": "TrueHD Atmos", "por_defecto": True, "canales": 8},
+                 {"id": 3, "idioma": "spa", "nombre": "DD 5.1", "canales": 6}]
+        webdl = [{"id": 1, "idioma": "spa", "nombre": "Castellano TrueHD DCP", "por_defecto": True, "canales": 8},
+                 {"id": 4, "idioma": "eng", "nombre": "Inglés DD+ 5.1", "canales": 6}]
+        self.assertEqual(pareja_de_referencia(remux, webdl, ("eng",)), (1, 4))
+        self.assertEqual(pareja_de_referencia(webdl, remux, ("eng",)), (4, 1))
+        # Sin preferencia, el orden de A: el doblaje.
+        self.assertEqual(pareja_de_referencia(webdl, remux), (1, 3))
+
+    def test_la_version_original_va_delante_del_ingles(self):
+        a = [{"id": 1, "idioma": "eng", "por_defecto": True, "canales": 8},
+             {"id": 2, "idioma": "fre", "canales": 6}]
+        b = [{"id": 5, "idioma": "eng", "canales": 6}, {"id": 6, "idioma": "fre", "canales": 6}]
+        self.assertEqual(pareja_de_referencia(a, b, ("fre", "fra", "eng")), (2, 6))
+        # Un preferido que no comparten no cuenta.
+        self.assertEqual(pareja_de_referencia(a, b, ("jpn", "eng")), (1, 5))
+
     def test_sin_idioma_comun_las_principales(self):
         a = [{"id": 1, "idioma": "eng", "por_defecto": True, "canales": 8}]
         b = [{"id": 2, "idioma": "spa", "canales": 6}, {"id": 5, "idioma": "cat", "por_defecto": True, "canales": 6}]

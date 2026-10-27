@@ -53,7 +53,7 @@ class MuxCase(ApiTestCase):
         self.mux, self.qm, self.storage = mux, qm, storage
         workload.limpiar()
         self.addCleanup(workload.limpiar)
-        for estado in (mux._medidas, mux._cancelar, mux._procesos, mux._cerrojos):
+        for estado in (mux._medidas, mux._cancelar, mux._procesos, mux._cerrojos, mux._fichas):
             estado.clear()
         mux._progreso.update(id="", fase="", pct=None, paso="", chips=[])
         self.tb = FakeToolbox(self.tmp / "tb").install()
@@ -939,6 +939,46 @@ class TestMedida(MuxCase):
         self.assertEqual(self.storage.load_mux_project(p["id"]).status, "done", "la misma medida")
         asyncio.run(self.mux._medir(p["id"], estado()))
         self.assertEqual(self.storage.load_mux_project(p["id"]).status, "pending")
+
+    def test_con_a_y_b_cambiados_se_compara_la_misma_pareja(self):
+        """El WEB-DL como A: por su orden salía su doblaje contra el castellano
+        del disco, que es otro (prueba real del 2026-10-27)."""
+        from phases import mux_pipeline
+        r = self.client.post("/api/mux/create", json={"a": str(self.b), "b": str(self.a)})
+        self.assertEqual(r.status_code, 200, r.text)
+        q = self.storage.load_mux_project(r.json()["id"])
+        # El inglés de A (el WEB-DL: su 3) con el TrueHD inglés de B (el disco: su 1).
+        self.assertEqual(mux_pipeline.pareja_de(q), (3, 1))
+        # Con la versión original de la ficha, la suya.
+        q.tmdb_info = {"title": "Peli", "year": 2024, "original_language": "es"}
+        self.assertEqual(mux_pipeline.pareja_de(q), (1, 2))
+
+    def test_la_medida_espera_a_la_ficha_para_elegir_la_pareja(self):
+        from models import MuxSincronia
+        from phases import mux_pipeline
+        p = self.crear()
+        vistas = []
+
+        async def falsa(proyecto, **kw):
+            vistas.append(mux_pipeline.pareja_de(proyecto))
+            return MuxSincronia(estado="medida", veredicto="no_concluyente", n_validos=0, n_puntos=7)
+        original = mux_pipeline.medir_sincronia
+        mux_pipeline.medir_sincronia = falsa
+        self.addCleanup(setattr, mux_pipeline, "medir_sincronia", original)
+
+        async def ficha_lenta():
+            await asyncio.sleep(0.2)
+            q = self.storage.load_mux_project(p["id"])
+            q.tmdb_info = {"title": "Peli", "year": 2024, "original_language": "es"}
+            self.storage.save_mux_project(q)
+            return True
+
+        async def correr():
+            self.mux._fichas[p["id"]] = asyncio.create_task(ficha_lenta())
+            await self.mux._medir(p["id"], {"procs": [], "cancelar": False, "progreso": [0, 7]})
+        asyncio.run(correr())
+        # Con la ficha, castellano con castellano; sin esperarla, el inglés (1, 3).
+        self.assertEqual(vistas, [(2, 1)])
 
     def test_cancelar_la_medida(self):
         p = self.crear()
