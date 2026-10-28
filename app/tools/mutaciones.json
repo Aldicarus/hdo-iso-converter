@@ -6466,5 +6466,50 @@
   "modulos": [
    "test_contrato_de_los_fakes"
   ]
+ },
+ {
+  "id": "T6V-11 el fake de dovi_tool escribe siempre «L2 trims»",
+  "fichero": "app/tests/cmv40_harness.py",
+  "viejo": "    l2 = props.get(\"l2_trims\", [100, 600, 1000])\n    if l2:",
+  "nuevo": "    l2 = [100, 600, 1000]\n    if l2:",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "T6V-12 el bitrate del vídeo CBR es el nominal de MediaInfo 26.10",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "    if tipo == \"video\" and str(t.get(\"BitRate_Mode\") or \"\").upper() == \"CBR\":",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_mkv_analyze"
+  ]
+ },
+ {
+  "id": "T6V-13 el audio CBR también se recalcula",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "    if tipo == \"video\" and str(t.get(\"BitRate_Mode\") or \"\").upper() == \"CBR\":",
+  "nuevo": "    if str(t.get(\"BitRate_Mode\") or \"\").upper() == \"CBR\":",
+  "modulos": [
+   "test_mkv_analyze"
+  ]
+ },
+ {
+  "id": "T6V-14 la captura deja el SegmentUID de verdad en la fixture de MediaInfo",
+  "fichero": "app/tools/capturar_contrato.py",
+  "viejo": "        if t.get(\"@type\") == \"General\" and \"UniqueID\" in t:",
+  "nuevo": "        if False:",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "T6V-15 la captura tapa también el UniqueID de cada pista",
+  "fichero": "app/tools/capturar_contrato.py",
+  "viejo": "        if t.get(\"@type\") == \"General\" and \"UniqueID\" in t:",
+  "nuevo": "        if \"UniqueID\" in t:",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
  }
 ]

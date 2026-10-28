@@ -1,14 +1,14 @@
 {
- "_origen": "Capturado en el NAS el 2026-10-17 con app/tools/capturar_contrato.py (solo lectura): el MKV de Supergirl (2026) de Tab 3 y su workdir CMv4.0.",
+ "_origen": "Capturado en el NAS el 2026-10-28 con app/tools/capturar_contrato.py (solo lectura) en la imagen de la base 24.04: el MKV de Supergirl (2026) de Tab 3, su bin CMv4.0 (el mismo de la primera captura: sha256 47f0b874…) y su RPU entero extraído del MKV, que es el RPU fusionado de entonces; el RPU de disco es de RoboCop (1987), P7 MEL CMv2.9, sus primeros 20 minutos. Las salidas de ffprobe sobre otros MKV son de la captura del 2026-10-17: ffmpeg no cambia.",
  "versiones": {
-  "dovi_tool": "dovi_tool 2.3.3",
-  "mkvmerge": "mkvmerge v88.0 ('All I Know') 64-bit",
-  "mediainfo": "MediaInfoLib - v21.09",
+  "dovi_tool": "dovi_tool 2.3.4",
+  "mkvmerge": "mkvmerge v103.0 ('The Darkness') 64-bit",
+  "mediainfo": "MediaInfoLib - v26.10",
   "ffmpeg": "ffmpeg version n7.1.5-12-g1fdbca85aa-20260731 Copyright (c) 2000-2026 the FFmpeg developers",
   "ffprobe": "ffprobe version n7.1.5-12-g1fdbca85aa-20260731 Copyright (c) 2007-2026 the FFmpeg developers"
  },
  "dovi_summary": {
-  "RPU_source.bin": "Parsing RPU file...\n\nSummary:\n  Frames: 155506\n  Profile: 7 (MEL)\n  DM version: 1 (CM v2.9)\n  Scene/shot count: 2414\n  RPU mastering display: 0.0001/1000 nits\n  RPU content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 138.55 nits\n  L6 metadata: Mastering display: 0.0001/1000 nits. MaxCLL: 371 nits, MaxFALL: 162 nits\n  L5 offsets: top=276, bottom=276, left=0, right=0\n  L2 trims: 100 nits, 600 nits, 1000 nits\n",
+  "RPU_source.bin": "Parsing RPU file...\n\nSummary:\n  Frames: 28774\n  Profile: 7 (MEL)\n  DM version: 1 (CM v2.9)\n  Scene/shot count: 253\n  RPU mastering display: 0.0001/1000 nits\n  RPU content light level (L1): MaxCLL: 357.45 nits, MaxFALL: 65.94 nits\n  L6 metadata: Mastering display: 0.0001/1000 nits. MaxCLL: 0 nits, MaxFALL: 0 nits\n  L5 offsets: top=42, bottom=42, left=0, right=0\n",
   "RPU_target.bin": "Parsing RPU file...\n\nSummary:\n  Frames: 155506\n  Profile: 7 (MEL)\n  DM version: 2 (CM v4.0)\n  Scene/shot count: 2414\n  RPU mastering display: 0.0001/1000 nits\n  RPU content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 138.55 nits\n  L6 metadata: Mastering display: 0.0001/1000 nits. MaxCLL: 371 nits, MaxFALL: 162 nits\n  L5 offsets: top=276, bottom=276, left=0, right=0\n  L2 trims: 100 nits, 600 nits, 1000 nits\n  L8 trims: 100 nits\n  L9 MDP: DCI-P3 D65\n",
   "RPU_merged_p81.bin": "Parsing RPU file...\n\nSummary:\n  Frames: 155506\n  Profile: 8\n  DM version: 2 (CM v4.0)\n  Scene/shot count: 2414\n  RPU mastering display: 0.0001/1000 nits\n  RPU content light level (L1): MaxCLL: 1000.60 nits, MaxFALL: 138.55 nits\n  L6 metadata: Mastering display: 0.0001/1000 nits. MaxCLL: 371 nits, MaxFALL: 162 nits\n  L5 offsets: top=276, bottom=276, left=0, right=0\n  L2 trims: 100 nits, 600 nits, 1000 nits\n  L8 trims: 100 nits\n  L9 MDP: DCI-P3 D65\n"
  },
@@ -319,7 +319,7 @@
  "ffprobe_nb_frames_csv": "N/A,\n",
  "ffprobe_duration_csv": "6486.208000\n",
  "ffmpeg_lineas_de_progreso": [
-  "frame=   99 fps=0.0 q=-1.0 Lsize=   20614KiB time=00:00:04.04 bitrate=41747.6kbits/s speed= 237x"
+  "frame=   99 fps=0.0 q=-1.0 Lsize=   20614KiB time=00:00:04.04 bitrate=41747.6kbits/s speed= 233x"
  ],
  "ffprobe_frames_json": {
   "_argv": "-v error -select_streams v:0 -show_entries stream=nb_frames:stream_tags -of json",

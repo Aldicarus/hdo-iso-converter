@@ -40,6 +40,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # La misma versión que daría un build en el NAS (`v3.5.0-N-gHASH`, el
+      # `git describe` del stage version-detector): si la imagen acaba
+      # desplegada —el NAS no puede construir mientras dure su bug de ZFS—,
+      # /api/version tiene que decir lo mismo que diría una construida allí.
+      - name: Versión
+        id: version
+        run: echo "valor=$(git describe --tags --match 'v*' --always)" >> "$GITHUB_OUTPUT"
+
       - name: Construir
         uses: docker/build-push-action@v7
         with:
@@ -49,7 +57,7 @@ jobs:
           push: false
           tags: hdo-iso-converter:candidata
           build-args: |
-            APP_VERSION=candidata-${{ github.sha }}
+            APP_VERSION=${{ steps.version.outputs.valor }}
             APP_COMMIT=${{ github.sha }}
             TMDB_APP_KEY=${{ secrets.TMDB_APP_KEY }}
             CMV40_DRIVE_FOLDER_APP=${{ secrets.CMV40_DRIVE_FOLDER_APP }}

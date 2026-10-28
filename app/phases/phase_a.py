@@ -2507,6 +2507,34 @@ async def run_pgs_packet_counts(
         return {}
 
 
+def bitrate_kbps_de_mediainfo(t: dict, tipo: str) -> int:
+    """El bitrate de una pista de MediaInfo, en kbps; de un vídeo, el MEDIDO.
+
+    Desde la 26.10 («HEVC detect CBR and report nominal bitrate»), si
+    MediaInfo toma un HEVC por CBR pone en `BitRate` el nominal de su HRD y
+    marca `BitRate_Mode: CBR`: en RoboCop (1987) da 80000 kbps donde la 21.09
+    daba los 78880 reales, y la app lo enseña como «bitrate real». Con
+    `StreamSize` y `Duration` se recalcula la media, que sale EXACTA a lo de
+    antes (61.082.175.927 B × 8 / 6194,939 s = 78.880.099 bps; regresión real
+    del 2026-10-28).
+
+    El audio se queda con lo que diga MediaInfo: el nominal de un AC-3 es el
+    bueno, y la Fase B desempata por bitrate entre pistas del mismo códec.
+    """
+    if tipo == "video" and str(t.get("BitRate_Mode") or "").upper() == "CBR":
+        try:
+            media = int(t["StreamSize"]) * 8 / float(t["Duration"])
+            if media > 0:
+                return int(media) // 1000
+        except (KeyError, ValueError, TypeError, ZeroDivisionError):
+            pass
+    br = t.get("BitRate") or t.get("BitRate_Nominal") or ""
+    try:
+        return int(float(br)) // 1000 if br else 0
+    except (ValueError, TypeError):
+        return 0
+
+
 async def run_mediainfo(file_path: str) -> MediaInfoResult:
     """
     Ejecuta ``mediainfo --Output=JSON`` sobre un m2ts o MKV.
@@ -2550,13 +2578,7 @@ async def run_mediainfo(file_path: str) -> MediaInfoResult:
 
         mapped_type = {"video": "video", "audio": "audio", "text": "text"}.get(ttype, ttype)
 
-        bitrate = 0
-        br_str = t.get("BitRate") or t.get("BitRate_Nominal") or ""
-        if br_str:
-            try:
-                bitrate = int(float(br_str)) // 1000
-            except (ValueError, TypeError):
-                pass
+        bitrate = bitrate_kbps_de_mediainfo(t, mapped_type)
 
         stream_order = -1
         so_str = t.get("StreamOrder") or t.get("@typeorder") or ""

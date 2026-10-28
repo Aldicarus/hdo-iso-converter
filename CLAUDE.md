@@ -3173,31 +3173,34 @@ Lo que contiene, comprobado en origen y no de memoria:
 | componente | licencia | de dónde sale el dato |
 |---|---|---|
 | **FFmpeg** (build estático de BtbN, `/usr/local/bin`) | **GPL-3.0-or-later** | su `variants/defaults-gpl.sh`: `--enable-gpl --enable-version3` y `LICENSE_FILE="COPYING.GPLv3"` |
-| **FFmpeg** (paquete de apt, respaldo en `/usr/bin`) | **GPL-3.0-or-later** | Ubuntu también lo compila con `--enable-gpl --enable-version3` |
+| **FFmpeg** (paquete de apt, respaldo en `/usr/bin`) | **GPL-2.0-or-later** | el de 24.04 va con `--enable-gpl` y SIN `--enable-version3` (comprobado con `/usr/bin/ffmpeg -version` en la imagen, 2026-10-28); el de 22.04 sí lo llevaba y era GPL-3.0 |
 | **MKVToolNix** | **GPL-2.0** | su `COPYING` en codeberg |
 | **MediaInfo** | BSD-2-Clause | mediaarea.net, con frase literal obligatoria |
 | **dovi_tool** | MIT © 2026 quietvoid | su `LICENSE` |
-| **Ubuntu 22.04** + 42 paquetes de Python | mezcla; permisivas salvo `certifi` (MPL-2.0) | los metadatos instalados |
+| **Ubuntu 24.04** + 40 paquetes de Python (los del venv) | mezcla; permisivas salvo `certifi` y `orjson` (MPL-2.0) | los metadatos instalados |
 
 **Sortable.js no cuenta**: va por CDN y no se redistribuye. Si algún día se
 vendoriza, pasa a necesitar su aviso.
 
 ### Los inventarios se GENERAN en el build
 
-Los paquetes de apt **no están fijados a una versión** —`apt-get install
-mkvtoolnix` trae la que haya ese día—, así que una tabla escrita a mano
-diría la versión de otro build, y la fuente que hay que poder entregar es
-la del binario que se distribuye. El Dockerfile escribe dos ficheros en
-cada construcción:
+Los paquetes de apt **no están fijados a una versión** salvo MKVToolNix y
+MediaInfo (desde la base 24.04) —`apt-get install ffmpeg` trae la que haya
+ese día—, así que una tabla escrita a mano diría la versión de otro build, y
+la fuente que hay que poder entregar es la del binario que se distribuye. El
+Dockerfile escribe dos ficheros en cada construcción:
 
 - `static/licenses/INSTALLED-PACKAGES.txt` ← `dpkg-query -W`. En la imagen
-  actual son **438 paquetes**, con `mkvtoolnix 88.0-0~ubuntu2204bunkus01`,
-  `ffmpeg 7:4.4.2-0ubuntu0.22.04.1` y `mediainfo 22.03-1`.
+  de la base 24.04 son **425 paquetes**, con `mkvtoolnix
+  103.0-0~ubuntu2404bunkus01`, `ffmpeg 7:6.1.1-3ubuntu5` y `mediainfo
+  26.10-1`.
 - `static/licenses/PYTHON-DEPENDENCIES.md` ←
-  `tools/generar_avisos_python.py`, que lee los metadatos ya instalados: 42
-  paquetes con su licencia y su línea de copyright. Escribirlos a mano se
-  queda viejo en el primer `pip install` — es el patrón de `_ISO639`, que
-  se deriva de `ISO639_TO_ENGLISH` en vez de ser un subset propio.
+  `tools/generar_avisos_python.py`, que lee los metadatos ya instalados: 40
+  paquetes con su licencia y su línea de copyright (eran 42 con Python 3.10:
+  `exceptiongroup` y `tomli` son backports que la 3.12 ya no necesita).
+  Escribirlos a mano se queda viejo en el primer `pip install` — es el patrón
+  de `_ISO639`, que se deriva de `ISO639_TO_ENGLISH` en vez de ser un subset
+  propio.
 
 **`dpkg-query -W` va sin `-f` a propósito.** Un `${Package}` dentro de un
 `RUN` lo expande **Docker** como build-arg y, al no existir, lo sustituye
@@ -3263,9 +3266,11 @@ avisa de que los avisos no cuadran; la release no se crea sola.
 Se evaluó bajar a `lgpl` para estrechar la obligación, y no sale a cuenta:
 **solo caen 9 de las 77 dependencias** del build (x264, x265, xvid, davs2,
 xavs2, avisynth, frei0r, rubberband, vidstab) y, sobre todo, **no saca la
-GPLv3 de la imagen** — el `apt-get install ffmpeg` deja el de Ubuntu, que
-va con los mismos flags. Solo valdría la pena junto con quitar ese paquete,
-y costaría revalidar con discos reales un binario ya verificado bit a bit.
+GPL de la imagen** — el `apt-get install ffmpeg` deja el de Ubuntu, que es
+GPL-2.0-or-later desde la base 24.04 (con la 22.04 era GPL-3.0), así que la
+oferta de fuentes sigue haciendo falta. Solo valdría la pena junto con
+quitar ese paquete, y costaría revalidar con discos reales un binario ya
+verificado bit a bit.
 
 ### Los guards
 
@@ -4089,7 +4094,7 @@ de la 88 a la 103 —el repositorio oficial dejó de publicar para 22.04 en la 8
 issues #419/#421) y `certifi ≥ 2026.10.19` (las anteriores confían en raíces
 de emSign con intermedios comprometidos).
 
-Cuatro decisiones del Dockerfile:
+Lo que decide el Dockerfile, y cómo se prueba:
 
 - **Las cuatro herramientas van FIJADAS**, y no solo dovi_tool y ffmpeg como
   antes. Con 22.04 la distribución congelaba MKVToolNix y MediaInfo; en 24.04
@@ -4116,6 +4121,14 @@ Cuatro decisiones del Dockerfile:
 - **BtbN guarda 24 builds mensuales** (`util/prunetags.sh`), así que el pin de
   ffmpeg de julio de 2026 caduca hacia agosto de 2028: antes hay que moverlo o
   subir el tarball a la release `sources-ffmpeg-n7.1.5`.
+- **La imagen candidata se puede construir en CI**: el workflow
+  `imagen-candidata.yml` construye la imagen al subir una rama
+  `candidata/**` y la deja como artefacto del run (un tar de `docker save`),
+  **sin publicar en GHCR ni tocar `latest`** —la ejecución manual de
+  `publish-docker.yml` sí lo reescribe—. Nació el mismo día de la migración:
+  el NAS volvió al bug de ZFS del export («device or resource busy», el de
+  la v3.1.0, que solo se curó reiniciando el NAS) y no podía construir la
+  imagen nueva; `docker load` no pasa por ese camino.
 
 ### Desarrollo local
 - Python 3.12 en `.venv/`
@@ -4209,17 +4222,49 @@ ciertas y todas con su test y su mutación (`T6V-*`):
 el repositorio: son ficheros de la biblioteca del usuario y el repo es
 público. La herramienta tiene que poder correr en la imagen VIEJA, así que no
 puede usar sintaxis más nueva que su Python (lo vigila
-`test_sintaxis_del_contenedor`).
+`test_regresion_real::TestCorreEnLaImagenVieja`).
+
+**La primera pasada (2026-10-28, v3.5.0 contra la base 24.04)**, 42 casos.
+No quedaba ningún ISO ni BDMV en el NAS, así que la ruta MPLS no tiene caso
+real; la de montaje se probó aparte (una imagen UDF con un m2ts real dentro,
+montada con `Source.open` por loop y analizada). Lo que salió:
+
+- **Idéntico**: la ventana de dovi_tool de Toy Story 5 (extract, demux, la
+  conversión a P8.1, los dos merges, inject, mux y editor: mismos sha256), los
+  dos RPU completos, las Fases A+B con DTS-HD HRA, Atmos y catalán, los
+  PAQUETES de los cinco rips de Tab 1 y de las dos ventanas de Multiplexar
+  (el MKV pesa 6-21 bytes más: la cadena de versión de mkvmerge), y en los 25
+  análisis de Tab 2 el Dolby Vision, el HDR, las pistas, los conteos PGS, los
+  capítulos y la firma. `mkvmerge -J` de la 103 sale igual que el de la 88.
+- **El arreglo buscado**: el RPU de prueba con L253 de dovi_tool
+  (`assets/tests/level253-ext-metadata.bin`) lo rechaza la 2.3.3 —«Unknown
+  metadata block found: Level 253»— y la 2.3.4 lo lee y lo analiza.
+- **MediaInfo da más y en otro formato**: el DTS:X se llama «DTS-HD MA +
+  DTS:X» con sus 12 canales y su disposición (la Fase B sigue eligiendo la
+  misma pista con el mismo nombre: los canales los pone mkvmerge), la fecha
+  de codificación cambia de formato, aparece el modo de bitrate, la
+  compatibilidad HDR10+ deja de repetir «HDR10» y lista la carátula de un MKV
+  como pista `Image` (la app empareja solo vídeo, audio y texto).
+- **Y una regresión de verdad, la única**: MediaInfo 26.10 da el NOMINAL de un
+  HEVC que toma por CBR («HEVC detect CBR and report nominal bitrate»): en
+  RoboCop (1987) 80000 kbps donde la media real es 78880, y la app lo enseña
+  como «bitrate real». `phase_a.bitrate_kbps_de_mediainfo` recalcula la media
+  con `StreamSize` y `Duration` cuando el vídeo viene marcado CBR —sale exacto
+  lo de antes— y deja el audio con su nominal, que para un AC-3 es el bueno y
+  con el que la Fase B desempata.
 
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **685 mutaciones** en
+de entonces seguían en verde. Hoy hay **722 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella, las de la pestaña Multiplexar, las
 `T5R-*` de la pasada de registro a toda la app, las `T2R-*`/`T2F-*`/`T4A-*`
-de la reubicación de los MKV movidos y del análisis del MKV multiplexado, y
-las `T5X-*` de la revisión de Codex previa a la v3.5.0— y
+de la reubicación de los MKV movidos y del análisis del MKV multiplexado,
+las `T5X-*` de la revisión de Codex previa a la v3.5.0, las `T7*` de lo
+que enseñaron las capturas de la portada (los comandos citados del log, los
+números en su idioma, textos y dos piezas de la interfaz) y las `T6V-*` de la
+regresión real y de la base 24.04— y
 `app/tools/mutar.py` las caza todas. Lo que se aprendió, por orden de cuántas veces se repitió:
 
 - **Se probaba que algo PASA, no la frontera en que deja de pasar.** Umbrales

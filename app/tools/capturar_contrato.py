@@ -18,7 +18,8 @@ falta cuando el workdir ya se limpió:
 
 Con `--fixtures DIR` escribe además `app/tests/fixtures_contrato/` ya
 recortado (el `codec_private_data` a 16 caracteres y el SegmentUID
-anonimizado, que lleva la marca de procedencia) y conserva de las fixtures
+anonimizado, que lleva la marca de procedencia, en mkvmerge y en el
+`UniqueID` de MediaInfo, que es el mismo en decimal) y conserva de las fixtures
 que encuentre lo que esta captura no repite (las salidas de ffprobe sobre
 otros MKV). De ahí lee `test_contrato_de_los_fakes`. Repetirla cuando cambie
 la versión de una herramienta en el Dockerfile: el contrato es con ESA
@@ -99,6 +100,16 @@ def _recortar_j(j: dict) -> dict:
     return j
 
 
+def _recortar_mi(mi: dict) -> dict:
+    """El `UniqueID` de la pista General de MediaInfo es el MISMO SegmentUID,
+    en decimal: sin esto la fixture de MediaInfo deshacía lo que anonimiza
+    `_recortar_j` (pasó desde la primera captura hasta la del 2026-10-28)."""
+    for t in (mi.get("media") or {}).get("track") or []:
+        if t.get("@type") == "General" and "UniqueID" in t:
+            t["UniqueID"] = str(int(UID_ANONIMO, 16))
+    return mi
+
+
 def escribir_fixtures(c: dict, carpeta: Path, origen: str) -> None:
     S = c["salidas"]
     carpeta.mkdir(parents=True, exist_ok=True)
@@ -119,7 +130,8 @@ def escribir_fixtures(c: dict, carpeta: Path, origen: str) -> None:
         json.dumps(_recortar_j(json.loads(S["mkvmerge_J"]["stdout"])), ensure_ascii=False,
                    indent=1, sort_keys=True) + "\n", encoding="utf-8")
     (carpeta / "mediainfo_mkv.json").write_text(
-        json.dumps(json.loads(S["mediainfo_json"]["stdout"]), ensure_ascii=False, indent=1) + "\n",
+        json.dumps(_recortar_mi(json.loads(S["mediainfo_json"]["stdout"])), ensure_ascii=False,
+                   indent=1) + "\n",
         encoding="utf-8")
 
 

@@ -65,6 +65,29 @@ class MkvAnalyzeCase(unittest.IsolatedAsyncioTestCase):
         return await self.mod.analyze_mkv(str(self.mkv), use_cache=False)
 
 
+class TestElBitrateDeMediaInfo(unittest.TestCase):
+    """`bitrate_kbps_de_mediainfo`: el medido para el vídeo CBR, y el resto
+    tal cual."""
+
+    def test_un_audio_cbr_se_queda_con_su_nominal(self):
+        from phases.phase_a import bitrate_kbps_de_mediainfo
+        # 495 MB en 6200 s son 638 kbps medidos: el nominal (640) tiene que
+        # ganar, o un 640 de otra pista empataría distinto en la Fase B.
+        ac3 = {"BitRate": "640000", "BitRate_Mode": "CBR",
+               "StreamSize": "495000000", "Duration": "6200.000"}
+        self.assertEqual(bitrate_kbps_de_mediainfo(ac3, "audio"), 640)
+
+    def test_un_video_vbr_se_queda_con_su_bitrate(self):
+        from phases.phase_a import bitrate_kbps_de_mediainfo
+        v = {"BitRate": "72615448", "StreamSize": "58872031082", "Duration": "6485.896"}
+        self.assertEqual(bitrate_kbps_de_mediainfo(v, "video"), 72615)
+
+    def test_un_tamano_que_no_es_un_numero_no_rompe(self):
+        from phases.phase_a import bitrate_kbps_de_mediainfo
+        v = {"BitRate": "80000000", "BitRate_Mode": "CBR", "StreamSize": "?", "Duration": "0"}
+        self.assertEqual(bitrate_kbps_de_mediainfo(v, "video"), 80000)
+
+
 class TestMetadataHdr(MkvAnalyzeCase):
     """La regresión: MaxCLL/MaxFALL llegaban con unidad hasta MediaInfo 25.09
     (`'300 cd/m2'`) y el `int()` de entonces los perdía. Desde la 25.09 —la
@@ -84,6 +107,22 @@ class TestMetadataHdr(MkvAnalyzeCase):
         self.assertEqual(r.hdr.max_cll, 300,
                          "MediaInfo < 25.09 da '300 cd/m2': hay que sacar el número")
         self.assertEqual(r.hdr.max_fall, 237)
+
+    async def test_el_bitrate_del_video_es_el_medido_aunque_mediainfo_lo_tome_por_cbr(self):
+        """MediaInfo 26.10 da el NOMINAL de un HEVC que toma por CBR —el caso
+        de RoboCop (1987) en la regresión real: 80000 kbps donde la media es
+        78880—, y la ficha lo presenta como «bitrate real»."""
+        self.declarar(video={"bitrate": 80_000_000, "bitrate_mode": "CBR",
+                             "stream_size": 61_082_175_927, "duracion": "6194.939000000"})
+        r = await self.analizar()
+        video = next(t for t in r.tracks if t.type == "video")
+        self.assertEqual(video.bitrate_kbps, 78880)
+
+    async def test_sin_tamano_se_queda_el_que_da_mediainfo(self):
+        self.declarar(video={"bitrate": 80_000_000, "bitrate_mode": "CBR"})
+        r = await self.analizar()
+        video = next(t for t in r.tracks if t.type == "video")
+        self.assertEqual(video.bitrate_kbps, 80000)
 
     async def test_el_resto_de_la_metadata_hdr(self):
         self.declarar()

@@ -96,6 +96,11 @@ class RpuProps:
     # suite con Codex del 2026-10-17, P7 #8). Hoy los dos salen de aquí, o
     # de `define_rpu_levels(l8_indices=...)` si el test los declara.
     l8_indices: tuple = (1,)
+    # Los targets del L2 en nits. Un RPU de disco antiguo puede no traer
+    # ninguno, y entonces `info --summary` NO escribe la línea «L2 trims»:
+    # lo destapó la recaptura del contrato del 2026-10-28 con el RPU de
+    # RoboCop (1987), un P7 MEL CMv2.9 sin trims. El fake la escribía siempre.
+    l2_trims: tuple = (100, 600, 1000)
 
     def to_summary(self) -> str:
         """Reconstruye el texto que `_parse_dovi_summary` sabe leer.
@@ -131,8 +136,9 @@ class RpuProps:
             "  L6 metadata: Mastering display: 0.0001/1000 nits. "
             f"MaxCLL: {self.l6_max_cll} nits, MaxFALL: {self.l6_max_fall} nits",
             f"  L5 offsets: top={top}, bottom={bottom}, left={left}, right={right}",
-            "  L2 trims: 100 nits, 600 nits, 1000 nits",
         ]
+        if self.l2_trims:
+            lines.append("  L2 trims: " + ", ".join(f"{n} nits" for n in self.l2_trims))
         nits = nits_de_l8(self.l8_indices) if self.has_l8 else []
         if nits:
             lines.append("  L8 trims: " + ", ".join(f"{n} nits" for n in nits))
@@ -160,12 +166,13 @@ class RpuProps:
             "l6_max_cll": self.l6_max_cll, "l6_max_fall": self.l6_max_fall,
             "l5": list(self.l5),
             "l8_indices": list(self.l8_indices),
+            "l2_trims": list(self.l2_trims),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "RpuProps":
         campos = {k: v for k, v in d.items() if k in cls.__annotations__}
-        for k in ("l5", "l8_indices"):
+        for k in ("l5", "l8_indices", "l2_trims"):
             if k in campos:
                 campos[k] = tuple(campos[k])
         return cls(**campos)
@@ -852,6 +859,8 @@ DEFAULT_PROPS = {
     "l6_max_cll": 1000, "l6_max_fall": 400, "l5": [138, 138, 0, 0],
     # Los target displays L8 (ver `RpuProps.l8_indices`).
     "l8_indices": [1],
+    # Los targets L2 en nits (ver `RpuProps.l2_trims`).
+    "l2_trims": [100, 600, 1000],
     # El `SegmentUID` de Matroska, donde va la marca de procedencia. Viaja
     # con el resto de props —o sea en la cabecera del CONTENIDO— porque el
     # pipeline mueve el fichero (`.mkv.tmp` -> `.mkv` de la Fase H) y un
@@ -1001,8 +1010,10 @@ def summary(props, sc=None):
         "  L6 metadata: Mastering display: 0.0001/1000 nits. "
         "MaxCLL: %d nits, MaxFALL: %d nits" % (props["l6_max_cll"], props["l6_max_fall"]),
         "  L5 offsets: top=%d, bottom=%d, left=%d, right=%d" % (top, bottom, left, right),
-        "  L2 trims: 100 nits, 600 nits, 1000 nits",
     ]
+    l2 = props.get("l2_trims", [100, 600, 1000])
+    if l2:
+        lines.append("  L2 trims: " + ", ".join("%d nits" % n for n in l2))
     tabla = (sc or {}).get("l8_nits") or {}
     nits = sorted({int(tabla[str(i)]) for i in indices_l8(props) if str(i) in tabla})
     if nits:
@@ -1485,7 +1496,11 @@ def dovi_tool(sc, sub, json_args):
                         # fila, y los combos L2 y los trim targets salían
                         # vacíos en toda la suite. Los tres targets del summary
                         # (100/600/1000 nits = PQ 2081/2851/3079).
-                        for pq in (niveles.get("l2_targets") or (2081, 2851, 3079)):
+                        # Sin trims en el RPU (`l2_trims` vacío), sin filas:
+                        # el summary del mismo RPU no los anuncia.
+                        objetivos = (niveles.get("l2_targets") or (2081, 2851, 3079)
+                                     if props.get("l2_trims", [100, 600, 1000]) else ())
+                        for pq in objetivos:
                             rows.append({
                                 "frame": i, "target_max_pq": pq,
                                 "trim_slope": 2048, "trim_offset": 2048,
@@ -1609,6 +1624,13 @@ def mediainfo(sc):
             # NAS con MediaInfo. Es lo que se cruza con el `number` de mkvmerge.
             "ID": str(v.get("id", 4113)),
         })
+        # Lo que MediaInfo 26.10 da de un HEVC que toma por CBR: el nominal
+        # en `BitRate`, `BitRate_Mode: CBR`, y el tamaño y la duración con
+        # los que sale la media de verdad (ver `bitrate_kbps_de_mediainfo`).
+        for clave, campo in (("bitrate_mode", "BitRate_Mode"),
+                             ("stream_size", "StreamSize"), ("duracion", "Duration")):
+            if clave in v:
+                tracks[-1][campo] = str(v[clave])
         # Otros vídeos del m2ts: un picture-in-picture, o el «AVC 1920x1080»
         # que MediaInfo lista con el MISMO ID que la BL en 7 discos del NAS
         # (Juego de Tronos, La Momia) y que para ffmpeg no es otro stream.

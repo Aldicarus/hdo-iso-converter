@@ -19,8 +19,15 @@ Este módulo fija el contrato contra las salidas CAPTURADAS: lo que el fake
 emite tiene que tener la forma de lo que emite el real, y el parser de
 producción tiene que sacar lo mismo de las dos. Las capturas salen de
 `app/tools/capturar_contrato.py` y son de las versiones del Dockerfile
-(dovi_tool 2.3.3, mkvmerge 88, MediaInfo 21.09, ffmpeg n7.1.5): al subir una,
-se recaptura.
+(dovi_tool 2.3.4, mkvmerge 103, MediaInfo 26.10, ffmpeg n7.1.5; la primera,
+del 2026-10-17, fue con 2.3.3, 88 y 21.09): al subir una, se recaptura.
+
+La del 2026-10-28 repitió con 2.3.4 el bin y el RPU fusionado de Supergirl —el
+mismo bin, con su sha256, y el RPU sacado otra vez del MKV— y el `info
+--summary` y el export salieron IDÉNTICOS byte a byte a los de la 2.3.3. El RPU
+de disco de entonces ya no existe; el de ahora es de RoboCop (1987), P7 MEL
+CMv2.9, sus primeros 20 minutos, y no trae trims L2: el fake escribía la línea
+siempre, y desde entonces la escribe solo si el RPU los tiene (`l2_trims`).
 
 Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_contrato_de_los_fakes -v
@@ -78,14 +85,20 @@ class ConFakes(unittest.TestCase):
 
 class TestElSummaryDeDoviTool(ConFakes):
 
+    #: Lo que Supergirl comparte en su bin y en su RPU fusionado.
+    SUPERGIRL = dict(frames=155506, scenes=2414, l1_max_cll=1000.6, l1_max_fall=138.55,
+                     l6_max_cll=371, l6_max_fall=162, l5=(276, 276, 0, 0))
     CASOS = {
         # fichero capturado → las props con las que el fake lo describe
-        "RPU_source.bin": dict(profile=7, el_type="MEL", cm_version="v2.9", has_l8=False),
-        "RPU_target.bin": dict(profile=7, el_type="MEL", cm_version="v4.0", has_l8=True),
-        "RPU_merged_p81.bin": dict(profile=8, el_type="", cm_version="v4.0", has_l8=True),
+        "RPU_source.bin": dict(profile=7, el_type="MEL", cm_version="v2.9", has_l8=False,
+                               frames=28774, scenes=253, l1_max_cll=357.45,
+                               l1_max_fall=65.94, l6_max_cll=0, l6_max_fall=0,
+                               l5=(42, 42, 0, 0), l2_trims=()),
+        "RPU_target.bin": dict(SUPERGIRL, profile=7, el_type="MEL", cm_version="v4.0",
+                               has_l8=True),
+        "RPU_merged_p81.bin": dict(SUPERGIRL, profile=8, el_type="", cm_version="v4.0",
+                                   has_l8=True),
     }
-    COMUNES = dict(frames=155506, scenes=2414, l1_max_cll=1000.6, l1_max_fall=138.55,
-                   l6_max_cll=371, l6_max_fall=162, l5=(276, 276, 0, 0))
 
     def _parse(self, texto):
         from phases.phase_a import _parse_dovi_summary
@@ -97,21 +110,17 @@ class TestElSummaryDeDoviTool(ConFakes):
         """Lo que el pipeline saca de cada summary real, fijado: si una
         versión nueva de dovi_tool cambia el formato, esto lo dice antes que
         el NAS."""
-        esperado = {
-            "RPU_source.bin": (7, "MEL", "v2.9", False),
-            "RPU_target.bin": (7, "MEL", "v4.0", True),
-            "RPU_merged_p81.bin": (8, "", "v4.0", True),
-        }
-        for nombre, (perfil, el, cm, l8) in esperado.items():
+        for nombre, p in self.CASOS.items():
             with self.subTest(nombre):
                 d = self._parse(REAL["dovi_summary"][nombre])
                 self.assertEqual((d["profile"], d["el_type"], d["cm_version"], d["has_l8"]),
-                                 (perfil, el, cm, l8))
-                self.assertEqual(d["frame_count"], 155506)
-                self.assertEqual(d["scene_count"], 2414)
-                self.assertEqual((d["l5_top"], d["l5_bottom"]), (276, 276))
-                self.assertEqual((d["l6_max_cll"], d["l6_max_fall"]), (371, 162))
-                self.assertAlmostEqual(d["l1_max_cll"], 1000.6)
+                                 (p["profile"], p["el_type"], p["cm_version"], p["has_l8"]))
+                self.assertEqual(d["frame_count"], p["frames"])
+                self.assertEqual(d["scene_count"], p["scenes"])
+                self.assertEqual((d["l5_top"], d["l5_bottom"]), p["l5"][:2])
+                self.assertEqual((d["l6_max_cll"], d["l6_max_fall"]),
+                                 (p["l6_max_cll"], p["l6_max_fall"]))
+                self.assertAlmostEqual(d["l1_max_cll"], p["l1_max_cll"])
 
     def _summaries_del_fake(self, props):
         """Los DOS pintores del summary: `RpuProps.to_summary` (lo que el
@@ -126,7 +135,7 @@ class TestElSummaryDeDoviTool(ConFakes):
         reales = {forma(l, decimales=True)
                   for s in REAL["dovi_summary"].values() for l in s.splitlines()}
         for nombre, props in self.CASOS.items():
-            for pintor, texto in self._summaries_del_fake({**self.COMUNES, **props}).items():
+            for pintor, texto in self._summaries_del_fake(props).items():
                 with self.subTest(nombre, pintor=pintor):
                     ajenas = [l for l in texto.splitlines()
                               if forma(l, decimales=True) not in reales]
@@ -135,7 +144,7 @@ class TestElSummaryDeDoviTool(ConFakes):
     def test_el_parser_saca_lo_mismo_del_fake_que_del_real(self):
         for nombre, props in self.CASOS.items():
             real = self._parse(REAL["dovi_summary"][nombre])
-            for pintor, texto in self._summaries_del_fake({**self.COMUNES, **props}).items():
+            for pintor, texto in self._summaries_del_fake(props).items():
                 fake = self._parse(texto)
                 # Los targets L8 se comparan también: el fake anunciaba cuatro
                 # (100/600/1000/2000) y su propio export traía uno, y este
@@ -400,6 +409,34 @@ class TestElExportPorNiveles(ConFakes):
         real = REAL["dovi_export_levels"]["ficheros"]["scenes"]["primeras"]
         self.assertTrue(all(l.isdigit() for l in real))
         self.assertTrue(escenas.splitlines() and all(l.isdigit() for l in escenas.splitlines()))
+
+
+class TestLasFixturesNoLlevanLaMarca(unittest.TestCase):
+    """El SegmentUID de un MKV de la app es su marca de procedencia
+    (`firma.py`) y en el repositorio, que es público, va anonimizado. MediaInfo
+    lo da OTRA vez, en decimal, como `UniqueID` de la pista General: la
+    fixture lo llevó sin anonimizar desde la primera captura (2026-10-17)
+    hasta la del 2026-10-28, mientras la de mkvmerge lo tapaba."""
+
+    def setUp(self):
+        sys.path.insert(0, str(APP_DIR / "tools"))
+        self.addCleanup(sys.path.remove, str(APP_DIR / "tools"))
+        from capturar_contrato import UID_ANONIMO, _recortar_mi
+        self.uid, self.recortar_mi = UID_ANONIMO, _recortar_mi
+
+    def test_mkvmerge(self):
+        self.assertEqual(J_REAL["container"]["properties"]["segment_uid"], self.uid)
+
+    def test_mediainfo(self):
+        general = next(t for t in MI_REAL["media"]["track"] if t["@type"] == "General")
+        self.assertEqual(general["UniqueID"], str(int(self.uid, 16)))
+
+    def test_el_script_de_captura_la_tapa(self):
+        mi = {"media": {"track": [{"@type": "General", "UniqueID": "1234567890"},
+                                  {"@type": "Video", "UniqueID": "42"}]}}
+        tracks = self.recortar_mi(mi)["media"]["track"]
+        self.assertEqual(tracks[0]["UniqueID"], str(int(self.uid, 16)))
+        self.assertEqual(tracks[1]["UniqueID"], "42", "el de una pista no es la marca")
 
 
 class TestLasCapturasSonDeLasVersionesDelDockerfile(unittest.TestCase):

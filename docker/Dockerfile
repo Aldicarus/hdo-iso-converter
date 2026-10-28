@@ -215,7 +215,7 @@ LABEL org.opencontainers.image.revision="${APP_COMMIT}"
 
 # La imagen NO es solo MIT: lleva binarios GPL. El SPDX describe el conjunto,
 # que es lo que un escáner de cumplimiento espera encontrar aquí.
-LABEL org.opencontainers.image.licenses="MIT AND GPL-3.0-or-later AND GPL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND Apache-2.0 AND MPL-2.0"
+LABEL org.opencontainers.image.licenses="MIT AND GPL-3.0-or-later AND GPL-2.0 AND GPL-2.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND Apache-2.0 AND MPL-2.0"
 LABEL org.opencontainers.image.documentation="https://github.com/Aldicarus/hdo-iso-converter/blob/main/THIRD-PARTY-NOTICES.md"
 
 # La clave de TMDb con la que la app funciona sin configurar nada. NO está en

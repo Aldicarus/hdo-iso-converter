@@ -21,7 +21,7 @@ imagen sí contiene, que son las que este documento atiende.
 | Componente | Versión | Licencia | Fuente |
 |---|---|---|---|
 | **FFmpeg** / ffprobe (build estático de BtbN, `/usr/local/bin`) | `n7.1.5-12-g1fdbca85aa` | **GPL-3.0-or-later** (`--enable-gpl --enable-version3`) | [ffmpeg @ `1fdbca85aa`](https://github.com/FFmpeg/FFmpeg/commit/1fdbca85aa) · [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) · espejo abajo |
-| **FFmpeg** (paquete de Ubuntu, respaldo en `/usr/bin`) | ver `app/static/licenses/INSTALLED-PACKAGES.txt` | **GPL-3.0-or-later** | `apt-get source ffmpeg` · [archive.ubuntu.com](http://archive.ubuntu.com/ubuntu/pool/universe/f/ffmpeg/) |
+| **FFmpeg** (paquete de Ubuntu, respaldo en `/usr/bin`) | ver `app/static/licenses/INSTALLED-PACKAGES.txt` | **GPL-2.0-or-later** (`--enable-gpl` sin `--enable-version3`) | `apt-get source ffmpeg` · [archive.ubuntu.com](http://archive.ubuntu.com/ubuntu/pool/universe/f/ffmpeg/) |
 | **MKVToolNix** (`mkvmerge`, `mkvpropedit`, `mkvextract`) | `103.0` | **GPL-2.0** | [mkvtoolnix.download/source.html](https://mkvtoolnix.download/source.html) · [codeberg.org/mbunkus/mkvtoolnix](https://codeberg.org/mbunkus/mkvtoolnix) |
 | **MediaInfo** (y su librería, MediaInfoLib + ZenLib) | `26.10` | BSD-2-Clause | [mediaarea.net](https://mediaarea.net/en/MediaInfo/Download/Source) |
 | **dovi_tool** | `2.3.4` | MIT | [github.com/quietvoid/dovi_tool](https://github.com/quietvoid/dovi_tool) |
