@@ -13,7 +13,7 @@ checks every step, and never delivers a file that is worse than the one you star
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/Aldicarus/hdo-iso-converter/pkgs/container/hdo-iso-converter)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[How it works](#how-it-works) · [Same tools, one more layer](#same-tools-one-more-layer) · [And DoVi_Scripts?](#uhd-blu-ray-toolkit-and-dovi_scripts) · [The four steps](#the-four-steps-in-detail) · [Installation](#installation) · [Your first film](#your-first-film) · [FAQ](#faq)
+[Who it is for](#who-it-is-for) · [How it works](#how-it-works) · [Same tools, one more layer](#same-tools-one-more-layer) · [And DoVi_Scripts?](#uhd-blu-ray-toolkit-and-dovi_scripts) · [The four steps](#the-four-steps-in-detail) · [Installation](#installation) · [Your first film](#your-first-film) · [FAQ](#faq)
 
 <img src="docs/img/portada-cmv40.png" alt="A finished CMv4.0 upgrade of The Godfather: the film's card, the source and output MKVs, the DoviTools verdict, the project list on the left and the Jobs column on the right">
 
@@ -32,6 +32,18 @@ No single release has the best version of a film.
 UHD Blu-ray Toolkit takes the best of each and puts it in one MKV. Picture and sound are never re-encoded: they are copied bit for bit, and the only things that change are the Dolby Vision metadata and the container.
 
 It runs on a NAS or any Linux machine with Docker and is used from the browser.
+
+---
+
+## Who it is for
+
+Doing this by hand means DoVi_Scripts or the command-line tools: dozens of options, terms such as RPU, L8 or FEL, and mistakes that only show up on screen hours later. For many people who care about picture quality, that is a mountain.
+
+UHD Blu-ray Toolkit is made for them. It guides each step, says what it decided and why, and stops to ask whenever a decision could make the result worse, so getting the best result does not depend on knowing Dolby Vision in depth. Building it meant learning a great many things about Dolby Vision, discs and containers, so that using it does not.
+
+**If you want control over every option**, use dovi_tool and MKVToolNix directly: they can do everything this app does to a file, and this app runs them.
+
+**If you would rather be guided to the best result**, with every step checked and a file that is never worse than the one you started with, this is the tool.
 
 ---
 
@@ -79,12 +91,6 @@ UHD Blu-ray Toolkit does nothing new to your files. Every change is made by **mk
 | **Upgrade** | Look the film up in the DoviTools sheet, find the file in the repository, check its CM version and its L8 trims, demux the disc, compare frame counts, write the editor JSON, choose which levels to merge, inject, mux and remux, then check the profile | Select the MKV and the file the repository suggests. The rest runs by itself, and stops where a decision is yours |
 | **Multiplex** | Line up the two releases by ear or by waveform, work out the delay and the speed factor, write the `--sync` and `--default-duration` options, and check the drift at the end | Select the two MKVs and what you want from each. The sync is measured, the timing is computed, and every audio track is checked in the result |
 | **Verify** | Run MediaInfo, `dovi_tool info` and `dovi_tool export`, and read the output | Open the MKV |
-
-### Is it for you?
-
-**If you want control over every option**, use dovi_tool and MKVToolNix directly: they can do everything this app does to a file, and this app runs them.
-
-**If you would rather have the whole process run for you**, with every step checked and a result that is never worse than the file you started with, this is the tool.
 
 ---
 
