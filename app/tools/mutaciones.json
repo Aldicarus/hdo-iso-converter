@@ -6207,7 +6207,7 @@
   ]
  },
  {
-  "id": "T7L-4 CMv4.0 registra sus comandos sin citar",
+  "id": "T7L-4 el demux de CMv4.0 (_run_with_time_estimate) registra sin citar",
   "fichero": "app/phases/cmv40_pipeline.py",
   "viejo": "        await _log(log_callback, f\"$ {shlex.join(cmd)}\")\n        # start_new_session=True para que cancel pueda usar killpg",
   "nuevo": "        await _log(log_callback, f\"$ {' '.join(cmd)}\")\n        # start_new_session=True para que cancel pueda usar killpg",
@@ -6231,6 +6231,24 @@
   "nuevo": "    await _log(log, '$ ' + ' '.join(cmd))",
   "modulos": [
    "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T7L-7 el _run de CMv4.0 registra sin citar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    raise_if_cancelled()\n    await _log(log_callback, f\"$ {shlex.join(cmd)}\")\n",
+  "nuevo": "    raise_if_cancelled()\n    await _log(log_callback, f\"$ {' '.join(cmd)}\")\n",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T7L-8 el _run_streaming de CMv4.0 registra sin citar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    reader: _ReadProgress | None = None\n    await _log(log_callback, f\"$ {shlex.join(cmd)}\")\n",
+  "nuevo": "    reader: _ReadProgress | None = None\n    await _log(log_callback, f\"$ {' '.join(cmd)}\")\n",
+  "modulos": [
+   "test_cmv40_fases_cgh"
   ]
  }
 ]

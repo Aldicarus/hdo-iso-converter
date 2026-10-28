@@ -105,6 +105,17 @@ class TestFaseCDemux(CmvPhaseCase):
         self.assertEqual(demux.opt_name("--bl-out"), "BL.hevc")
         self.assertEqual(demux.opt_name("--el-out"), "EL.hevc")
 
+    async def test_el_log_dice_el_demux_citado(self):
+        """El demux va por `_run_with_time_estimate`, el tercer runner que
+        registra comandos. En un workdir con espacios, unir el argv sin
+        citar daría una línea que el shell partiría por otro sitio."""
+        self.wd = self.tmp / "work dir (UHD)"
+        session = self.prepare(trust_ok=False, artifacts=("source.hevc",))
+        await self.run_c(session)
+        demux = self.tb.one("dovi_tool", "demux")
+        self.assertIn(" ", demux.opt("--bl-out"), "sin espacio en la ruta el test no prueba nada")
+        self.assertIn(demux.argv, self.log.comandos("dovi_tool"))
+
     async def test_p8_no_demuxea(self):
         session = self.prepare(source_workflow="p8", target_type="generic",
                                source_props=SRC_P8, target_props=TGT_P8_V40,
@@ -342,7 +353,9 @@ class TestFaseGRemux(CmvPhaseCase):
     async def test_el_log_dice_los_comandos_que_se_ejecutan(self):
         """Cada comando sale en el log citado como en el shell: el nombre de
         salida y el de la pista llevan espacios, y unidos sin citar el log no
-        se podría copiar para repetir el paso a mano."""
+        se podría copiar para repetir el paso a mano. El workdir con espacios
+        es lo que hace visible el `dovi_tool mux`, que va por `_run`."""
+        self.wd = self.tmp / "work dir (UHD)"
         session = self.prepare(trust_ok=False,
                                artifacts=("BL.hevc", "EL_injected.hevc"),
                                injected_props=INJ_FEL_V40)
@@ -350,6 +363,7 @@ class TestFaseGRemux(CmvPhaseCase):
         await self.run_g(session)
         self.assertEqual(self.log.comandos("mkvmerge"), [self._el_remux().argv])
         [mux] = self.tb.find("dovi_tool", "mux")
+        self.assertIn(" ", mux.opt("--bl"), "sin espacio en la ruta el test no prueba nada")
         self.assertIn(mux.argv, self.log.comandos("dovi_tool"))
 
     async def test_escribe_a_output_con_sufijo_tmp(self):
@@ -503,6 +517,21 @@ class TestFaseHValidacion(CmvPhaseCase):
         [extract] = self.extract_rpu_completos()
         self.assertIn("DV_dual.hevc", " ".join(extract.argv))
         self.assertEqual(result["cm_version"], "v4.0")
+
+    async def test_el_log_dice_el_extract_rpu_completo_citado(self):
+        """El `extract-rpu` completo de la rama merge va por `_run` con el
+        log: es el runner de los pasos cortos (el editor, la validación) y
+        el único que no ejercía ningún otro test de los comandos citados."""
+        self.wd = self.tmp / "work dir (UHD)"
+        session = self.prepare(trust_ok=False,
+                               artifacts=("BL.hevc", "DV_dual.hevc"),
+                               injected_props=INJ_FEL_V40)
+        self.stage_output(session)
+        await self.run_h(session)
+        [extract] = self.extract_rpu_completos()
+        self.assertIn(" ", extract.argv[-1] + extract.opt("-o"),
+                      "sin espacio en la ruta el test no prueba nada")
+        self.assertIn(extract.argv, self.log.comandos("dovi_tool"))
 
     async def test_un_hevc_viejo_de_otra_ruta_no_gana_al_del_plan(self):
         """Un `source_injected.hevc` de un drop-in anterior y el `DV_dual.hevc`
