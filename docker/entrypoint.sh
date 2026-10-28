@@ -50,6 +50,8 @@ echo "[entrypoint] Herramientas:"
 echo "[entrypoint]   dovi_tool   $(dovi_tool --version 2>/dev/null | head -n1 || echo '<no detectado>')"
 echo "[entrypoint]   mkvmerge    $(mkvmerge --version 2>/dev/null | head -n1 | awk '{print $2}' || echo '<no detectado>')"
 echo "[entrypoint]   ffmpeg      $(ffmpeg -version 2>/dev/null | head -n1 | awk '{print $3}' || echo '<no detectado>')"
-echo "[entrypoint]   mediainfo   $(mediainfo --Version 2>/dev/null | head -n1 | awk '{print $NF}' || echo '<no detectado>')"
+# MediaInfo escribe dos líneas («MediaInfo Command line,» y «MediaInfoLib -
+# vNN.NN»): la versión está en la ÚLTIMA. Con `head` se imprimía «line,».
+echo "[entrypoint]   mediainfo   $(mediainfo --Version 2>/dev/null | tail -n1 | awk '{print $NF}' || echo '<no detectado>')"
 
 exec "$@"

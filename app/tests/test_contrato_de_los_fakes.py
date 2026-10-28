@@ -419,6 +419,45 @@ class TestLasCapturasSonDeLasVersionesDelDockerfile(unittest.TestCase):
         self.assertIn(m.group(1), REAL["versiones"]["ffmpeg"])
         self.assertIn(m.group(1), REAL["versiones"]["ffprobe"])
 
+    def test_mkvtoolnix_y_mediainfo(self):
+        """Con la base 22.04 no hacía falta: la distribución los congelaba
+        (el repo de MKVToolNix se quedó en la 88 y Ubuntu en MediaInfo 21.09).
+        En 24.04 los dos repos siguen vivos y el Dockerfile los fija, así
+        que el contrato tiene que ser con la versión fijada."""
+        df = (APP_DIR.parent / "docker" / "Dockerfile").read_text(encoding="utf-8")
+        mkv = re.search(r"^ARG MKVTOOLNIX_VERSION=(\d+\.\d+)", df, re.MULTILINE)
+        mi = re.search(r"^ARG MEDIAINFO_VERSION=([\d.]+)", df, re.MULTILINE)
+        self.assertIsNotNone(mkv, "no se encuentra el pin de MKVToolNix en el Dockerfile")
+        self.assertIsNotNone(mi, "no se encuentra el pin de MediaInfo en el Dockerfile")
+        self.assertIn(f"v{mkv.group(1)} ", REAL["versiones"]["mkvmerge"])
+        self.assertIn(f"v{mi.group(1)}", REAL["versiones"]["mediainfo"])
+        # La versión de MediaInfo viaja DENTRO de su JSON; la de mkvmerge no
+        # (`writing_application` es el que ESCRIBIÓ el MKV, no el que lo lee).
+        self.assertEqual(MI_REAL["creatingLibrary"]["version"], mi.group(1))
+
+    def test_lo_que_se_instala_es_lo_fijado(self):
+        """Un ARG que dice 103 no demuestra que se instale la 103 (revisión
+        de Codex del 2026-10-28): la instalación tiene que USAR cada pin y el
+        build tiene que contrastar los binarios con ellos, que es lo único
+        que mira el artefacto y no la declaración."""
+        df = (APP_DIR.parent / "docker" / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn('apt-get install -y "mkvtoolnix=${MKVTOOLNIX_VERSION}"', df)
+        for paquete in ("libzen0v5_${LIBZEN_VERSION}", "libmediainfo0v5_${MEDIAINFO_VERSION}",
+                        "mediainfo_${MEDIAINFO_VERSION}"):
+            with self.subTest(paquete):
+                self.assertIn(f"/{paquete}-1_amd64.Ubuntu_24.04.deb", df)
+        for sha in ("LIBZEN_SHA256", "LIBMEDIAINFO_SHA256", "MEDIAINFO_SHA256",
+                    "DOVI_TOOL_SHA256"):
+            with self.subTest(sha):
+                self.assertRegex(df, r'echo "\$\{' + sha + r'\}  [^"]+" \| sha256sum -c -')
+        comprobacion = re.search(r"^RUN mkvmerge --version.*?Versiones instaladas", df,
+                                 re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(comprobacion, "falta la comprobación de lo instalado")
+        for arg in ("MKVTOOLNIX_VERSION", "MEDIAINFO_VERSION", "DOVI_TOOL_VERSION",
+                    "FFMPEG_BUILD"):
+            with self.subTest(arg):
+                self.assertIn("${" + arg, comprobacion.group(0))
+
 
 if __name__ == "__main__":
     unittest.main()

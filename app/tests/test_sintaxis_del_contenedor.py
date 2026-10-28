@@ -1,7 +1,8 @@
 """Todo el repo tiene que parsear con la minor de Python del contenedor.
 
-El Mac va con 3.12 y `ubuntu:22.04` con **3.10**. La diferencia no es
-académica: PEP 701 admite desde 3.12 una barra invertida dentro de la
+El Mac va con 3.12, y la imagen fue con **3.10** mientras su base fue
+`ubuntu:22.04` (hasta el 2026-10-28; hoy es 24.04, con 3.12). La diferencia
+no era académica: PEP 701 admite desde 3.12 una barra invertida dentro de la
 expresión de una f-string, así que
 
     f"| {x.replace('|', '\\|')} |"
@@ -18,7 +19,12 @@ por qué». Este guard falla donde se escribe el código.
 
 La versión NO se escribe aquí: sale de `.github/workflows/tests.yml`, que
 es el sitio que CLAUDE.md señala como la minor del contenedor. Una
-constante local se desincronizaría el día que la imagen suba de base.
+constante local se desincronizaría el día que la imagen suba de base — que
+es lo que pasó al pasar a 24.04.
+
+El guard de PEP 701 sigue aunque la imagen ya vaya con 3.12: la regresión
+real (`tools/regresion_real.py`) se ejecuta TAMBIÉN en la imagen anterior,
+y la de la v3.5.0 —la referencia de la migración— va con 3.10.
 
 Ejecutar desde la raíz del repo:
     python3 -m unittest app.tests.test_sintaxis_del_contenedor -v
@@ -112,9 +118,10 @@ class TestNadieUsaSintaxisMasNuevaQueElContenedor(unittest.TestCase):
                         rotos.append(
                             f"{donde} — comilla {comilla} repetida en `{expr}`")
         self.assertEqual(rotos, [], (
-            "\nf-strings que solo compilan desde Python 3.12 (PEP 701). El "
-            "contenedor va con 3.10: en el Mac pasan y el build de Docker "
-            "muere.\nSaca la expresión a una variable antes de la f-string:"
+            "\nf-strings que solo compilan desde Python 3.12 (PEP 701). La "
+            "imagen anterior a la base 24.04 va con 3.10, y en ella corre "
+            "también la regresión real.\nSaca la expresión a una variable "
+            "antes de la f-string:"
             "\n  · " + "\n  · ".join(rotos)))
 
     def test_el_objetivo_se_lee_del_workflow(self):

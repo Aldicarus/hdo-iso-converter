@@ -1592,11 +1592,13 @@ def mediainfo(sc):
                 "mastering", "min: 0.0001 cd/m2, max: 1000 cd/m2"),
             "MasteringDisplay_ColorPrimaries": v.get("mastering_primaries",
                                                      "Display P3"),
-            # CON UNIDAD, como el mediainfo real: verificado contra el
-            # contenedor, devuelve "300 cd/m2". Un fake que diera el número
-            # pelado habría ocultado el bug de `int(rt["MaxCLL"])`.
-            "MaxCLL": str(v.get("maxcll", 1000)) + " cd/m2",
-            "MaxFALL": str(v.get("maxfall", 400)) + " cd/m2",
+            # SIN unidad, como MediaInfo desde la 25.09 («MaxCLL/MaxFALL
+            # value without unit in the XML/JSON output»; la imagen lleva la
+            # 26.10). Hasta la 21.09 de la base 22.04 era "300 cd/m2", y el
+            # `int(rt["MaxCLL"])` de entonces lo perdía: `unidad=True` da ese
+            # formato, para que el parser siga probado con los dos.
+            "MaxCLL": str(v.get("maxcll", 1000)) + (" cd/m2" if v.get("unidad") else ""),
+            "MaxFALL": str(v.get("maxfall", 400)) + (" cd/m2" if v.get("unidad") else ""),
             "Format": v.get("format", "HEVC"),
             # Como el real sobre un MKV (`fixtures_contrato/mediainfo_mkv.json`):
             # «Multiplexar MKV» no ajusta la velocidad de un vídeo sin él.

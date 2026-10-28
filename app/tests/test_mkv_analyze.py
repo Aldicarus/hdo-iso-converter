@@ -66,14 +66,23 @@ class MkvAnalyzeCase(unittest.IsolatedAsyncioTestCase):
 
 
 class TestMetadataHdr(MkvAnalyzeCase):
-    """La regresión: MaxCLL/MaxFALL llegan con unidad y hay que parsearlos."""
+    """La regresión: MaxCLL/MaxFALL llegaban con unidad hasta MediaInfo 25.09
+    (`'300 cd/m2'`) y el `int()` de entonces los perdía. Desde la 25.09 —la
+    imagen lleva la 26.10— llegan sin ella: los dos formatos tienen que
+    salir bien."""
 
-    async def test_maxcll_y_maxfall_se_extraen_con_unidad(self):
+    async def test_maxcll_y_maxfall_sin_unidad(self):
         self.declarar(video={"maxcll": 300, "maxfall": 237})
         r = await self.analizar()
         self.assertIsNotNone(r.hdr, "debería detectar HDR10")
+        self.assertEqual((r.hdr.max_cll, r.hdr.max_fall), (300, 237))
+
+    async def test_maxcll_y_maxfall_se_extraen_con_unidad(self):
+        self.declarar(video={"maxcll": 300, "maxfall": 237, "unidad": True})
+        r = await self.analizar()
+        self.assertIsNotNone(r.hdr, "debería detectar HDR10")
         self.assertEqual(r.hdr.max_cll, 300,
-                         "MediaInfo da '300 cd/m2': hay que sacar el número")
+                         "MediaInfo < 25.09 da '300 cd/m2': hay que sacar el número")
         self.assertEqual(r.hdr.max_fall, 237)
 
     async def test_el_resto_de_la_metadata_hdr(self):

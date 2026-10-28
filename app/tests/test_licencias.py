@@ -116,6 +116,18 @@ class TestLasVersionesDelDockerfileEstanEnLosAvisos(unittest.TestCase):
     def test_la_version_de_dovi_tool(self):
         self.assertIn(self._arg("DOVI_TOOL_VERSION"), self.avisos)
 
+    def test_las_versiones_de_mkvtoolnix_y_mediainfo(self):
+        """Desde la base 24.04 los dos van fijados en el Dockerfile (antes
+        los congelaba la distribución), así que su fila de los avisos dice
+        la versión y tiene que decir la misma. `103.0-0~ubuntu2404bunkus01`
+        → `103.0`: lo de detrás del guion es el empaquetado de Ubuntu."""
+        mkvtoolnix = self._arg("MKVTOOLNIX_VERSION").split("-")[0]
+        mediainfo = self._arg("MEDIAINFO_VERSION")
+        fila = lambda nombre: next(  # noqa: E731
+            l for l in self.avisos.splitlines() if l.startswith(f"| **{nombre}**"))
+        self.assertIn(f"`{mkvtoolnix}`", fila("MKVToolNix"))
+        self.assertIn(f"`{mediainfo}`", fila("MediaInfo"))
+
     def test_el_build_exacto_de_ffmpeg(self):
         build = self._arg("FFMPEG_BUILD")
         # `ffmpeg-n7.1.5-12-g1fdbca85aa-linux64-gpl-7.1` → el commit es lo

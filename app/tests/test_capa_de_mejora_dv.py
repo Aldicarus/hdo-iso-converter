@@ -432,9 +432,12 @@ class TestLoQueYaFuncionaba(_ConDisco):
 class TestElHdr10DeMediainfo(_ConDisco):
 
     async def test_maxcll_y_maxfall_llegan_aunque_traigan_unidad(self):
-        """MediaInfo da «1000 cd/m2»; el `int()` de antes lo dejaba en None
-        en las 19 sesiones del NAS que lo traían."""
-        bd, _, _ = await phase_a.run_full_analysis(str(self._apocalypse()), self.log)
+        """MediaInfo < 25.09 da «1000 cd/m2»; el `int()` de antes lo dejaba
+        en None en las 19 sesiones del NAS que lo traían. La 26.10 de la
+        imagen lo da sin unidad: el fake da los dos (`unidad`), y aquí se
+        mira el de entonces, que es el que rompió."""
+        bd, _, _ = await phase_a.run_full_analysis(str(self._apocalypse(
+            video={"el": True, "el_stream_order": "0-6", "unidad": True})), self.log)
         hdr = bd.video_tracks[0].hdr
         self.assertEqual((hdr.max_cll, hdr.max_fall), (1000, 400))
 

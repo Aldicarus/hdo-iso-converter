@@ -18,41 +18,90 @@ RUN sh -c 'git describe --tags --match "v*" --always 2>/dev/null > /VERSION || t
     [ -s /COMMIT ] || echo unknown > /COMMIT'
 
 # ── Stage 2 — runtime ─────────────────────────────────────────────────────────
-FROM ubuntu:22.04
+# Ubuntu 24.04 y no 22.04: el repositorio de MKVToolNix dejó de publicar para
+# 22.04 en la v88 (2024-10), y 22.04 sale del soporte estándar el 2027-05-31.
+FROM ubuntu:24.04
 
 LABEL org.opencontainers.image.source=https://github.com/Aldicarus/hdo-iso-converter
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG DOVI_TOOL_VERSION=2.3.3
 
-# ── MKVToolNix oficial (v81+ requerido para Dolby Vision dual-layer) ──────────
-# Ubuntu 22.04 trae mkvtoolnix v65 que NO soporta DV. El repo oficial
-# proporciona v81+ que combina BL+EL en un solo track con DOVI config record.
-# Se añade el repo antes de instalar paquetes para que apt lo use.
+# ── Paquetes de Ubuntu ────────────────────────────────────────────────────────
+# Su propia capa, y ANTES de declarar los ARG de versión de las herramientas:
+# un ARG declarado entra en el entorno de todos los RUN que le siguen, así que
+# subir dovi_tool o MKVToolNix invalidaba esta capa —la más cara: con el NAS
+# cargado son 15-20 min— y un fallo de red en una descarga de más abajo la
+# repetía entera (pasó con el primer build de la base 24.04).
 #
-# ── System deps ───────────────────────────────────────────────────────────────
-# mkvtoolnix    — mkvmerge (análisis + extracción), mkvpropedit, mkvextract
-# ffmpeg        — utilidades multimedia (futuro Tab 3)
-# python3       — backend FastAPI
-# kmod          — modprobe udf (entrypoint)
-# curl          — healthcheck Docker
+# ffmpeg     — el de Ubuntu, de respaldo (el que se usa es el de BtbN, abajo)
+# python3    — backend FastAPI, en su propio venv (ver más abajo)
+# kmod       — modprobe udf (entrypoint)
+# curl       — healthcheck Docker
 RUN apt-get update \
-    && apt-get install -y wget curl ca-certificates gnupg python3 python3-pip kmod ffmpeg tzdata \
-    && wget -qO /usr/share/keyrings/gpg-pub-moritzbunkus.gpg \
+    && apt-get install -y wget curl ca-certificates gnupg python3 python3-venv kmod ffmpeg tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Las descargas reintentan y DICEN por qué fallan: con `wget -q` el primer
+# build de la base 24.04 murió en la clave del repo de MKVToolNix sin una
+# línea que explicara qué pasó (desde el host la URL contestaba 200).
+ARG WGET="wget -nv --tries=5 --waitretry=5 --retry-connrefused --retry-on-host-error"
+
+# ── MKVToolNix y MediaInfo, FIJADOS a una versión ─────────────────────────────
+# Hasta la base 22.04 no hacía falta fijarlos: el repo de MKVToolNix se quedó
+# en la 88 para 22.04 y Ubuntu congela MediaInfo en la 21.09, así que un build
+# desde cero instalaba siempre lo mismo. En 24.04 los dos repos siguen vivos y
+# sin fijar cada build traería la versión de ese día, que es la que NO cubre el
+# contrato de los fakes (`test_contrato_de_los_fakes`) ni la regresión real
+# (`tools/regresion_real.py`). Subir una es cambiar su ARG, recapturar y pasar
+# la regresión.
+#
+# - MKVToolNix desde el repo oficial con `=versión`: su índice de noble
+#   conserva TODAS las versiones (de la 83 a la 103, comprobado), así que el
+#   pin sobrevive a que salga la siguiente. Hace falta v81+ para el Dolby
+#   Vision dual-layer (combina BL+EL en una pista con su DOVI config record).
+# - MediaInfo desde las URL por versión de MediaArea, con su sha256: su
+#   repositorio solo indexa la última, pero sirve cada versión en
+#   /download/binary/<paquete>/<versión>/ (la 24.06 sigue ahí), y los .deb
+#   son idénticos byte a byte a los de su pool firmado (comprobado con los
+#   SHA256 de su índice de noble).
+#
+# mkvtoolnix — mkvmerge (análisis + extracción), mkvpropedit, mkvextract
+# mediainfo  — bitrate real, HDR10, nombre comercial (Atmos, DTS:X)
+ARG MKVTOOLNIX_VERSION=103.0-0~ubuntu2404bunkus01
+ARG MEDIAINFO_VERSION=26.10
+ARG LIBZEN_VERSION=0.4.41
+ARG MEDIAINFO_SHA256=bbd2228ef9d0288c0050954b2045dd4e5ee6382db8d3be03c2b5c4c518ac987a
+ARG LIBMEDIAINFO_SHA256=457705ed9c0e4384150fce2271ed01c49fb6e4b35a27071f0f0a1c30c497560c
+ARG LIBZEN_SHA256=56591441f8f475337ae3bbc2f8ceb76104ede84964fe9df8d0c1cc96460b37f0
+RUN ${WGET} -O /usr/share/keyrings/gpg-pub-moritzbunkus.gpg \
        https://mkvtoolnix.download/gpg-pub-moritzbunkus.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/ubuntu/ jammy main" \
+    && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/ubuntu/ noble main" \
        > /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && apt-get update \
-    && apt-get install -y mkvtoolnix mediainfo \
+    && apt-get install -y "mkvtoolnix=${MKVTOOLNIX_VERSION}" \
+    && cd /tmp \
+    && ${WGET} "https://mediaarea.net/download/binary/libzen0/${LIBZEN_VERSION}/libzen0v5_${LIBZEN_VERSION}-1_amd64.Ubuntu_24.04.deb" \
+    && ${WGET} "https://mediaarea.net/download/binary/libmediainfo0/${MEDIAINFO_VERSION}/libmediainfo0v5_${MEDIAINFO_VERSION}-1_amd64.Ubuntu_24.04.deb" \
+    && ${WGET} "https://mediaarea.net/download/binary/mediainfo/${MEDIAINFO_VERSION}/mediainfo_${MEDIAINFO_VERSION}-1_amd64.Ubuntu_24.04.deb" \
+    && echo "${LIBZEN_SHA256}  libzen0v5_${LIBZEN_VERSION}-1_amd64.Ubuntu_24.04.deb" | sha256sum -c - \
+    && echo "${LIBMEDIAINFO_SHA256}  libmediainfo0v5_${MEDIAINFO_VERSION}-1_amd64.Ubuntu_24.04.deb" | sha256sum -c - \
+    && echo "${MEDIAINFO_SHA256}  mediainfo_${MEDIAINFO_VERSION}-1_amd64.Ubuntu_24.04.deb" | sha256sum -c - \
+    && apt-get install -y ./libzen0v5_*.deb ./libmediainfo0v5_*.deb ./mediainfo_*.deb \
+    && rm -f /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # ── dovi_tool (pre-built musl binary — usado en Tab 3 CMv4.0 BD) ─────────────
 # Cuando DOVI_TOOL_VERSION cambia en Dockerfile/docker-compose.yml, este RUN
 # se invalida y se re-descarga el binario en el siguiente `docker compose
-# build --pull`. Sin cambio de version Docker usa cache (correcto).
-RUN wget -q \
+# build --pull`. Sin cambio de version Docker usa cache (correcto). El sha256
+# es el `digest` que GitHub publica para el asset: al subir de versión se
+# cambian los dos ARG a la vez.
+ARG DOVI_TOOL_VERSION=2.3.4
+ARG DOVI_TOOL_SHA256=1844258e13c26607b32224bf1fa82b595d3b35949f5467405fda560daad32b3f
+RUN ${WGET} \
     "https://github.com/quietvoid/dovi_tool/releases/download/${DOVI_TOOL_VERSION}/dovi_tool-${DOVI_TOOL_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
     -O /tmp/dovi_tool.tar.gz \
+    && echo "${DOVI_TOOL_SHA256}  /tmp/dovi_tool.tar.gz" | sha256sum -c - \
     && tar xzf /tmp/dovi_tool.tar.gz -C /tmp \
     && mv /tmp/dovi_tool /usr/local/bin/dovi_tool \
     && chmod +x /usr/local/bin/dovi_tool \
@@ -62,9 +111,9 @@ RUN wget -q \
 LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 
 # ── ffmpeg moderno (build estatico de BtbN) ───────────────────────────────────
-# Ubuntu 22.04 trae ffmpeg 4.4.2, de 2021. Se instala 7.1 encima en
-# /usr/local/bin, que precede a /usr/bin en el PATH; el de apt se queda como
-# red de seguridad.
+# Ubuntu trae su ffmpeg (4.4.2 en 22.04, 6.1 en 24.04). Se instala 7.1 encima
+# en /usr/local/bin, que precede a /usr/bin en el PATH; el de apt se queda
+# como red de seguridad.
 #
 # NO se hace por velocidad: medido en el NAS sobre el mismo tramo de vídeo,
 # 4.4.2 y 7.1.5 tardan lo mismo (10 s vs 11 s, dentro del ruido) porque ffmpeg
@@ -84,7 +133,11 @@ LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 # seguía compilando bien porque tenía la capa en caché. Un pin contra una
 # etiqueta móvil no es un pin.
 #
-# **BtbN BORRA sus autobuilds diarios y solo conserva el ÚLTIMO DE CADA MES.**
+# **BtbN BORRA sus autobuilds diarios y solo conserva el ÚLTIMO DE CADA MES**,
+# y de esos, los 24 más recientes (`util/prunetags.sh`: KEEP_LATEST=14,
+# KEEP_MONTHLY=24). Este pin, el de julio de 2026, desaparece hacia agosto de
+# 2028: antes hay que cambiarlo o subir el tarball a nuestra release de
+# fuentes.
 # Medido el 2026-09-09 sobre las 35 releases vivas de su repositorio: las que
 # aún tienen assets de la línea 7.1 son 2026-07-31, 06-30, 05-31, 04-30,
 # 03-31, 02-28… todas fin de mes. El pin anterior era `2026-08-16-13-00`, un
@@ -98,9 +151,16 @@ LABEL dovi_tool.version="${DOVI_TOOL_VERSION}"
 # A: cambiar de rama mayor (8.1 o 9.0, las que BtbN construye ahora) es tocar
 # el binario del que depende el paso íntegro del HEVC y del RPU, y eso no se
 # hace de rebote para arreglar un build.
+#
+# El build de BtbN es un .tar.xz y la imagen base de 24.04 ya no trae `xz`
+# (la de 22.04 sí): sin él, `tar xJf` muere con «xz: Cannot exec». Va en su
+# capa, junto al único que lo necesita.
+RUN apt-get update \
+    && apt-get install -y xz-utils \
+    && rm -rf /var/lib/apt/lists/*
 ARG FFMPEG_RELEASE=autobuild-2026-07-31-14-10
 ARG FFMPEG_BUILD=ffmpeg-n7.1.5-12-g1fdbca85aa-linux64-gpl-7.1
-RUN wget -q \
+RUN ${WGET} \
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_BUILD}.tar.xz" \
     -O /tmp/ffmpeg.tar.xz \
     && tar xJf /tmp/ffmpeg.tar.xz -C /tmp \
@@ -110,10 +170,31 @@ RUN wget -q \
     && ffmpeg -version | head -1
 LABEL ffmpeg.build="${FFMPEG_RELEASE}/${FFMPEG_BUILD}"
 
+# ── Lo instalado es lo fijado ─────────────────────────────────────────────────
+# Los tests miran el Dockerfile, y un ARG que dice 103 no demuestra que se
+# instale la 103: un `apt-get install mkvtoolnix` sin el `=` traería la del
+# día con el ARG, el contrato y los avisos diciendo otra cosa. Se comprueba
+# aquí, contra los binarios, y el build falla si no coinciden (revisión de
+# Codex del 2026-10-28).
+RUN mkvmerge --version | head -1 | grep -q "v${MKVTOOLNIX_VERSION%%-*} " \
+    && mediainfo --Version | tail -1 | grep -qx "MediaInfoLib - v${MEDIAINFO_VERSION}" \
+    && dovi_tool --version | head -1 | grep -qx "dovi_tool ${DOVI_TOOL_VERSION}" \
+    && v="${FFMPEG_BUILD#ffmpeg-}" && ffmpeg -version | head -1 | grep -q "version ${v%%-linux64*}-" \
+    && echo "Versiones instaladas = versiones fijadas"
+
 # ── Python app ────────────────────────────────────────────────────────────────
+# Ubuntu 24.04 marca su Python como «externally managed» (PEP 668) y un
+# `pip install` al sistema falla. Venv propio y delante en el PATH: `python3`
+# —el CMD, `docker exec … python3`, el generador de avisos— es el del venv.
+# pip se actualiza dentro: el de la rueda de Ubuntu arrastra avisos de
+# seguridad que no afectan a la app, pero que un escáner sí lee.
+RUN python3 -m venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /app
 COPY app/requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Version e info de commit baked al build. El workflow GHCR los pasa como
 # build-args (APP_VERSION = tag git o 'dev-<sha>'; APP_COMMIT = SHA completo).

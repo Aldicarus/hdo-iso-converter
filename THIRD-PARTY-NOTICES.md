@@ -22,16 +22,17 @@ imagen sí contiene, que son las que este documento atiende.
 |---|---|---|---|
 | **FFmpeg** / ffprobe (build estático de BtbN, `/usr/local/bin`) | `n7.1.5-12-g1fdbca85aa` | **GPL-3.0-or-later** (`--enable-gpl --enable-version3`) | [ffmpeg @ `1fdbca85aa`](https://github.com/FFmpeg/FFmpeg/commit/1fdbca85aa) · [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) · espejo abajo |
 | **FFmpeg** (paquete de Ubuntu, respaldo en `/usr/bin`) | ver `app/static/licenses/INSTALLED-PACKAGES.txt` | **GPL-3.0-or-later** | `apt-get source ffmpeg` · [archive.ubuntu.com](http://archive.ubuntu.com/ubuntu/pool/universe/f/ffmpeg/) |
-| **MKVToolNix** (`mkvmerge`, `mkvpropedit`, `mkvextract`) | ver `app/static/licenses/INSTALLED-PACKAGES.txt` | **GPL-2.0** | [mkvtoolnix.download/source.html](https://mkvtoolnix.download/source.html) · [codeberg.org/mbunkus/mkvtoolnix](https://codeberg.org/mbunkus/mkvtoolnix) |
-| **MediaInfo** | ver `app/static/licenses/INSTALLED-PACKAGES.txt` | BSD-2-Clause | [mediaarea.net](https://mediaarea.net/en/MediaInfo/Download/Source) |
-| **dovi_tool** | `2.3.3` | MIT | [github.com/quietvoid/dovi_tool](https://github.com/quietvoid/dovi_tool) |
-| **Ubuntu** (imagen base) | `22.04` | mezcla: GPL-2.0, GPL-3.0, LGPL, BSD, MIT… | `apt-get source <paquete>` · [archive.ubuntu.com](http://archive.ubuntu.com/ubuntu/) |
+| **MKVToolNix** (`mkvmerge`, `mkvpropedit`, `mkvextract`) | `103.0` | **GPL-2.0** | [mkvtoolnix.download/source.html](https://mkvtoolnix.download/source.html) · [codeberg.org/mbunkus/mkvtoolnix](https://codeberg.org/mbunkus/mkvtoolnix) |
+| **MediaInfo** (y su librería, MediaInfoLib + ZenLib) | `26.10` | BSD-2-Clause | [mediaarea.net](https://mediaarea.net/en/MediaInfo/Download/Source) |
+| **dovi_tool** | `2.3.4` | MIT | [github.com/quietvoid/dovi_tool](https://github.com/quietvoid/dovi_tool) |
+| **Ubuntu** (imagen base) | `24.04` | mezcla: GPL-2.0, GPL-3.0, LGPL, BSD, MIT… | `apt-get source <paquete>` · [archive.ubuntu.com](http://archive.ubuntu.com/ubuntu/) |
 | **Dependencias Python** | ver [`app/static/licenses/PYTHON-DEPENDENCIES.md`](app/static/licenses/PYTHON-DEPENDENCIES.md) | permisivas, más MPL-2.0 (`certifi`) | [PyPI](https://pypi.org/) |
 
 `INSTALLED-PACKAGES.txt` lo escribe el propio build con
 `dpkg-query`: es la lista exacta de paquetes y versiones que lleva **esa**
-imagen. Los paquetes de apt no están fijados a una versión concreta, así que
-es la única respuesta fiable a «¿de qué versión necesito la fuente?».
+imagen. MKVToolNix, MediaInfo, dovi_tool y FFmpeg van fijados en el
+Dockerfile; el resto de paquetes de Ubuntu no, así que para ellos es la única
+respuesta fiable a «¿de qué versión necesito la fuente?».
 
 **No se distribuye** Sortable.js: se carga desde un CDN en tiempo de
 ejecución (MIT, [SortableJS/Sortable](https://github.com/SortableJS/Sortable)).

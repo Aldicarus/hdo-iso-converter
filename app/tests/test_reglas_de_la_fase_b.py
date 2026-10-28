@@ -72,6 +72,40 @@ class TestElAudioDeMayorCalidad(unittest.TestCase):
         self.assertEqual([t.raw.bitrate_kbps for t in castellano], [640])
 
 
+class TestLosNombresComercialesDeMediaInfo2610(unittest.TestCase):
+    """MediaInfo 26.10 —la de la base 24.04— nombra el DTS:X de otra forma
+    que la 21.09 (su `MediaInfo_Internal.cpp` recorre el `Format_Profile`):
+    «DTS-HD MA + DTS:X» donde antes decía «DTS-HD Master Audio». Si la Fase B
+    dejara de reconocer el MA en ese nombre, un DTS:X sin pérdida bajaría a
+    DTS con pérdida y perdería contra un DD+ o un DTS normal del mismo
+    idioma: el MKV saldría con la peor pista. Es el caso de Gladiator en la
+    biblioteca."""
+
+    def test_el_tier_de_cada_nombre(self):
+        from phases.phase_b import _codec_key
+        casos = {
+            "DTS-HD Master Audio": "dts_hd_ma",         # 21.09 y 26.10 sin X
+            "DTS-HD MA + DTS:X": "dts_hd_ma",           # 26.10, con XLL
+            "DTS-HD MA + IMAX Enhanced": "dts_hd_ma",
+            "DTS-HD HRA + DTS:X": "dts",                # con pérdida
+            "DTS-HD High Resolution Audio": "dts",
+            "DTS:X": "dts",                             # X sin XLL: con pérdida
+        }
+        for comercial, esperado in casos.items():
+            with self.subTest(comercial):
+                self.assertEqual(_codec_key(audio("English", "DTS-HD Master Audio",
+                                                  comercial=comercial)), esperado)
+
+    def test_un_dts_x_sin_perdida_gana_al_dts_con_perdida(self):
+        disco = [audio("English", "DTS Audio", kbps=1509, comercial="DTS"),
+                 audio("English", "DTS-HD Master Audio", "7.1", 4800, "DTS-HD MA + DTS:X"),
+                 audio("Spanish", "Dolby Digital Audio", kbps=640)]
+        with en_castellano():
+            incluidas, _ = _select_audio_tracks(disco, "English", False)
+        ingles = [t.raw.format_commercial for t in incluidas if t.raw.language == "English"]
+        self.assertEqual(ingles, ["DTS-HD MA + DTS:X"])
+
+
 class TestSinConteoPgsMandaLaEstructura(unittest.TestCase):
     """Sin conteos (el muestreo PGS falló entero), el respaldo es el bitrate
     sintético de la Fase A: menos de 3 kbps es la posición de un forzado."""

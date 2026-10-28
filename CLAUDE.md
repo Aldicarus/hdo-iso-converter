@@ -46,7 +46,7 @@ Aplicación web multi-herramienta en contenedor Docker (amd64/QNAP) para procesa
 ---
 
 ## Stack técnico
-- **Backend:** Python 3.10+ (ubuntu:22.04), FastAPI, uvicorn
+- **Backend:** Python 3.12 (ubuntu:24.04, en un venv en `/opt/venv`), FastAPI, uvicorn
 - **Frontend:** Vanilla JS ES6+, Sortable.js (CDN), sin framework ni build step
 - **Contenedor:** Docker sobre QNAP NAS x86 (amd64), puerto 8090 (configurable)
 - **Herramientas:**
@@ -139,7 +139,8 @@ ISO2MKVFEL/
         ├── audit_cmv40_bins.py  ← CLI standalone: re-clasifica sesiones CMv4.0 históricas (ver "Auditoría retroactiva")
         ├── generar_avisos_python.py  ← Emite el apéndice de licencias leyendo los metadatos INSTALADOS
         ├── mutar.py              ← Verificación por mutación (`mutaciones.json`): aplica, ejecuta, restaura
-        └── capturar_contrato.py  ← Captura en el NAS las salidas reales para `tests/fixtures_contrato/`
+        ├── capturar_contrato.py  ← Captura en el NAS las salidas reales para `tests/fixtures_contrato/`
+        └── regresion_real.py     ← Lo que la app saca de ficheros reales, en la imagen vieja y en la nueva (ver «La regresión real»)
 ```
 
 ## Volúmenes Docker
@@ -4072,11 +4073,49 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 - **Cola**: `queue_state.json`. Al arrancar, lo que estaba `running` vuelve a `pending` (con su MKV a medias borrado) y lo `queued` que sigue en la cola se queda `queued` y se reanuda (`recuperar_sesiones_interrumpidas` + `reanudar_cola`). `reanudar_cola` despierta la cola con **cualquier** tipo de trabajo, no solo con rips: una cola que tras el reinicio solo llevara fases CMv4.0 o multiplexados se quedaba dormida hasta que alguien encolara un rip. Y se borran los `*_intermediate.mkv` del primer nivel de `/mnt/tmp`: al arrancar no corre ningún rip, así que son de uno que murió (la fase limpia cuando mkvmerge falla, no cuando matan al proceso).
 
 ### Docker
-- **Base**: `ubuntu:22.04` + MKVToolNix (v81+ oficial) + mediainfo + ffmpeg + dovi_tool 2.3.3 + Python 3.10
+- **Base**: `ubuntu:24.04` + MKVToolNix 103 (repo oficial, fijada) + MediaInfo 26.10 (de MediaArea, fijada con sha256) + ffmpeg 7.1.5 de BtbN + dovi_tool 2.3.4 (con sha256) + Python 3.12 en un venv (PEP 668). Ver «La base 24.04 y las versiones fijadas»
 - **`privileged: true`**: para loop mount
 - **Puerto**: 8090 → 8080 (configurable)
 - **Healthcheck**: `GET /api/health` cada 30s
 - **Recuperación**: ver «Persistencia» — `running` → `pending`, `queued` se reanuda, intermedios huérfanos fuera
+
+### La base 24.04 y las versiones fijadas (2026-10-28)
+
+La imagen pasó de `ubuntu:22.04` a `ubuntu:24.04` para poder subir MKVToolNix
+de la 88 a la 103 —el repositorio oficial dejó de publicar para 22.04 en la 88
+(2024-10)—, y de paso salir antes del fin del soporte estándar de 22.04
+(2027-05-31). En el mismo cambio: MediaInfo 21.09 → 26.10, dovi_tool 2.3.3 →
+2.3.4 (la 2.3.3 rechaza los RPU con bloques L253 de los P5 de Disney+,
+issues #419/#421) y `certifi ≥ 2026.10.19` (las anteriores confían en raíces
+de emSign con intermedios comprometidos).
+
+Cuatro decisiones del Dockerfile:
+
+- **Las cuatro herramientas van FIJADAS**, y no solo dovi_tool y ffmpeg como
+  antes. Con 22.04 la distribución congelaba MKVToolNix y MediaInfo; en 24.04
+  sus repos siguen vivos y cada build traería la versión de ese día, que no
+  es la del contrato de los fakes ni la de la regresión real.
+  - **MKVToolNix con `=versión` del repo oficial**: su índice de noble
+    conserva todas las versiones (de la 83 a la 103), así que el pin
+    sobrevive a que salga la siguiente.
+  - **MediaInfo desde las URL por versión de MediaArea, con sha256**: su
+    repositorio solo indexa la última, pero sirve cada versión en
+    `/download/binary/<paquete>/<versión>/` (la 24.06 sigue ahí), y esos
+    `.deb` son idénticos byte a byte a los de su pool firmado.
+  - **dovi_tool con el sha256** que GitHub publica como `digest` del asset.
+- **Python en un venv** (`/opt/venv`, primero en el `PATH`): 24.04 marca su
+  Python como *externally managed* (PEP 668) y un `pip install` al sistema
+  falla. `python3` —el CMD, `docker exec … python3`, el generador de avisos—
+  es el del venv. Y la minor pasa de 3.10 a 3.12, la misma que el Mac; CI
+  también.
+- **Subir una herramienta es cambiar su ARG** (y su sha256), recapturar el
+  contrato (`tools/capturar_contrato.py`) y pasar la regresión real
+  (`tools/regresion_real.py`) con la imagen vieja y la nueva. El ARG de
+  dovi_tool está además en el `build.args` del compose, que gana al del
+  Dockerfile.
+- **BtbN guarda 24 builds mensuales** (`util/prunetags.sh`), así que el pin de
+  ffmpeg de julio de 2026 caduca hacia agosto de 2028: antes hay que moverlo o
+  subir el tarball a la release `sources-ffmpeg-n7.1.5`.
 
 ### Desarrollo local
 - Python 3.12 en `.venv/`
@@ -4091,6 +4130,86 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
   python3 -m unittest app.tests.test_rpu_analyze -v   # un módulo
   python3 app/tools/mutar.py app/tools/mutaciones.json   # las mutaciones de la auditoría
   ```
+
+### La regresión real: `tools/regresion_real.py`
+
+Los fakes fijan la FORMA de lo que emiten las herramientas
+(`test_contrato_de_los_fakes`); no pueden decir si una versión nueva de
+mkvmerge, MediaInfo o dovi_tool cambia lo que la app SACA de un fichero de
+verdad: el orden de las pistas, el nombre comercial con el que decide el
+Atmos, los paquetes que escribe un mux, el RPU que deja un merge. Esto lo
+mide, y es el paso obligado de cualquier subida de herramienta (lo pidió el
+usuario al subir las cuatro el 2026-10-28).
+
+Se ejecuta en el NAS, en la imagen vieja y en la nueva, sobre los mismos
+ficheros, y `comparar` dice qué cambió. Captura con las funciones de la app,
+no con réplicas:
+
+| tipo | qué |
+|---|---|
+| `tab1` | `analyze_iso` (Fase A+B) sobre un ISO, una carpeta BDMV o un m2ts y, con `rip`, `_run_pipeline` entero (Fase D/E, validación final, firma); del MKV que sale, su estructura, un resumen por flujo de cada paquete, su análisis de Tab 2 y una edición con `apply_mkv_edits` sobre una copia. Con `mantener_todas` se rippea en «mantener todas»: una demo con el audio sin idioma saldría sin audio |
+| `fase_ab` | la Fase A+B de Tab 1 sobre un MKV por la vía del m2ts suelto: las reglas de audio con pistas que ningún disco del NAS trae (un DTS:X, un DTS-HD HRA) |
+| `tab2` | `analyze_mkv` sin caché |
+| `rpu` | `info --summary` parseado y `quality_desde_rpu` de un RPU completo |
+| `dovi` | una ventana real de dos MKV del mismo título (el de origen y su CMv4.0): `extract-rpu`, `demux`, `_ensure_profile8_rpu`, `_merge_cmv40_into_p7` en las dos políticas, `inject-rpu`, `mux` y `editor`, cada artefacto con su sha256 |
+| `tab4` | un proyecto de Multiplexar ya hecho: `leer_fuente` de las dos fuentes, `mux_plan.plan` con la misma selección y un multiplexado acotado a una ventana (`con_ventana`: `--split parts:` tras `-o`) |
+| `tab4_completo` | el mismo, entero y con sus tres fases (la aceptación; es caro) |
+| `huella` | la estructura y los paquetes de un MKV que ya existe, para comparar el de un `tab4_completo` con el que dejó la versión anterior |
+
+Cuatro decisiones:
+
+- **La estructura y los paquetes se leen con ffprobe/ffmpeg**, que no cambian
+  entre las dos imágenes: así una diferencia es del fichero y no del lector.
+  Por flujo: número de paquetes, bytes, primer y último pts, y dos sha256
+  separados —el del contenido (el md5 de cada paquete) y el de los tiempos—,
+  para que una diferencia diga si cambió lo que hay dentro o cuándo suena.
+- **La normalización tira lo volátil y NADA más**: fechas, logs con hora, el
+  id de una sesión. La primera versión tiraba todas las claves `id`, también
+  los ids de pista, y una renumeración de pistas no se habría visto; hoy el
+  `id` solo se tira si es una cadena, y lo fija `test_regresion_real`. Las
+  salidas crudas (`mkvmerge_raw`, `mediainfo_raw`, `raw_summary`…) salen de la
+  comparación con su sha256 y se guardan aparte para explicar una diferencia.
+- **Los directorios de la app van a la carpeta de la regresión antes de
+  importar nada** (se resuelven al importar), con la biblioteca, Downloaded,
+  la salida real, el tmp y el `/config` montados solo lectura en otras rutas:
+  no escribe nada fuera. TMDb va apagado (`TMDB_APP_KEY=` vacío): la ficha
+  cambiaría el nombre del MKV según lo que contestara la red ese día.
+- **Todos los casos en un solo bucle de eventos**: la app guarda cerrojos de
+  asyncio en variables de módulo, y en Python 3.10 —la imagen vieja de la
+  primera pasada— quedan atados al bucle donde se crean.
+
+**«0 diferencias» tiene que querer decir algo**, y la revisión de Codex de la
+herramienta (2026-10-28) encontró seis maneras de que no lo dijera, todas
+ciertas y todas con su test y su mutación (`T6V-*`):
+
+- un caso que solo está en una captura **cuenta** como diferencia: el que
+  desaparece puede ser justo el que fallaba;
+- **dos fallos iguales no son un éxito**: `comparar` busca dentro de cada
+  caso los pasos con `rc` distinto de 0, los `status` de error y los
+  multiplexados sin fichero, y los cuenta aparte; `capturar` sale con 1 si
+  algún caso lanzó;
+- **lo crudo va en su propia sección**, fuera de lo comparado (dentro, el
+  número de versión que MediaInfo escribe en su JSON hacía diferir dos
+  análisis idénticos), y su sha se calcula con la carpeta de trabajo ya
+  neutralizada;
+- **la huella guarda los VALORES del side data** —la configuración Dolby
+  Vision, MaxCLL/MaxFALL y el mastering display de la cabecera— y las
+  entradas de índice de cada pista: con solo el tipo del side data, dos MKV
+  con otro MaxCLL salían iguales, y los paquetes se leen en secuencia y no
+  dicen nada del índice;
+- **`--seguir` solo retoma una captura de las MISMAS herramientas**: con
+  otras, mezclaba resultados de dos imágenes bajo las versiones de la última;
+- `huella` (el MKV que dejó la versión anterior) contra `tab4_completo` (el
+  que deja la nueva) compara **solo la salida**; y el framemd5 va a un
+  fichero con tope, porque leyendo stdout hasta el final antes que stderr un
+  MKV que hiciera escupir errores a ffmpeg dejaba a los dos procesos
+  esperándose.
+
+**La lista de casos vive en el NAS** (`hdo-tmp/regresion/casos.json`), no en
+el repositorio: son ficheros de la biblioteca del usuario y el repo es
+público. La herramienta tiene que poder correr en la imagen VIEJA, así que no
+puede usar sintaxis más nueva que su Python (lo vigila
+`test_sintaxis_del_contenedor`).
 
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
@@ -4197,8 +4316,9 @@ las `T5X-*` de la revisión de Codex previa a la v3.5.0— y
 - **Los fakes tienen contrato: `test_contrato_de_los_fakes`.** La regla de
   los fakes fieles se cumplía a mano y una vez —se copiaba una salida real y
   nadie volvía a mirarla—. Hoy `fixtures_contrato/` guarda las salidas
-  REALES de dovi_tool 2.3.3, mkvmerge 88, MediaInfo 21.09 y ffmpeg n7.1.5
-  (capturadas en el NAS con `app/tools/capturar_contrato.py`, solo lectura) y
+  REALES de dovi_tool 2.3.4, mkvmerge 103, MediaInfo 26.10 y ffmpeg n7.1.5
+  (capturadas en el NAS con `app/tools/capturar_contrato.py`, solo lectura;
+  la primera captura, del 2026-10-17, fue con 2.3.3, 88 y 21.09) y
   el test exige que cada fake emita la misma forma —claves, tipos, unidades,
   decimales— y que el parser de producción saque lo mismo de las dos. Un test
   aparte falla si el Dockerfile sube una versión: el contrato es con ESA.
@@ -4294,11 +4414,13 @@ nadie, y casi siempre por lo mismo: **un fake que ignora una opción**.
 - **`--estricto` exige que cada `test_*.py` aporte tests**: un módulo que se
   cae del discovery no produce ningún skip, y la colección reducida a uno
   salía con 0.
-- **mkvtoolnix y mediainfo NO se fijan, y está comprobado**: el repositorio de
-  Bunkus dejó de publicar para jammy en la 88 y Ubuntu 22.04 congela
-  MediaInfoLib en la 21.09, así que un build desde cero —el del CI de cada
-  release— instala exactamente las versiones del contrato. Si se sube la
-  base de la imagen, eso deja de ser verdad y hay que recapturar.
+- **mkvtoolnix y mediainfo SE FIJAN desde la base 24.04** (2026-10-28).
+  Con 22.04 no hacía falta —el repositorio de Bunkus dejó de publicar para
+  jammy en la 88 y Ubuntu congela MediaInfoLib en la 21.09, así que un build
+  desde cero instalaba siempre las versiones del contrato—; en 24.04 los dos
+  repos siguen vivos y sin fijar cada build traería la de ese día.
+  `test_contrato_de_los_fakes::TestLasCapturasSonDeLasVersionesDelDockerfile`
+  ata ahora las cuatro capturas a sus pins.
 
 #### Los fallos de producción que salieron, por zonas
 
@@ -4530,7 +4652,7 @@ La suite corre en **push a main, PR y `workflow_dispatch`**, con `app/tests/corr
 Los dos de `_ReadProgress` cubren la medición de progreso, la maquinaria que este repo documenta como la más frágil, y hasta que hubo CI **no se ejecutaban en ninguna parte**: en el Mac se saltaban y a nadie se le ocurría pasar la suite dentro del contenedor por eso. La señal de que corren es que el resumen diga `OK` a secas y no `OK (skipped=N)`. El job comprueba `/proc` **antes** de la suite, para que si el runner cambiara no volvieran a saltarse en silencio.
 
 Detalles que no son accidentales:
-- **Python 3.10**, la misma minor que el contenedor (`ubuntu:22.04`). En el Mac la suite corre sobre 3.12; fijar la del contenedor evita descubrir una incompatibilidad en producción.
+- **Python 3.12**, la misma minor que el contenedor (`ubuntu:24.04`; hasta el 2026-10-28 fue 3.10, con la base 22.04). Fijar la del contenedor evita descubrir una incompatibilidad en producción.
   - **Y no es una precaución teórica.** Una barra invertida dentro de la expresión de una f-string compila en 3.12 (PEP 701) y es `SyntaxError` en 3.10, así que el síntoma no es un test rojo: es un **build de Docker muerto**, y solo aparece construyendo desde cero. Pasó el 2026-09-23 en `tools/generar_avisos_python.py`. CI lo cazó, pero de rebote —lo destaparon dos guards que recorren el fuente por otros motivos— y **no falla en el Mac**, así que el bucle era «subir, esperar a CI, mirar por qué».
   - Lo acorta `test_sintaxis_del_contenedor`, con la minor leída del propio workflow y no escrita a mano. Son **dos** comprobaciones porque una no basta: `ast.parse(..., feature_version=(3,10))` caza lo de nivel AST (`except*`, PEP 695) pero **NO ve esto**, porque PEP 701 cambió el TOKENIZADOR — el primer intento de guard pasó en verde con el bug delante, que es justo el modo de fallo que este repo persigue. La segunda mitad mira la EXPRESIÓN de cada hueco (una barra en la parte literal es legal desde siempre). Al ponerla aparecieron **tres casos latentes** en `tests/extraer_literales.py`, vivos desde la migración a tres idiomas e invisibles porque los dos guards que escanean el fuente llevan `FUERA = {"tests"}`.
 - **Node 20**, porque cuatro tests (`test_cmv40_plan_frontend`, `test_cmv40_overlay_bloqueante`, `test_cmv40_timeline_layout`, `test_cmv40_eta_sufijo`) evalúan las funciones reales de `app.js` en node y sin él se auto-saltan.
@@ -4565,8 +4687,9 @@ el stage `version-detector` del Dockerfile es el respaldo del build local.
 test de `IsolatedAsyncioTestCase` trae su propio loop, así que uno que se
 cierre con la tarea pendiente deja el lock **tomado** y atado a un loop
 muerto — y el `_flush_session_save` del test siguiente muere con
-`RuntimeError: Lock is bound to a different event loop`. **Solo se ve en CI**:
-en 3.10 el lock se ata al loop al construirse y en 3.12 —la del Mac— la
+`RuntimeError: Lock is bound to a different event loop`. **Solo se veía en
+CI**, mientras CI fue con 3.10 (hasta la base 24.04): en 3.10 el lock se ata
+al loop al construirse y en 3.12 —la del Mac, y hoy la de CI y la imagen— la
 atadura es perezosa. No se defiende en producción a propósito (ahí el loop es
 uno y dura lo que el proceso): se limpia en el `setUp`, igual que
 `api_harness` con los dos singleton de Tab 2, y lo guarda

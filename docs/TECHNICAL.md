@@ -423,9 +423,9 @@ Same frame as the other tabs: a project column, navy sub-tabs, stacked cards and
 
 ## Technical stack
 
-- **Backend:** Python 3.10+ (ubuntu:22.04), FastAPI, uvicorn
+- **Backend:** Python 3.12 (ubuntu:24.04, in a virtualenv), FastAPI, uvicorn
 - **Frontend:** vanilla JS ES6+, Sortable.js (CDN), no framework and no build step
-- **Tools:** mkvmerge, mkvpropedit, mkvextract, mediainfo, ffmpeg, ffprobe, dovi_tool 2.3.3
+- **Tools:** MKVToolNix 103 (mkvmerge, mkvpropedit, mkvextract), MediaInfo 26.10, ffmpeg/ffprobe 7.1.5 (BtbN static build), dovi_tool 2.3.4 — all pinned in the Dockerfile, and each bump goes through the real-file regression (`app/tools/regresion_real.py`)
 - **ISO access:** direct loop mount (`mount -t udf -o ro,loop`) — requires `privileged: true` in Docker
 - **External integrations:** TMDb (posters/synopses/episodes) and the DoviTools repository link — **included, they work out of the box**; the Google API key (Drive v3 + Sheets v4 / openpyxl) is the only thing to configure, and it unlocks the repository
 - **Languages:** the interface, the server's log and the manual are available in English, Spanish and Catalan
@@ -573,6 +573,14 @@ The test suite runs from the repository root:
 ```bash
 python3 -m unittest discover -s app/tests
 ```
+
+### Upgrading a tool
+
+MKVToolNix, MediaInfo, dovi_tool and ffmpeg are pinned in `docker/Dockerfile` (with a checksum where the download is a file), and the build checks that what got installed is what was pinned. Raising one is three steps:
+
+1. Change its `ARG` (and its SHA-256); dovi_tool's version is also in `docker/docker-compose.yml`, whose build args win over the Dockerfile.
+2. Re-capture the tools' real outputs for the fake binaries' contract: `app/tools/capturar_contrato.py`, run inside the new image (`app/tests/test_contrato_de_los_fakes.py` fails until it matches the pinned versions).
+3. Run the real-file regression, `app/tools/regresion_real.py`, with the old image and the new one over the same files, and compare: it runs the app's own analysis, rip, edit, Dolby Vision and multiplex code on real MKVs, m2ts and RPUs, and says what changed in what the app derives from them.
 
 ## License
 

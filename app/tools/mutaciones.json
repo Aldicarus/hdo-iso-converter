@@ -6376,5 +6376,95 @@
   "modulos": [
    "test_cmv40_tabla_de_niveles"
   ]
+ },
+ {
+  "id": "T6V-1 el DTS:X de MediaInfo 26.10 deja de contar como DTS-HD MA",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "        if \"dts-hd master\" in fc or \"dts-hd ma\" in fc:",
+  "nuevo": "        if \"dts-hd master\" in fc:",
+  "modulos": [
+   "test_reglas_de_la_fase_b"
+  ]
+ },
+ {
+  "id": "T6V-2 la regresión real tira también los ids de pista",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "                if k in VOLATILES or (k == \"id\" and isinstance(v, str)):",
+  "nuevo": "                if k in VOLATILES or k == \"id\":",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-3 el --split de la ventana va al final del argv",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "    i = cmd.index(\"-o\") + 2",
+  "nuevo": "    i = len(cmd)",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-4 lo crudo entra en la comparación",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "                if k in CRUDOS:",
+  "nuevo": "                if k in CRUDOS and False:",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-5 un caso que solo está en una captura no cuenta",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "            print(f\"\\n■ {cid}: solo en {'la nueva' if b else 'la vieja'}\")\n            hay += 1",
+  "nuevo": "            print(f\"\\n■ {cid}: solo en {'la nueva' if b else 'la vieja'}\")\n            hay += 0",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-6 dos fallos iguales pasan por un éxito",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "                n_fallos += len(f)",
+  "nuevo": "                n_fallos += 0",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-7 --seguir retoma con otras herramientas",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "    if previo.get(\"versiones\") != versiones:",
+  "nuevo": "    if False:",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-8 con tipos distintos se compara todo",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "            da, db = {\"salida\": da.get(\"salida\")}, {\"salida\": db.get(\"salida\")}",
+  "nuevo": "            pass",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-9 el sha de lo crudo depende de la carpeta de trabajo",
+  "fichero": "app/tools/regresion_real.py",
+  "viejo": "        texto = texto.replace(str(self.base), \"<BASE>\")",
+  "nuevo": "        pass",
+  "modulos": [
+   "test_regresion_real"
+  ]
+ },
+ {
+  "id": "T6V-10 MKVToolNix se instala sin su pin",
+  "fichero": "docker/Dockerfile",
+  "viejo": "    && apt-get install -y \"mkvtoolnix=${MKVTOOLNIX_VERSION}\" \\",
+  "nuevo": "    && apt-get install -y mkvtoolnix \\",
+  "modulos": [
+   "test_contrato_de_los_fakes"
+  ]
  }
 ]
