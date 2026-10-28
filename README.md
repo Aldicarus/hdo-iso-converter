@@ -13,7 +13,7 @@ checks every step, and never delivers a file that is worse than the one you star
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/Aldicarus/hdo-iso-converter/pkgs/container/hdo-iso-converter)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[How it works](#how-it-works) · [Same tools, one more layer](#same-tools-one-more-layer) · [The four steps](#the-four-steps-in-detail) · [Installation](#installation) · [Your first film](#your-first-film) · [FAQ](#faq)
+[How it works](#how-it-works) · [Same tools, one more layer](#same-tools-one-more-layer) · [And DoVi_Scripts?](#uhd-blu-ray-toolkit-and-dovi_scripts) · [The four steps](#the-four-steps-in-detail) · [Installation](#installation) · [Your first film](#your-first-film) · [FAQ](#faq)
 
 > 🖼️ **[Screenshot 1 — hero]** *A CMv4.0 upgrade project of a well-known film: the film's card, the DoviTools verdict, the recommendation and the Jobs column with a job running.*
 
@@ -79,9 +79,30 @@ UHD Blu-ray Toolkit does nothing new to your files. Every change is made by **mk
 
 ### Is it for you?
 
-**If you want control over every option**, use the command-line tools directly. Together with [DoVi_Scripts](https://github.com/R3S3t9999/DoVi_Scripts), they can do everything this app does to a file — this app runs them.
+**If you want control over every option**, use dovi_tool and MKVToolNix directly: they can do everything this app does to a file, and this app runs them.
 
 **If you would rather have the whole process run for you**, with every step checked and a result that is never worse than the file you started with, this is the tool.
+
+---
+
+## UHD Blu-ray Toolkit and DoVi_Scripts
+
+Many people who work with Dolby Vision already use [DoVi_Scripts](https://github.com/R3S3t9999/DoVi_Scripts), and it deserves a direct answer. DoVi_Scripts, by R3S3t9999, is the most complete Dolby Vision toolbox available, and its author also maintains the DoviTools sheet and repository that this app's upgrade relies on. The two are not competing for the same job:
+
+| | DoVi_Scripts | UHD Blu-ray Toolkit |
+|---|---|---|
+| **What it is** | A toolbox: drag-and-drop scripts with a mode for each task | A workflow: four steps, from the disc to the verified MKV |
+| **Where it runs** | Windows, on your PC | Docker, on a NAS or a Linux machine, used from any browser |
+| **How it is used** | You choose the mode and the options for each file or folder | You choose the files; the app chooses the route and stops where a decision is yours |
+| **What it covers** | Extracting, editing and injecting metadata; generating Dolby Vision from HDR10, HDR10+ or HLG with Dolby's tools; conversion to Profile 8; encoding; MP4 and TS; plots, screenshots and comparisons | Ripping the disc, the CMv4.0 upgrade, multiplexing another release and inspecting the result — in MKV, keeping the FEL layer |
+| **What it needs** | Python and its libraries, a tools pack, and Dolby's professional tools for some modes | Docker. Everything else is in the image |
+| **Checking the result** | It gives you the tools: info modes, plots and Dolby's official Metafier | Each step checks its own output and does not deliver a file that fails |
+
+**Choose DoVi_Scripts** when you want to do something this app does not do: generate Dolby Vision for a file that has none, convert to Profile 8 for a player without FEL support, encode, deliver MP4 or TS, or compare sources frame by frame. Choose it too when you want to decide every option yourself.
+
+**Choose UHD Blu-ray Toolkit** when the job is improving your remuxes — the disc to MKV, the CMv4.0 upgrade, another release's dub, and proof of what ended up in the file — and you want it run for you, unattended, on the machine where your files are, with every step checked.
+
+**Or use both.** They fit together: much of what this app does depends on the work R3S3t9999 shares through DoviTools, and a remux improved here is still a file DoVi_Scripts can work on. If you use either, consider [supporting the DoviTools repository](https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6).
 
 ---
 
@@ -227,7 +248,7 @@ No. Your discs folder and your library are mounted read-only. Every MKV the app 
 <details>
 <summary><b>My player already converts to CMv4.0 on the fly. Do I need the upgrade?</b></summary>
 
-It depends on the file, and the app measures it for you. A player that converts on the fly (p3i T4, avdvplus, recent Sony or LG models) builds CMv4.0 metadata from the disc's own, but it cannot add trims a colorist made by hand: those only exist in the studio's CMv4.0 master. When the file carries a colorist's trims, the upgrade puts them in your MKV. When it carries none, the app recommends keeping your MKV, because the result on screen would be the same. When it only carries analysis metadata, the app tells you what you would gain and leaves the decision to you.
+It depends on the file, and the app measures it for you. Three CoreELEC builds convert to CMv4.0 on the fly today: [p3i](https://github.com/pannal/CoreELEC/releases) and [avdvplus](https://github.com/avdvplus/Builds/releases) on CoreELEC 21, and [SamuriHL's](https://github.com/SamuriHL/CoreELEC/releases) on CoreELEC 22. They build CMv4.0 metadata from the disc's own, but they cannot add trims a colorist made by hand: those only exist in the studio's CMv4.0 master. When the file carries a colorist's trims, the upgrade puts them in your MKV. When it carries none, the app recommends keeping your MKV, because the result on screen would be the same. When it only carries analysis metadata, the app tells you what you would gain and leaves the decision to you.
 
 </details>
 
