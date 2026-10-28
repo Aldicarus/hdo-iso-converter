@@ -43,11 +43,11 @@ Building that file by hand is three long jobs, and each one is easy to get wrong
 - **Upgrading it to CMv4.0**: learning what the RPU, the enhancement layer, the profiles and the CM versions are before you can even tell whether the upgrade is worth it, then running each step without breaking the Dolby Vision.
 - **Adding another dub**: choosing the tracks one by one in MKVToolNix, then checking that they have not drifted out of sync.
 
-The author of this app learned all of it the long way, and made mistakes along it. Most people who would like the best version of their films never get that far: it looks too complex, and the fear of ruining a file is enough to stop them.
+Almost all of that knowledge is already out there, shared by the community: in forum threads, in R3S3t9999's DoVi_Scripts and DoviTools, in quietvoid's dovi_tool. Putting it together still takes a lot of trial and error, and for many people who care about picture quality, that is reason enough never to start.
 
-UHD Blu-ray Toolkit exists to spare everyone else that journey. It does not try to be the most advanced Dolby Vision tool; DoVi_Scripts and the command-line tools already are. It is built to be the simplest way to the best result, and to make sure you get it. It makes every choice that can be made from the files, explains each one, checks the result before moving on, and only asks you what depends on your judgment.
+UHD Blu-ray Toolkit gathers that knowledge into a guided workflow, so that getting the best result does not depend on having gone through all of it first. The aim is not to do more than those tools, but to make the way to the best result simple and safe: the app makes every choice that can be made from the files, explains each one, checks the result before moving on, and only asks you what depends on your judgment.
 
-If you already work comfortably with those tools, you can do everything it does by hand: the app runs the same commands and shows them in each job's log.
+It does not replace the tools it runs. If you already work comfortably with them, you can do everything it does by hand, and each job's log shows the commands it ran.
 
 ---
 
