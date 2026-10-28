@@ -21,15 +21,15 @@ The app makes the choices, checks every step, and never delivers a file worse th
 
 ---
 
-## A version no one sells
+## The best copy of every film
 
-The best version of a film is not on any shelf or any streaming service. Each release has part of it:
+Each release of a film has part of what makes it look its best:
 
 - **The UHD Blu-ray has the best picture.** It has the highest bitrate available, and on many discs Dolby Vision **Profile 7 FEL**: a full enhancement layer that carries picture information the base layer and streaming releases do not have.
 - **Streaming has the newest grading metadata.** Many streaming masters carry Dolby Vision **CM v4.0**, with trims the colorist made by hand for each kind of display. The disc only carries the older CM v2.9.
 - **Another release often has the language you want.** When the disc lacks a dub or subtitles, a WEB-DL usually has them, with a weaker picture and often at a slightly different speed.
 
-Put together in one MKV, they give you something no store sells: the disc's picture with its FEL layer, the colorist's latest grading and your language. On a player that plays Dolby Vision FEL, such as a Ugoos AM6B+ running CoreELEC, that is the most the player can show, and the highest quality the film can have at home.
+Put together in one MKV, they make the best copy of that film there is today: the disc's picture with its FEL layer, the colorist's newest grading and your language. No official release combines the three; your library will. On a player that plays Dolby Vision FEL, such as a Ugoos AM6B+ running CoreELEC, it is the most that player can show.
 
 Picture and sound are never re-encoded: they are copied bit for bit, and the only things that change are the Dolby Vision metadata and the container. The app runs on a NAS or any Linux machine with Docker and is used from the browser.
 
