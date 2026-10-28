@@ -4249,14 +4249,30 @@ montada con `Source.open` por loop y analizada). Lo que salió:
   HEVC que toma por CBR («HEVC detect CBR and report nominal bitrate»): en
   RoboCop (1987) 80000 kbps donde la media real es 78880, y la app lo enseña
   como «bitrate real». `phase_a.bitrate_kbps_de_mediainfo` recalcula la media
-  con `StreamSize` y `Duration` cuando el vídeo viene marcado CBR —sale exacto
-  lo de antes— y deja el audio con su nominal, que para un AC-3 es el bueno y
-  con el que la Fase B desempata.
+  con `StreamSize` y `Duration` cuando un HEVC viene marcado CBR —sale exacto
+  lo de antes— y deja el resto con lo que diga MediaInfo: el nominal de un
+  AC-3 es el bueno y con él desempata la Fase B.
+
+**La segunda pasada se hizo con la imagen que se despliega, y no sobró.**
+RoboCop volvió a 78880, pero el primer arreglo recalculaba CUALQUIER vídeo
+marcado CBR, y una retransmisión deportiva AVC que la 21.09 ya daba con su
+nominal (6000, también CBR) pasó a 5955: un cambio que no venía de la
+herramienta sino del arreglo, y que la primera pasada no podía señalar porque
+todavía no existía. El recálculo es solo para HEVC, que es lo que cambió en la
+26.10; repasado sobre los 46 MediaInfo crudos de la captura, los dos únicos
+vídeos CBR del corpus vuelven exactamente a lo de la v3.5.0. Y entre las dos
+pasadas no cambió nada más: 0 fallos, y las cinco fechas de codificación de
+los rips, que son la hora del rip.
+
+La aceptación, aparte: el multiplexado COMPLETO de Toy Story 5 (52,75 GB, con
+sus tres fases y la velocidad del vídeo ajustada) sale idéntico paquete a
+paquete y en estructura al que hizo la v3.5.0, con 21 bytes más (la cadena de
+versión) y las 46 comprobaciones de su Fase C en verde.
 
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **722 mutaciones** en
+de entonces seguían en verde. Hoy hay **723 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella, las de la pestaña Multiplexar, las
 `T5R-*` de la pasada de registro a toda la app, las `T2R-*`/`T2F-*`/`T4A-*`

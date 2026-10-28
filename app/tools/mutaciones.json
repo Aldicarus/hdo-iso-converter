@@ -6477,19 +6477,19 @@
   ]
  },
  {
-  "id": "T6V-12 el bitrate del vídeo CBR es el nominal de MediaInfo 26.10",
+  "id": "T6V-12 el bitrate del HEVC CBR es el nominal de MediaInfo 26.10",
   "fichero": "app/phases/phase_a.py",
-  "viejo": "    if tipo == \"video\" and str(t.get(\"BitRate_Mode\") or \"\").upper() == \"CBR\":",
-  "nuevo": "    if False:",
+  "viejo": "    if (str(t.get(\"Format\") or \"\").upper() == \"HEVC\"",
+  "nuevo": "    if (False",
   "modulos": [
    "test_mkv_analyze"
   ]
  },
  {
-  "id": "T6V-13 el audio CBR también se recalcula",
+  "id": "T6V-13 un CBR que no es HEVC también se recalcula",
   "fichero": "app/phases/phase_a.py",
-  "viejo": "    if tipo == \"video\" and str(t.get(\"BitRate_Mode\") or \"\").upper() == \"CBR\":",
-  "nuevo": "    if str(t.get(\"BitRate_Mode\") or \"\").upper() == \"CBR\":",
+  "viejo": "    if (str(t.get(\"Format\") or \"\").upper() == \"HEVC\"",
+  "nuevo": "    if (True",
   "modulos": [
    "test_mkv_analyze"
   ]
@@ -6510,6 +6510,15 @@
   "nuevo": "        if \"UniqueID\" in t:",
   "modulos": [
    "test_contrato_de_los_fakes"
+  ]
+ },
+ {
+  "id": "T6V-16 un HEVC sin la marca de CBR también se recalcula",
+  "fichero": "app/phases/phase_a.py",
+  "viejo": "            and str(t.get(\"BitRate_Mode\") or \"\").upper() == \"CBR\"):",
+  "nuevo": "            and True):",
+  "modulos": [
+   "test_mkv_analyze"
   ]
  }
 ]

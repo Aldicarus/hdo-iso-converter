@@ -2507,8 +2507,8 @@ async def run_pgs_packet_counts(
         return {}
 
 
-def bitrate_kbps_de_mediainfo(t: dict, tipo: str) -> int:
-    """El bitrate de una pista de MediaInfo, en kbps; de un vídeo, el MEDIDO.
+def bitrate_kbps_de_mediainfo(t: dict) -> int:
+    """El bitrate de una pista de MediaInfo, en kbps; de un HEVC, el MEDIDO.
 
     Desde la 26.10 («HEVC detect CBR and report nominal bitrate»), si
     MediaInfo toma un HEVC por CBR pone en `BitRate` el nominal de su HRD y
@@ -2518,10 +2518,15 @@ def bitrate_kbps_de_mediainfo(t: dict, tipo: str) -> int:
     antes (61.082.175.927 B × 8 / 6194,939 s = 78.880.099 bps; regresión real
     del 2026-10-28).
 
-    El audio se queda con lo que diga MediaInfo: el nominal de un AC-3 es el
-    bueno, y la Fase B desempata por bitrate entre pistas del mismo códec.
+    Solo el HEVC, que es lo que cambió en la 26.10: un AVC marcado CBR ya
+    traía el nominal con la 21.09 (una retransmisión deportiva de la
+    biblioteca da 6000 con las dos, y 5955 medidos), y recalcularlo cambiaría
+    lo que la app enseñaba. El audio se queda con lo que diga MediaInfo: el
+    nominal de un AC-3 es el bueno, y la Fase B desempata por bitrate entre
+    pistas del mismo códec.
     """
-    if tipo == "video" and str(t.get("BitRate_Mode") or "").upper() == "CBR":
+    if (str(t.get("Format") or "").upper() == "HEVC"
+            and str(t.get("BitRate_Mode") or "").upper() == "CBR"):
         try:
             media = int(t["StreamSize"]) * 8 / float(t["Duration"])
             if media > 0:
@@ -2578,7 +2583,7 @@ async def run_mediainfo(file_path: str) -> MediaInfoResult:
 
         mapped_type = {"video": "video", "audio": "audio", "text": "text"}.get(ttype, ttype)
 
-        bitrate = bitrate_kbps_de_mediainfo(t, mapped_type)
+        bitrate = bitrate_kbps_de_mediainfo(t)
 
         stream_order = -1
         so_str = t.get("StreamOrder") or t.get("@typeorder") or ""

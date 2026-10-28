@@ -66,8 +66,8 @@ class MkvAnalyzeCase(unittest.IsolatedAsyncioTestCase):
 
 
 class TestElBitrateDeMediaInfo(unittest.TestCase):
-    """`bitrate_kbps_de_mediainfo`: el medido para el vídeo CBR, y el resto
-    tal cual."""
+    """`bitrate_kbps_de_mediainfo`: el medido para el HEVC que MediaInfo
+    marca CBR, y el resto tal cual."""
 
     def test_un_audio_cbr_se_queda_con_su_nominal(self):
         from phases.phase_a import bitrate_kbps_de_mediainfo
@@ -75,17 +75,41 @@ class TestElBitrateDeMediaInfo(unittest.TestCase):
         # ganar, o un 640 de otra pista empataría distinto en la Fase B.
         ac3 = {"BitRate": "640000", "BitRate_Mode": "CBR",
                "StreamSize": "495000000", "Duration": "6200.000"}
-        self.assertEqual(bitrate_kbps_de_mediainfo(ac3, "audio"), 640)
+        self.assertEqual(bitrate_kbps_de_mediainfo(ac3), 640)
 
     def test_un_video_vbr_se_queda_con_su_bitrate(self):
         from phases.phase_a import bitrate_kbps_de_mediainfo
-        v = {"BitRate": "72615448", "StreamSize": "58872031082", "Duration": "6485.896"}
-        self.assertEqual(bitrate_kbps_de_mediainfo(v, "video"), 72615)
+        v = {"Format": "HEVC", "BitRate": "72615448", "BitRate_Mode": "VBR",
+             "StreamSize": "58872031082", "Duration": "6485.896"}
+        self.assertEqual(bitrate_kbps_de_mediainfo(v), 72615)
+
+    def test_sin_la_marca_de_cbr_manda_el_bitrate_de_mediainfo(self):
+        """Solo se recalcula lo que MediaInfo marca CBR, que es lo que cambió
+        en la 26.10. Un vídeo sin marca puede traer un `BitRate` que no es la
+        media (un AVC de la biblioteca da 7000 y salen 6764 medidos) y la app
+        ya enseñaba ese."""
+        from phases.phase_a import bitrate_kbps_de_mediainfo
+        v = {"Format": "HEVC", "BitRate": "7000000",
+             "StreamSize": "16380000000", "Duration": "19372.0"}
+        self.assertEqual(bitrate_kbps_de_mediainfo(v), 7000)
 
     def test_un_tamano_que_no_es_un_numero_no_rompe(self):
         from phases.phase_a import bitrate_kbps_de_mediainfo
-        v = {"BitRate": "80000000", "BitRate_Mode": "CBR", "StreamSize": "?", "Duration": "0"}
-        self.assertEqual(bitrate_kbps_de_mediainfo(v, "video"), 80000)
+        v = {"Format": "HEVC", "BitRate": "80000000", "BitRate_Mode": "CBR",
+             "StreamSize": "?", "Duration": "0"}
+        self.assertEqual(bitrate_kbps_de_mediainfo(v), 80000)
+
+    def test_un_avc_cbr_se_queda_con_su_nominal_como_con_la_21_09(self):
+        """MediaInfo ya daba el nominal de un AVC CBR antes de la 26.10: la
+        retransmisión deportiva de la regresión real sale 6000 con la 21.09 y
+        con la 26.10, y la media medida (5955) cambiaría lo que la app
+        enseñaba."""
+        from phases.phase_a import bitrate_kbps_de_mediainfo
+        avc = {"Format": "AVC", "BitRate": "6000000", "BitRate_Mode": "CBR",
+               "StreamSize": "16380000000", "Duration": "22005.348"}
+        self.assertEqual(bitrate_kbps_de_mediainfo(avc), 6000)
+        self.assertEqual(bitrate_kbps_de_mediainfo({**avc, "Format": "HEVC"}), 5954,
+                         "el mismo vídeo como HEVC sí se recalcula: lo que decide es el formato")
 
 
 class TestMetadataHdr(MkvAnalyzeCase):
