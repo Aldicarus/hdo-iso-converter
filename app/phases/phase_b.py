@@ -441,7 +441,7 @@ def _select_audio_tracks(
             parts_included = []
             if similar_quality:
                 parts_included.append(
-                    tr('phase_b.hay_p1_pista_p2_lang_lit_adicional', p1=len(similar_quality), p2='s' if len(similar_quality) > 1 else '', lang_lit=lang_lit, p4='es' if len(similar_quality) > 1 else '')
+                    _pistas_adicionales('misma_calidad', len(similar_quality), lang_lit)
                 )
             # Aviso "different_quality" solo cuando es Castellano y la
             # elegida no es la primera. Si la elegida ES la primera, no
@@ -449,7 +449,7 @@ def _select_audio_tracks(
             # VO, no avisamos: codec priority es fiable.
             if different_quality and not picked_is_first and es_preferido_principal:
                 parts_included.append(
-                    tr('phase_b.hay_p1_pista_p2_lang_lit_adicional', p1=len(different_quality), p2='s' if len(different_quality) > 1 else '', lang_lit=lang_lit, p4='es' if len(different_quality) > 1 else '')
+                    _pistas_adicionales('otra_calidad', len(different_quality), lang_lit)
                 )
 
             if parts_included:
@@ -520,6 +520,18 @@ def _select_audio_tracks(
             ))
 
     return included, discarded
+
+
+def _pistas_adicionales(calidad: str, n: int, lang_lit: str) -> str:
+    """El aviso de las pistas que se quedan fuera del mismo idioma.
+
+    `calidad` es `misma_calidad` (mismo códec y bitrate: la heurística no
+    puede elegir) u `otra_calidad`. Eran la MISMA frase —«con calidad técnica
+    distinta»— para las dos listas, y el plural se pegaba con sufijos
+    (`pista` + `s`, `adicional` + `es`): en inglés salía «trackses» y en
+    catalán «pistas addicionales». Un plural irregular va en dos claves."""
+    forma = "uno" if n == 1 else "varios"
+    return tr(f'phase_b.pistas_adicionales_{calidad}_{forma}', n=n, lang_lit=lang_lit)
 
 
 def _is_audio_ambiguous_with(a: RawAudioTrack, b: RawAudioTrack) -> bool:

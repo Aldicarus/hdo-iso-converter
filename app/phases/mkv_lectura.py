@@ -28,7 +28,7 @@ Tres decisiones que salieron de mirar los MKV del NAS, no de suponer:
 """
 from __future__ import annotations
 
-from i18n import t
+from i18n import numero, t
 
 #: Un pico que se aparta del máster declarado por debajo de este factor
 #: es un máster etiquetado conservador; por encima del otro, un RPU que
@@ -136,11 +136,11 @@ def _el_master(dv: dict, hdr: dict, q: dict) -> dict:
     objetivos = len(q.get("quality_l2_target_pqs") or [])
     if l8:
         partes.append(t("lectura.master_grading_l8",
-                        combos=f"{l8:,}".replace(",", "."),
+                        combos=numero(l8),
                         delta=q.get("quality_l8_max_delta") or 0))
     elif l2:
         partes.append(t("lectura.master_grading_l2",
-                        combos=f"{l2:,}".replace(",", "."),
+                        combos=numero(l2),
                         objetivos=objetivos))
     elif not q:
         partes.append(t("lectura.master_sin_analisis"))

@@ -1382,6 +1382,9 @@ function _trabajoModalPinta(a, vista) {
     wrap.classList.toggle('indeterminada', !a.terminal && !fase.pct_medido);
     fill.style.width = a.terminal ? '100%' : (fase.pct_medido ? `${fase.pct}%` : '');
     wrap.classList.toggle('terminada', !!a.terminal);
+    // Terminada, el color dice cómo acabó: una barra llena en gris sobre la
+    // pista oscura del modal se leía como vacía.
+    wrap.dataset.desenlace = a.terminal ? ((a.historial && a.historial.estado) || '') : '';
   }
   // El PASO dentro de la fase. Sin él la barra dice cuánto queda pero no de
   // qué: diez minutos de demux se ven igual que diez de merge.

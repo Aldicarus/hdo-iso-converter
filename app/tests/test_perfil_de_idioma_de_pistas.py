@@ -355,3 +355,48 @@ class TestElToggleDiceElPerfilDeVerdad(unittest.TestCase):
                             f"[{lengua}] `{clave}` nombra «{nombre}», que el "
                             f"perfil {prefs} NO conserva")
         self.assertEqual(fallos, [], "\n  · ".join([""] + fallos))
+
+
+class TestElAvisoDeLasPistasAdicionales(unittest.TestCase):
+    """El aviso de las pistas del mismo idioma que se quedan fuera.
+
+    Pegaba el plural con sufijos (`pista` + `s`, `adicional` + `es`): en
+    inglés salía «There are 3 extra English trackses», y lo enseñaba la
+    captura de la portada. Y las dos listas —misma calidad y calidad
+    distinta— decían las dos «con calidad técnica distinta»."""
+
+    def _aviso(self, cual: str, pistas) -> str:
+        with idioma(cual):
+            incluidas, _ = _select_audio_tracks(pistas, "English", False)
+        return incluidas[0].ambiguity_warning
+
+    # Dos TrueHD iguales: la heurística no puede elegir.
+    MISMA = [audio("English", "Dolby TrueHD/Atmos Audio", "7.1", 4500),
+             audio("English", "Dolby TrueHD/Atmos Audio", "7.1", 4500)]
+    # La buena no es la primera y las otras dos son peores. Este aviso solo
+    # sale en el idioma principal del perfil, así que va en el de cada uno.
+    @staticmethod
+    def otra(lang: str):
+        return [audio(lang), audio(lang, "Dolby TrueHD/Atmos Audio", "7.1", 4500),
+                audio(lang, ch="2.0", kbps=224)]
+
+    def test_la_misma_calidad_lo_dice_y_en_singular(self):
+        a = self._aviso("en", self.MISMA)
+        self.assertIn("There is 1 extra English track with the same technical quality", a)
+        self.assertIn("It may be a different edition", a)
+
+    def test_la_calidad_distinta_lo_dice_y_en_plural(self):
+        a = self._aviso("en", self.otra("English"))
+        self.assertIn("There are 2 extra English tracks with different technical quality", a)
+        self.assertNotIn("trackses", a)
+
+    def test_el_plural_catalan_no_se_pega_con_sufijos(self):
+        a = self._aviso("ca", self.otra("Catalan"))
+        self.assertIn("Hi ha 2 pistes", a)
+        self.assertIn("addicionals", a)
+        self.assertNotIn("pistas", a)
+
+    def test_en_castellano_dice_lo_de_siempre(self):
+        a = self._aviso("es", self.otra("Spanish"))
+        self.assertIn("Hay 2 pistas", a)
+        self.assertIn("adicionales con calidad técnica distinta", a)

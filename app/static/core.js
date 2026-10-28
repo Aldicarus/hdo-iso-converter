@@ -1220,7 +1220,7 @@ function buildProjectPanelHTML(pid) {
       <div class="section-header">
         <span class="section-icon"><span data-icono="grafico"></span></span>
         <div><div class="section-title" data-i18n="core.audio"></div><div class="section-subtitle" data-i18n="core.arrastra_para_reordenar_pulsa_la_cruz"></div></div>
-        <span class="section-badge" id="${pid}-audio-count" data-i18n="core.0_pistas"></span>
+        <span class="section-badge" id="${pid}-audio-count"></span>
       </div>
       <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
         <span style="color:var(--text-3)" data-i18n="core.modo"></span>
@@ -1245,7 +1245,7 @@ function buildProjectPanelHTML(pid) {
       <div class="section-header">
         <span class="section-icon"><span data-icono="etiqueta"></span></span>
         <div><div class="section-title" data-i18n="core.subtitulos"></div><div class="section-subtitle" data-i18n="core.arrastra_para_reordenar_pulsa_la_cruz"></div></div>
-        <span class="section-badge" id="${pid}-sub-count" data-i18n="core.0_pistas"></span>
+        <span class="section-badge" id="${pid}-sub-count"></span>
       </div>
       <div style="padding:0 16px 10px; display:flex; gap:6px; align-items:center; font-size:12px; flex-wrap:wrap">
         <span style="color:var(--text-3)" data-i18n="core.modo"></span>

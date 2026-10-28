@@ -6678,11 +6678,15 @@ input.cmv40-lookup-input:-webkit-autofill:active {
  *  Cuatro columnas: nivel · qué aporta · el bin · tu disco. La última es
  *  la que hace entendible el veredicto — enseña que L2 y L1 ya los tienes
  *  y que lo único que el bin añade de un humano es el L8.
+ *
+ *  La del bin parte su línea si hace falta: con `auto` se quedaba con su
+ *  ancho entero («2.251 ajustes · fuerza máxima 538 · en el 84 % de la
+ *  película») y «qué aporta» acababa en una palabra por renglón.
  */
 .cmv40-niveles {
   margin-top: 14px;
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto minmax(11em, 1fr) minmax(0, 2fr) auto;
   gap: 5px 14px;
   align-items: baseline;
 }
@@ -6720,11 +6724,12 @@ input.cmv40-lookup-input:-webkit-autofill:active {
   font-size: var(--fs-md);
   color: var(--text-1);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  white-space: nowrap;
+  min-width: 0;
 }
 .cmv40-nivel-extra { font-size: var(--fs-xs); color: var(--text-3); }
-/* «Tu disco» en gris: es contexto, no el dato que se consulta. */
-.cmv40-nivel-disco { color: var(--text-3); }
+/* «Tu disco» en gris: es contexto, no el dato que se consulta. Es corto
+   («6.061 ajustes») y no se parte; el del bin sí. */
+.cmv40-nivel-disco { color: var(--text-3); white-space: nowrap; }
 
 /* ── La navegación de secciones del modal de Configuración ───────────────
  *
@@ -11138,10 +11143,17 @@ span[data-icono] {
 /* Un trabajo terminado se puede seleccionar para desplegar sus acciones. */
 
 /* Un trabajo terminado: la barra llena y en el color del desenlace, no una
-   azul a medias que sugiera que sigue. */
+   azul a medias que sugiera que sigue. Verde si salió bien y roja si falló;
+   lo cancelado o interrumpido, en gris, que no tiene resultado que contar. */
 .trabajo-progreso-track.terminada .trabajo-progreso-fill {
   background: #3a4459;
   animation: none;
+}
+.trabajo-progreso-track.terminada[data-desenlace="done"] .trabajo-progreso-fill {
+  background: rgba(var(--green-rgb), .6);
+}
+.trabajo-progreso-track.terminada[data-desenlace="error"] .trabajo-progreso-fill {
+  background: rgba(var(--red-rgb), .6);
 }
 .trabajo-detalle-nota {
   margin-top: 12px; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.5;

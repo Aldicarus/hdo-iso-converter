@@ -6250,5 +6250,131 @@
   "modulos": [
    "test_cmv40_fases_cgh"
   ]
+ },
+ {
+  "id": "T7P-1 la insignia de pistas vuelve a llevar un data-i18n que el pintor repinta",
+  "fichero": "app/static/core.js",
+  "viejo": "<span class=\"section-badge\" id=\"${pid}-audio-count\"></span>",
+  "nuevo": "<span class=\"section-badge\" id=\"${pid}-audio-count\" data-i18n=\"tab1.ejecutar\"></span>",
+  "modulos": [
+   "test_las_tres_lenguas_en_pantalla"
+  ]
+ },
+ {
+  "id": "T7P-2 la etiqueta de luminancia de Tab 2 vuelve a ser un literal castellano",
+  "fichero": "app/static/tab2.js",
+  "viejo": "{ txt: tr('tab2.chip_luminancia'),",
+  "nuevo": "{ txt: 'Luz',",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T7P-3 el aviso de pistas adicionales pierde el singular",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "    forma = \"uno\" if n == 1 else \"varios\"\n",
+  "nuevo": "    forma = \"varios\"\n",
+  "modulos": [
+   "test_perfil_de_idioma_de_pistas"
+  ]
+ },
+ {
+  "id": "T7P-4 las pistas de la misma calidad vuelven a decir calidad distinta",
+  "fichero": "app/phases/phase_b.py",
+  "viejo": "_pistas_adicionales('misma_calidad', len(similar_quality), lang_lit)",
+  "nuevo": "_pistas_adicionales('otra_calidad', len(similar_quality), lang_lit)",
+  "modulos": [
+   "test_perfil_de_idioma_de_pistas"
+  ]
+ },
+ {
+  "id": "T7P-5 el porqué del upgrade vuelve a la frase fija",
+  "fichero": "app/phases/cmv40_relato.py",
+  "viejo": "        if accion in (\"drop_in\", \"merge\") and motivo:\n            return motivo\n",
+  "nuevo": "",
+  "modulos": [
+   "test_relato"
+  ]
+ },
+ {
+  "id": "T7N-1 el número vuelve a los separadores castellanos fijos",
+  "fichero": "app/i18n.py",
+  "viejo": "    sep_miles, sep_decimal = _SEPARADORES.get(idioma_activo(),\n",
+  "nuevo": "    sep_miles, sep_decimal = _SEPARADORES.get(IDIOMA_POR_DEFECTO,\n",
+  "modulos": [
+   "test_numeros_en_su_idioma"
+  ]
+ },
+ {
+  "id": "T7N-2 los combos del máster vuelven al punto de miles fijo",
+  "fichero": "app/phases/mkv_lectura.py",
+  "viejo": "                        combos=numero(l8),\n",
+  "nuevo": "                        combos=f\"{l8:,}\".replace(\",\", \".\"),\n",
+  "modulos": [
+   "test_numeros_en_su_idioma"
+  ]
+ },
+ {
+  "id": "T7N-3 los frames del relato vuelven al punto de miles fijo",
+  "fichero": "app/phases/cmv40_relato.py",
+  "viejo": "n=numero(frames)",
+  "nuevo": "n=f\"{frames:,}\".replace(\",\", \".\")",
+  "modulos": [
+   "test_numeros_en_su_idioma"
+  ]
+ },
+ {
+  "id": "T7N-4 el progreso de ffmpeg vuelve al punto de miles fijo",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    return numero(n)\n",
+  "nuevo": "    return f\"{n:,}\".replace(\",\", \".\")\n",
+  "modulos": [
+   "test_numeros_en_su_idioma"
+  ]
+ },
+ {
+  "id": "T7N-5 los GB del pipeline vuelven a la coma fija",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "    return f\"{numero(n / 1e9, 1, miles=False)} GB\"\n",
+  "nuevo": "    return f\"{n / 1e9:.1f} GB\".replace(\".\", \",\")\n",
+  "modulos": [
+   "test_numeros_en_su_idioma"
+  ]
+ },
+ {
+  "id": "T7N-6 la copia de Tab 2 vuelve al «de» castellano",
+  "fichero": "app/routers/tab2.py",
+  "viejo": "        \"paso\": (tr('tab2.copiado_de_total', copiado=_gb(st.get('bytes_copied')),\n                    total=_gb(st.get('total_bytes')))\n",
+  "nuevo": "        \"paso\": (f\"{_gb(st.get('bytes_copied'))} de {_gb(st.get('total_bytes'))}\"\n",
+  "modulos": [
+   "test_numeros_en_su_idioma"
+  ]
+ },
+ {
+  "id": "T7B-1 la barra terminada pierde el color del desenlace",
+  "fichero": "app/static/workbar.js",
+  "viejo": "    wrap.dataset.desenlace = a.terminal ? ((a.historial && a.historial.estado) || '') : '';\n",
+  "nuevo": "",
+  "modulos": [
+   "test_modal_de_trabajo"
+  ]
+ },
+ {
+  "id": "T7B-2 la rejilla de niveles vuelve a dar al bin todo su ancho",
+  "fichero": "app/static/style.css",
+  "viejo": "  grid-template-columns: auto minmax(11em, 1fr) minmax(0, 2fr) auto;\n",
+  "nuevo": "  grid-template-columns: auto 1fr auto auto;\n",
+  "modulos": [
+   "test_cmv40_tabla_de_niveles"
+  ]
+ },
+ {
+  "id": "T7B-3 el valor del bin vuelve a no partirse",
+  "fichero": "app/static/style.css",
+  "viejo": "  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  min-width: 0;\n}",
+  "nuevo": "  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  white-space: nowrap;\n}",
+  "modulos": [
+   "test_cmv40_tabla_de_niveles"
+  ]
  }
 ]

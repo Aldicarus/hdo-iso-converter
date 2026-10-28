@@ -591,3 +591,27 @@ class TestNadieVuelveADerivarloAMano(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElPorqueDelUpgradeEsElDeLaRecomendacion(unittest.TestCase):
+    """El porqué de un bin con ajustes de colorista era una frase fija —«no
+    coincide en formato con el MKV de origen: el RPU se recompone conservando
+    la metadata existente»—, y en un merge FEL con los dos másters
+    concordantes decía lo contrario que la etiqueta de al lado («merge: L1,
+    L2 y L6 del bin»). Lo enseñaba la captura de la portada."""
+
+    def test_cuenta_el_mismo_motivo_que_la_recomendacion(self):
+        from phases.cmv40_relato import resolver
+        from phases.cmv40_strategy import resolve_plan
+        from phases.rpu_analyze import recommend_action
+        for wf, tipo, trust in (("p7_fel", "trusted_p7_fel_final", True),
+                                ("p7_fel", "trusted_p7_fel_final", False),
+                                ("p7_mel", "trusted_p7_mel_final", True),
+                                ("p8", "trusted_p8_source", True)):
+            s = sesion(**bin_analizado("real"), source_workflow=wf, target_type=tipo,
+                       target_trust_ok=trust, target_preflight_ok=True, phase="done",
+                       source_l2_unique_count=12, target_l2_unique_count=12)
+            accion, _, motivo = recommend_action(s)
+            with self.subTest(wf=wf, trust=trust, accion=accion):
+                self.assertIn(accion, ("drop_in", "merge"))
+                self.assertEqual(resolver(s, plan=resolve_plan(s))["porque"], motivo)

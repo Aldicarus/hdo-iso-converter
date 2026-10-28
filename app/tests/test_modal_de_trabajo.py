@@ -148,11 +148,25 @@ console.log(JSON.stringify({{
   cuerpo: _els['trabajo-modal-cuerpo'].innerHTML,
   indeterminada: _els['trabajo-modal-barra-wrap'].classList.has('indeterminada'),
   anchoBarra: _els['trabajo-modal-barra'].style.width,
+  desenlace: _els['trabajo-modal-barra-wrap'].dataset.desenlace,
   copiar: _els['trabajo-modal-copiar'].style.display,
   cancelar: _els['trabajo-modal-cancelar'].style.display,
 }}));
 """
         return _node(guion)
+
+    def test_terminado_la_barra_lleva_el_color_de_como_acabo(self):
+        """Llena y en gris sobre la pista oscura del modal, la barra de un
+        trabajo terminado se leía como vacía (lo vio la captura de la
+        portada, 2026-10-28). El color sale del desenlace del historial."""
+        for estado in ("done", "error", "cancelled"):
+            with self.subTest(estado=estado):
+                a = dict(ACTIVO, terminal=True, historial={"estado": estado})
+                r = self._pintar(a, {"pasos": []})
+                self.assertEqual(r["anchoBarra"], "100%")
+                self.assertEqual(r["desenlace"], estado)
+        r = self._pintar(ACTIVO, {"pasos": []})
+        self.assertEqual(r["desenlace"], "", "en curso no hay desenlace")
 
     def test_la_cabecera_dice_la_FASE_no_el_nombre_del_fichero(self):
         """El nombre del MKV lo enseña la cartela de la columna. Ponerlo

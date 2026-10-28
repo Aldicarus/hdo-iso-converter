@@ -26,7 +26,7 @@ combinaciones se recorren en un test en milisegundos.
 from __future__ import annotations
 
 import relato
-from i18n import t as tr
+from i18n import numero, t as tr
 
 # ── Las ocho etapas, en orden, con su rótulo ────────────────────────────────
 #
@@ -202,7 +202,7 @@ def _dv(info) -> str:
     if cm:
         trozos.append(f"CM {cm}")
     if frames:
-        trozos.append(tr('relato.n_frames', n=f"{frames:,}".replace(",", ".")))
+        trozos.append(tr('relato.n_frames', n=numero(frames)))
     return " · ".join(trozos)
 
 
@@ -328,9 +328,22 @@ def _porque(session, situacion: str, plan) -> str:
         return tr('relato.porque_error')
     if session.preflight_user_choice == "inject" and clase != "real":
         return tr('relato.porque_forzaste')
-    if clase == "real" and plan is not None and plan.drop_in:
-        return tr('relato.porque_drop_in')
     if clase == "real":
+        # El motivo es el de la recomendación, que dice por qué esta ruta y
+        # qué niveles salen de cada RPU. Era una frase fija —«no coincide en
+        # formato… conservando la metadata existente»— que en un merge FEL
+        # con los dos másters concordantes decía lo contrario de la etiqueta
+        # de al lado («merge: L1, L2 y L6 del bin»). Salió en la captura de la
+        # portada; el 27 de octubre se había arreglado solo en el motivo.
+        from phases.rpu_analyze import recommend_action
+        try:
+            accion, _etiqueta, motivo = recommend_action(session)
+        except Exception:                               # noqa: BLE001
+            accion, motivo = "", ""
+        if accion in ("drop_in", "merge") and motivo:
+            return motivo
+        if plan is not None and plan.drop_in:
+            return tr('relato.porque_drop_in')
         return tr('relato.porque_merge')
     return ""
 

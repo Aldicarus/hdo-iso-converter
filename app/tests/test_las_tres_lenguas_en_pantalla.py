@@ -1142,6 +1142,20 @@ class TestLasPantallasRealesEnLosTresIdiomas(unittest.TestCase):
                 self.assertEqual(self.vistas[idioma]["errores"], [])
                 self.assertGreaterEqual(len(self.vistas[idioma]["pantallas"]), 15)
 
+    def test_el_contador_de_pistas_dice_las_que_hay(self):
+        """La insignia de Audio y de Subtítulos llevaba `data-i18n="0 pistas"`
+        y su texto lo escribe `updateTrackCounts`: el pintor del catálogo la
+        repintaba al insertarse el panel y se quedaba en «0 pistas» con las
+        pistas listadas debajo. Salía así en la captura vieja de la portada."""
+        for idioma in ("es", "en", "ca"):
+            with self.subTest(idioma=idioma):
+                cat = json.loads((APP_DIR / "static" / "i18n" / f"{idioma}.json").read_text(encoding="utf-8"))
+                patron = re.escape(cat["tab1.n_incluidas_n_descartadas"])
+                patron = patron.replace(r"\{inc\}", r"(\d+)").replace(r"\{disc\}", r"(\d+)")
+                texto = self.vistas[idioma]["pantallas"]["tab1·panel_de_proyecto"]["texto"]
+                cuentas = re.findall(patron, texto)
+                self.assertEqual(len(cuentas), 2, f"sin contador de audio y de subtítulos: {texto[:300]}")
+
     def test_el_chip_de_procedencia_se_lee_en_su_idioma(self):
         """El fixture de Tab 2 lleva `hecho_con_esta_app`, así que el chip
         tiene que salir — y con el texto de su catálogo, no con la clave.

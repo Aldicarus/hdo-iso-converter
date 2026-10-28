@@ -29,7 +29,7 @@ Tres piezas conviven en el fichero:
 El contrato HTTP está fijado en `tests/test_endpoints_tab1_tab2.py`, y que
 las URLs no cambien con este movimiento, en `test_rutas_no_cambian.py`.
 """
-from i18n import t as tr
+from i18n import numero, t as tr
 import firma
 import asyncio
 import json
@@ -1888,7 +1888,7 @@ _PASOS_COPIA = (
 
 
 def _gb(n) -> str:
-    return f"{(n or 0) / 1024 ** 3:.1f} GB"
+    return f"{numero((n or 0) / 1024 ** 3, 1, miles=False)} GB"
 
 
 def _copia_adaptador(trabajo) -> dict | None:
@@ -1906,7 +1906,8 @@ def _copia_adaptador(trabajo) -> dict | None:
         "fase_label": (lambda c: tr(c) if c else "")(
             dict(_PASOS_COPIA).get(paso, "")),
         # Los bytes son el paso: una barra al 40 % no dice si quedan 3 GB o 30.
-        "paso": (f"{_gb(st.get('bytes_copied'))} de {_gb(st.get('total_bytes'))}"
+        "paso": (tr('tab2.copiado_de_total', copiado=_gb(st.get('bytes_copied')),
+                    total=_gb(st.get('total_bytes')))
                  if paso == "copying" and st.get("total_bytes")
                  else st.get("step_label") or ""),
         "fase_n": ids.index(paso) + 1 if paso in ids else 0,

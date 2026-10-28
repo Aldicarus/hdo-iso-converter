@@ -357,6 +357,18 @@ class TestLaListaSePinta(ColumnaEnNode):
         self.assertIn(">Luz<", r)
         self.assertIn("apagado", r)          # Luz no la tiene
 
+    def test_las_etiquetas_de_análisis_hablan_el_idioma_de_la_app(self):
+        """«Luz» era un literal en el JS y salía en castellano con la app en
+        inglés. Lo tapaba su tamaño: el detector de castellano suelto mira
+        palabras de cuatro letras o más (lo vio la captura de la portada)."""
+        en = (APP_DIR / "static" / "i18n" / "en.json").read_text(encoding="utf-8")
+        r = self.evaluar(self.salida(
+            "tarjetas()[0].innerHTML",
+            f"Object.assign(_catalogo, {en});\n"
+            "cargar([entrada('Dune.mkv', {tiene_extendido: true, tiene_luminancia: true})]);"))
+        self.assertIn(">Luminance<", r)
+        self.assertNotIn(">Luz<", r)
+
     def test_los_tags_del_nombre_salen_del_título_y_pasan_a_etiquetas(self):
         """Van al final del nombre, o sea que eran lo primero que se comía el
         recorte por la derecha — y son lo que distingue una versión de otra."""

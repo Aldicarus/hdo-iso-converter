@@ -14,7 +14,7 @@ Fases (ver CMv40Phase en models.py):
 Cada fase escribe artefactos en /mnt/tmp/cmv40/{session_id}/ y actualiza
 el estado de la sesión. Las fases largas streaman progreso via callback.
 """
-from i18n import t as tr
+from i18n import numero, t as tr
 import asyncio
 import contextvars
 import json
@@ -1166,13 +1166,13 @@ _FFMPEG_FRAME_RE = re.compile(r"frame=\s*(\d+)")
 
 
 def _fmt_miles(n: int) -> str:
-    """58601 → '58.601' (separador de miles español)."""
-    return f"{n:,}".replace(",", ".")
+    """58601 → '58.601' en castellano, '58,601' en inglés."""
+    return numero(n)
 
 
 def _fmt_dec(x: float, n: int = 2) -> str:
-    """11.6 → '11,6' (coma decimal española, como el resto del log)."""
-    return f"{x:.{n}f}".replace(".", ",")
+    """11.6 → '11,60' en castellano, '11.60' en inglés."""
+    return numero(x, n, miles=False)
 
 
 def _fmt_ffmpeg_frame(line: str, total: int = 0) -> str:
@@ -1283,10 +1283,11 @@ def _widen_pipe(write_fd: int) -> int:
 
 
 def _gb(n: float) -> str:
-    """Bytes → '73,2 GB'. GB decimales (1e9) y coma decimal, la misma unidad
-    que la línea de cierre de la fase: mezclarla con GiB hacía que el mismo
-    fichero apareciera como 67,8 GB mientras crecía y 73,2 GB al terminar."""
-    return f"{n / 1e9:.1f} GB".replace(".", ",")
+    """Bytes → '73,2 GB'. GB decimales (1e9), la misma unidad que la línea de
+    cierre de la fase: mezclarla con GiB hacía que el mismo fichero apareciera
+    como 67,8 GB mientras crecía y 73,2 GB al terminar. El decimal, el del
+    idioma."""
+    return f"{numero(n / 1e9, 1, miles=False)} GB"
 
 
 def _proc_rchar(pid: int) -> int | None:
@@ -5341,7 +5342,7 @@ def _resumen_del_mkv(mkvmerge_json: str, info, ruta) -> list[str]:
     dv = tr('cmv40_pipeline.resumen_dv', perfil=info.profile,
             el=(' ' + info.el_type) if info.el_type else '',
             cm=info.cm_version,
-            frames=f"{info.frame_count:,}".replace(",", "."))
+            frames=numero(info.frame_count))
     try:
         pistas = (_json.loads(mkvmerge_json or "{}") or {}).get("tracks") or []
     except ValueError:

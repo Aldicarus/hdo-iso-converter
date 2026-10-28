@@ -3684,7 +3684,7 @@ function _renderMkvRecientes() {
         tooltip: r.tiene_extendido
           ? tr('tab2.combos_l8_l2_del_rpu_ya')
           : tr('tab2.sin_analisis_rpu_luz_el_boton') },
-      { txt: 'Luz', tono: r.tiene_luminancia ? 'verde' : '', apagado: !r.tiene_luminancia,
+      { txt: tr('tab2.chip_luminancia'), tono: r.tiene_luminancia ? 'verde' : '', apagado: !r.tiene_luminancia,
         tooltip: r.tiene_luminancia
           ? tr('tab2.tiene_perfil_de_luminancia_sirve_para')
           : tr('tab2.sin_perfil_de_luminancia') },

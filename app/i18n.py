@@ -108,6 +108,24 @@ def t(clave: str, /, **params: Any) -> str:
     return txt
 
 
+# Los separadores de cada idioma: (miles, decimal). En inglés «2.251» se lee
+# como dos coma algo, así que un número del log no puede llevar el punto de
+# miles castellano fijo, que es lo que hacían los formateadores del pipeline.
+_SEPARADORES = {"es": (".", ","), "ca": (".", ","), "en": (",", ".")}
+
+
+def numero(x: float, decimales: int = 0, *, miles: bool = True) -> str:
+    """`x` con los separadores del idioma activo: 2.251 / 2,251 y 11,6 / 11.6.
+
+    `miles=False` deja sin agrupar la parte entera, que es como iban los
+    decimales del log (`73,2 GB`, `1500,0 s`).
+    """
+    sep_miles, sep_decimal = _SEPARADORES.get(idioma_activo(),
+                                              _SEPARADORES[IDIOMA_POR_DEFECTO])
+    texto = f"{x:{',' if miles else ''}.{decimales}f}"
+    return texto.translate(str.maketrans({",": sep_miles, ".": sep_decimal}))
+
+
 def hay_texto(clave: str) -> bool:
     """¿Existe la clave? Para ramas que deciden sin ensuciar `_ausentes`."""
     return clave in _catalogo(idioma_activo()) or clave in _catalogo(IDIOMA_POR_DEFECTO)
