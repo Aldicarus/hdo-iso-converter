@@ -14,9 +14,11 @@ Aquí se busca por contenido en las tres carpetas que la app puede abrir
 (`paths.LIBRARY_ROOTS`) y, si aparece, `storage.repoint_mkv_cache` pone la
 ruta al día. Medido en el NAS el 2026-10-27: la columna tenía 10 MKV y 3 «no
 encontrados», los tres de Output y con el análisis extendido del precache de
-CMv4.0; dos estaban en la biblioteca con el tamaño exacto, y el tercero no es
-un movimiento —el fichero analizado ya no existe—. La biblioteca son 212
-carpetas y 1.639 MKV, y recorrerla solo por metadatos tarda ~0,2 s.
+CMv4.0; dos estaban en la biblioteca y el tercero en Downloaded, los tres con
+el tamaño exacto (el tercero se había dado por borrado al buscarlo a mano por
+el nombre: en la biblioteca había otro MKV del mismo título, de otro tamaño).
+La biblioteca son 212 carpetas y 1.639 MKV, y recorrerla solo por metadatos
+tarda ~0,2 s.
 
 Decisiones que no son obvias:
 

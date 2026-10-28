@@ -413,10 +413,11 @@ hecho con el MKV en Output y el usuario lo mueve acto seguido. Lo único que lo
 arreglaba era abrirlo desde su sitio nuevo con «Abrir MKV» (el cache hit
 reapunta, `repoint_mkv_cache`), y nada lo decía. Medido en el NAS el
 2026-10-27: **3 de los 10 MKV de la columna**, los tres de Output con el
-extendido del precache; dos estaban en la biblioteca con el tamaño exacto, y
-el tercero no era un movimiento (el MKV analizado se usó en Multiplexar y se
-borró; el de la biblioteca es otro fichero, de otro tamaño), así que sigue
-marcado, que es lo correcto.
+extendido del precache; dos estaban en la biblioteca y el tercero en
+Downloaded, los tres con el tamaño exacto. Ese tercero se dio por borrado al
+medirlo a mano —en la biblioteca había otro Toy Story 5, el multiplexado, de
+otro tamaño, y se buscó por nombre— y la búsqueda lo encontró en cuanto se
+desplegó (2026-10-28): es justo el error que buscar por contenido evita.
 
 Ahora `GET /api/mkv/recientes` busca lo que no está en su ruta en las tres
 carpetas que la app puede abrir (`paths.LIBRARY_ROOTS`) y lo reapunta. La
