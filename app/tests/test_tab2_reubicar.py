@@ -216,6 +216,22 @@ class TestLaColumnaEncuentraElMkvMovido(ReubicarCase):
         self.assertFalse(t["existe"])
         self.assertFalse(t["buscado"], "no haberlo podido leer no es haberlo descartado")
 
+    def test_un_candidato_que_desaparece_al_leerlo_no_concluye(self):
+        """Lo vio el recorrido y, al ir a leerlo, ya no estaba: lo están
+        moviendo, quizá a una carpeta ya recorrida. `compute_mkv_fingerprint`
+        devuelve None, y eso no es «otro contenido» —se concluía que no está—
+        (revisión de Codex del 2026-10-28)."""
+        viejo = self.mkv(self.output_dir / "Dune.mkv", "dune")
+        fp = self.analizado(viejo)
+        self.mover(viejo, self.library_dir / "Dune.mkv")
+        original = self.storage.compute_mkv_fingerprint
+        self.storage.compute_mkv_fingerprint = lambda ruta: None
+        self.addCleanup(setattr, self.storage, "compute_mkv_fingerprint", original)
+        t = self.tarjeta(self.pedir(), "Dune.mkv")
+        self.assertFalse(t["existe"])
+        self.assertFalse(t["buscado"], "uno que se está moviendo no es uno que no está")
+        self.assertFalse(self.reubicar.buscado_sin_exito(fp["sha256_1mb"]))
+
     def test_una_carpeta_de_la_app_que_falta_no_concluye(self):
         """Un montaje caído es una carpeta sin mirar, no una carpeta vacía."""
         import paths
@@ -365,6 +381,26 @@ class TestLaColumnaEncuentraElMkvMovido(ReubicarCase):
         self.addCleanup(setattr, self.reubicar, "_mkv_por_tamano", original)
         self.pedir()
         self.assertEqual(len(llamadas), 2, "la versión vieja se busca en una segunda pasada")
+        self.assertTrue((self.audits / f"{fp_viejo['sha256_1mb']}.json").exists())
+
+    def test_la_versión_vieja_que_desaparece_al_leerla_no_se_olvida(self):
+        """La segunda pasada encuentra la versión vieja archivada y, al ir a
+        leerla, ya no está ahí: se está moviendo. Sin concluir, su análisis se
+        queda; antes se olvidaba el de un MKV que existe (revisión de Codex
+        del 2026-10-28)."""
+        en_biblioteca = self.mkv(self.library_dir / "Dune.mkv", "version vieja", tamano=6000)
+        fp_viejo = self.analizado(en_biblioteca, cuando="2026-09-01T10:00:00+00:00")
+        nuevo = self.mkv(self.output_dir / "Dune.mkv", "version nueva")
+        self.analizado(nuevo)
+        self.mover(en_biblioteca, self.library_dir / "Archivo" / "Dune.mkv")
+        self.mover(nuevo, self.library_dir / "Dune.mkv")
+        original = self.storage.compute_mkv_fingerprint
+
+        def _la_archivada_se_esta_moviendo(ruta):
+            return None if Path(ruta).parent.name == "Archivo" else original(ruta)
+        self.storage.compute_mkv_fingerprint = _la_archivada_se_esta_moviendo
+        self.addCleanup(setattr, self.storage, "compute_mkv_fingerprint", original)
+        self.pedir()
         self.assertTrue((self.audits / f"{fp_viejo['sha256_1mb']}.json").exists())
 
     def test_las_demás_entradas_no_se_tocan(self):

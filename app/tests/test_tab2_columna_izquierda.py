@@ -561,6 +561,63 @@ class TestLoQueElServidorEncontróEnOtraCarpeta(ColumnaEnNode):
             """))
         self.assertEqual(r, "/mnt/library/Copia/Dune.mkv")
 
+    def test_una_cadena_de_dos_no_mueve_una_pestaña_sin_huella_dos_veces(self):
+        """La versión que ocupaba la ruta nueva también se movió: P→Q y Q→R
+        en la misma respuesta. La pestaña de P pasaba a Q y de ahí a R, al MKV
+        de otro; y la de Q, sin huella, no puede saber si es la que se fue o la
+        que llegó (revisión de Codex del 2026-10-28)."""
+        r = self.evaluar(self.salida("openMkvProjects.map(p => p.filePath)", """
+            openMkvProjects.push({id: 'p1', filePath: '/mnt/library/P.mkv', fileName: 'P.mkv',
+              analysis: {file_path: '/mnt/library/P.mkv'}});
+            openMkvProjects.push({id: 'p2', filePath: '/mnt/library/Q.mkv', fileName: 'Q.mkv',
+              analysis: {file_path: '/mnt/library/Q.mkv'}});
+            globalThis.__respuesta = {recientes: [], total: 0, reubicados: [
+              {nombre: 'Q.mkv', antes: '/mnt/library/P.mkv', ahora: '/mnt/library/Q.mkv', huella: 'h1'},
+              {nombre: 'R.mkv', antes: '/mnt/library/Q.mkv', ahora: '/mnt/library/R.mkv', huella: 'h2'}]};
+            await refrescarMkvRecientes();
+            """))
+        self.assertEqual(r, ["/mnt/library/Q.mkv", "/mnt/library/Q.mkv"])
+
+    def test_los_avisos_escapan_el_nombre_del_fichero(self):
+        """`showToast` pinta HTML, y el nombre es el de un fichero del usuario
+        (revisión de Codex del 2026-10-28)."""
+        r = self.evaluar(self.salida("__toasts.map(t => t.msg)", """
+            const raro = '<img src=x onerror=alert(1)>.mkv';
+            globalThis.__respuesta = {recientes: [], total: 0, reubicados: [
+              {nombre: raro, antes: '/mnt/output/a.mkv', ahora: '/mnt/library/a.mkv'}]};
+            await refrescarMkvRecientes();
+            cargar([entrada(raro, {existe: false})]);
+            globalThis.__respuesta = {recientes: [entrada(raro, {existe: false, buscado: true})],
+                                      total: 1, reubicados: []};
+            await _mkvVolverABuscar(_mkvRecientes[0]);
+            """))
+        self.assertEqual(len(r), 2, r)
+        for msg in r:
+            self.assertNotIn("<img", msg)
+            self.assertIn("&lt;img", msg)
+
+    def test_una_respuesta_vieja_no_pisa_la_lista_nueva(self):
+        """La petición automática sale antes y vuelve después que la de
+        «Volver a buscar»: pintaba la lista de antes de reubicar (revisión de
+        Codex del 2026-10-28). Lo reubicado que traiga se recoge igual: el
+        servidor no lo repite."""
+        r = self.evaluar(self.salida(
+            "({rutas: _mkvRecientes.map(x => x.ruta), avisos: __toasts.length})", """
+            const pendientes = [];
+            apiFetch = (url, opts) => new Promise(res => pendientes.push(res));
+            const vieja = refrescarMkvRecientes();
+            const nueva = refrescarMkvRecientes({buscar: true});
+            pendientes[1]({recientes: [entrada('Dune.mkv', {ruta: '/mnt/library/Pelis/Dune.mkv'})],
+                           total: 1, reubicados: []});
+            await nueva;
+            pendientes[0]({recientes: [entrada('Dune.mkv', {ruta: '/mnt/output/Dune.mkv', existe: false})],
+                           total: 1, reubicados: [{nombre: 'Otra.mkv', antes: '/mnt/output/Otra.mkv',
+                                                   ahora: '/mnt/library/Otra.mkv'}]});
+            await vieja;
+            """))
+        self.assertEqual(r["rutas"], ["/mnt/library/Pelis/Dune.mkv"])
+        self.assertEqual(r["avisos"], 1, "lo reubicado de la respuesta vieja se dice")
+
     def test_el_refresco_normal_no_fuerza_la_búsqueda(self):
         r = self.evaluar(self.salida("__peticiones", """
             globalThis.__respuesta = {recientes: [], total: 0, reubicados: []};

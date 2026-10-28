@@ -545,8 +545,8 @@
  {
   "id": "T3 G no espera al adelanto si el mux lanza",
   "fichero": "app/phases/cmv40_pipeline.py",
-  "viejo": "    except BaseException:\n        await _parar_el_adelanto()\n        raise",
-  "nuevo": "    except BaseException:\n        raise",
+  "viejo": "    except BaseException:\n        await _parar_el_adelanto()\n        raise\n    if rc not in (0, 1):",
+  "nuevo": "    except BaseException:\n        raise\n    if rc not in (0, 1):",
   "modulos": [
    "test_cmv40_cancelar_no_deja_procesos"
   ]
@@ -3766,8 +3766,8 @@
  {
   "id": "T4-2 un cambio rechazado no se deshace",
   "fichero": "app/static/mux.js",
-  "viejo": "  if (rechazado) await _muxLeer(project);",
-  "nuevo": "  if (rechazado && false) await _muxLeer(project);",
+  "viejo": "    project._desincronizado = true;\n    await _muxLeer(project);\n",
+  "nuevo": "    project._desincronizado = true;\n",
   "modulos": [
    "test_tab4_multiplexar"
   ]
@@ -4820,8 +4820,8 @@
  {
   "id": "T4X-1 los capítulos van tal cual aunque alguno caiga fuera",
   "fichero": "app/phases/mux_plan.py",
-  "viejo": "    if any(x[\"queda\"] != \"ok\" for x in caps.get(\"lista\") or []):\n        return None\n    return f",
-  "nuevo": "    return f",
+  "viejo": "    if any(x[\"queda\"] != \"ok\" for x in caps.get(\"lista\") or []):\n        return None\n",
+  "nuevo": "",
   "modulos": [
    "test_mux_plan"
   ]
@@ -5961,6 +5961,222 @@
   "nuevo": "                    and abs((q.get(\"quality_total_frames_rpu\") or 0) - frames) <= 20):",
   "modulos": [
    "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-1 sin MediaInfo la cadencia se da por fija",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "                       else mux_plan.CADENCIA_SIN_COMPROBAR),",
+  "nuevo": "                       else \"\"),",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T5X-2 la cadencia sin comprobar no bloquea",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "            if cadencia_sin_comprobar(proyecto.fuentes[v]):\n                motivo(\"cadencia_sin_comprobar\")\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T5X-3 un anidado detrás del final va sin recortar",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "        if any(o.ultimo_anidado_ns is not None and o.ultimo_anidado_ns >= fin_ns\n               for _, o in elegidos):\n            return None\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T5X-4 el último anidado no se lee",
+  "fichero": "app/phases/mux_plan.py",
+  "viejo": "                \"ultimo_anidado_ns\": max(inicios) if inicios else None,",
+  "nuevo": "                \"ultimo_anidado_ns\": None,",
+  "modulos": [
+   "test_mux_plan"
+  ]
+ },
+ {
+  "id": "T5X-5 la Fase B borra el fichero de trabajo de otro",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    if trabajo.exists() and str(trabajo) != (proyecto.trabajo_propio or \"\"):\n        raise RuntimeError(tr('mux.trabajo_de_otro', nombre=trabajo.name))\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-6 el fichero de trabajo no se apunta como propio",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                q.trabajo_propio = str(ruta)\n",
+  "nuevo": "                pass\n",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-7 el arranque borra el fichero de trabajo de otro",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                    if p.trabajo_propio == str(trabajo):",
+  "nuevo": "                    if True:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-8 un fichero de trabajo publicado sigue apuntado como propio",
+  "fichero": "app/routers/mux.py",
+  "viejo": "                if validacion is None or estado_final == \"done\":\n                    q.trabajo_propio = None\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-9 el riesgo se acepta con una medida en curso",
+  "fichero": "app/routers/mux.py",
+  "viejo": "            if (body.acepta_riesgo and viva\n",
+  "nuevo": "            if (body.acepta_riesgo and viva and False\n",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-10 la Fase C juzga contra la pareja de ahora",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    pareja = pareja_medida(proyecto) or pareja_de(proyecto)",
+  "nuevo": "    pareja = pareja_de(proyecto)",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-11 cancelar con el MKV publicado se acepta",
+  "fichero": "app/routers/mux.py",
+  "viejo": "    if _progreso.get(\"id\") == project_id and _progreso.get(\"publicado\"):",
+  "nuevo": "    if _progreso.get(\"id\") == project_id and False:",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-12 la Fase C no avisa de que publicó",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    if al_publicar:\n        al_publicar()\n",
+  "nuevo": "",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-13 Limpieza ofrece el fichero de un multiplexado en curso",
+  "fichero": "app/main.py",
+  "viejo": "if s.get(\"nombre_salida\") and s.get(\"status\") in (\"queued\", \"running\")}",
+  "nuevo": "if s.get(\"nombre_salida\") and s.get(\"status\") in ()}",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
+ },
+ {
+  "id": "T5X-14 un candidato que desaparece cuenta como otro contenido",
+  "fichero": "app/phases/mkv_reubicar.py",
+  "viejo": "                if fp is None:\n",
+  "nuevo": "                if fp is None and False:\n",
+  "modulos": [
+   "test_tab2_reubicar"
+  ]
+ },
+ {
+  "id": "T5X-15 la cadencia ilegible se toma por no declarada",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        raise RuntimeError(tr('cmv40_pipeline.cadencia_ilegible', nombre=Path(mkv).name,\n                              error=str(e)[:200])) from e",
+  "nuevo": "        return None",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T5X-16 la ficha se aplica aunque se haya guardado algo detrás",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (version != null && (project._version || 0) === version\n        && !project._escribiendo && !project._pendiente) {",
+  "nuevo": "    if (true) {",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T5X-17 con la relectura fallida se encola",
+  "fichero": "app/static/mux.js",
+  "viejo": "    if (project._desincronizado) return false;\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T5X-18 la pareja se compara sin esperar a lo que vuela",
+  "fichero": "app/static/mux.js",
+  "viejo": "  if (!await _muxEsperarGuardado(project)) return;\n  // El servidor vuelve a medir solo si la pareja CAMBIA",
+  "nuevo": "  // El servidor vuelve a medir solo si la pareja CAMBIA",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T5X-19 el MKV ya publicado se anuncia como nada que cancelar",
+  "fichero": "app/static/mux.js",
+  "viejo": "  else if (r && r.publicado) showToast(tr('tab4.ya_esta_guardado'), 'info');\n",
+  "nuevo": "",
+  "modulos": [
+   "test_tab4_multiplexar"
+  ]
+ },
+ {
+  "id": "T5X-20 una respuesta vieja pinta la lista",
+  "fichero": "app/static/tab2.js",
+  "viejo": "  if (n !== refrescarMkvRecientes.pedido) {",
+  "nuevo": "  if (false) {",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T5X-21 lo reubicado de una respuesta vieja se pierde",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    if (data) _mkvRecogerReubicados(data.reubicados || []);\n    return data;",
+  "nuevo": "    return data;",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T5X-22 llegar a una ruta no la hace ambigua",
+  "fichero": "app/static/tab2.js",
+  "viejo": "(x.antes === r.antes || x.ahora === r.antes)",
+  "nuevo": "(x.antes === r.antes)",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T5X-23 el aviso de reubicado no escapa el nombre",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    ? tr('tab2.reubicado_uno', {nombre: escHtml(reubicados[0].nombre)})",
+  "nuevo": "    ? tr('tab2.reubicado_uno', {nombre: reubicados[0].nombre})",
+  "modulos": [
+   "test_tab2_columna_izquierda"
+  ]
+ },
+ {
+  "id": "T5X-24 el aviso de no encontrado no escapa el nombre",
+  "fichero": "app/static/tab2.js",
+  "viejo": "    const nombre = escHtml(r.nombre || r.ruta);",
+  "nuevo": "    const nombre = r.nombre || r.ruta;",
+  "modulos": [
+   "test_tab2_columna_izquierda"
   ]
  }
 ]

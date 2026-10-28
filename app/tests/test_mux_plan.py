@@ -44,13 +44,17 @@ CAPS_A = [(0, "Logo"), (600, "A 2"), (1200, "A 3"), (1800, "A 4"),
 CAPS_B = [(0, "Inicio"), (2000, "B 2"), (6100, "B final")]
 
 
-def fuente(fixture: str, nombre: str, *, dv=None, capitulos=()) -> MuxFuente:
+def fuente(fixture: str, nombre: str, *, dv=None, capitulos=(), mediainfo=True) -> MuxFuente:
     j = json.loads((FIXTURES / fixture).read_text(encoding="utf-8"))
     pistas = mux_pipeline.pistas_de_j(j)
 
     class _Dovi:
         profile, el_type, cm_version = dv or (0, "", "")
-    video = mux_pipeline._resumen_de_video(pistas, None, _Dovi() if dv else None)
+    # Los dos MKV del caso real son de cadencia fija, y MediaInfo lo dice.
+    # `mediainfo=False` es el MKV que MediaInfo no llegó a leer.
+    mi = ({"media": {"track": [{"@type": "Video", "FrameRate_Mode": "CFR"}]}}
+          if mediainfo else None)
+    video = mux_pipeline._resumen_de_video(pistas, mi, _Dovi() if dv else None)
     huella = {"sha256_1mb": nombre, "size_bytes": 1, "mtime_ns": 0}
     caps = [MuxCapituloOrigen(edicion=0, indice=i, inicio_ns=int(t * 1e9), nombre=n)
             for i, (t, n) in enumerate(capitulos)]
@@ -365,6 +369,54 @@ class TestLaLineaDeTiempo(unittest.TestCase):
         self.assertIsNone(plan["video_de"])
 
 
+class TestLaCadenciaQueNoSeComprobo(unittest.TestCase):
+    """Quien dice si un vídeo es VFR es MediaInfo. Si no lo leyó, no consta, y
+    tomarlo por fijo ajustaba la velocidad de un VFR —uniformando sus tiempos—
+    con una Fase C que mide la duración y los audios, no los fotogramas
+    (revisión de Codex del 2026-10-28)."""
+
+    def _a_sin_mediainfo(self, *claves):
+        p = proyecto()
+        p.fuentes[0] = fuente("remux_p7_fel_23976.mkv.json", NOMBRE_A, dv=(7, "FEL", "v4.0"),
+                              capitulos=CAPS_A, mediainfo=False)
+        return elegir(p, *claves)
+
+    def test_sin_el_video_de_mediainfo_la_cadencia_queda_sin_comprobar(self):
+        j = json.loads((FIXTURES / "remux_p7_fel_23976.mkv.json").read_text(encoding="utf-8"))
+        pistas = mux_pipeline.pistas_de_j(j)
+        modo = lambda mi: mux_pipeline._resumen_de_video(pistas, mi, None).modo_cadencia
+        self.assertEqual(modo(None), mux_plan.CADENCIA_SIN_COMPROBAR, "MediaInfo falló")
+        self.assertEqual(modo({"media": {"track": [{"@type": "General"}]}}),
+                         mux_plan.CADENCIA_SIN_COMPROBAR, "MediaInfo no vio el vídeo")
+        self.assertEqual(modo({"media": {"track": [{"@type": "Video", "FrameRate_Mode": "CFR"}]}}),
+                         "CFR")
+
+    def test_si_hay_que_ajustar_la_velocidad_no_se_multiplexa(self):
+        p = self._a_sin_mediainfo(A_VIDEO, B_DCP)
+        p.sincronia = medida(p)
+        ids = [m["id"] for m in mux_plan.plan(p)["motivos"]]
+        self.assertIn("cadencia_sin_comprobar", ids)
+        self.assertNotIn("video_sin_velocidad_fija", ids)
+        p.acepta_riesgo = True
+        self.assertFalse(mux_plan.plan(p)["puede_multiplexar"], "aceptar el riesgo no lo arregla")
+
+    def test_si_no_hay_que_ajustarla_no_importa(self):
+        # El audio sale del MKV del vídeo: lo de B se lleva a su línea.
+        p = self._a_sin_mediainfo(A_VIDEO, A_TRUEHD, B_SUB_ES)
+        p.sincronia = medida(p)
+        plan = mux_plan.plan(p)
+        self.assertIsNone(plan["velocidad_video"])
+        self.assertNotIn("cadencia_sin_comprobar", [m["id"] for m in plan["motivos"]])
+
+    def test_un_vfr_es_sin_velocidad_fija_y_solo_eso(self):
+        p = elegir(proyecto(), A_VIDEO, B_DCP)
+        p.fuentes[0].video.modo_cadencia = "VFR"
+        p.sincronia = medida(p)
+        ids = [m["id"] for m in mux_plan.plan(p)["motivos"]]
+        self.assertIn("video_sin_velocidad_fija", ids)
+        self.assertNotIn("cadencia_sin_comprobar", ids)
+
+
 class TestElRetrasoAMano(unittest.TestCase):
     """Es «el retraso de B respecto a A» (positivo: lo de B suena más tarde),
     y se aplica tal cual: el umbral de ruido es para lo MEDIDO."""
@@ -545,6 +597,18 @@ class TestLosCapitulos(unittest.TestCase):
         self.assertIsNone(mux_plan.capitulos_nativos(p, plan))
         self.assertEqual(len(mux_plan.capitulos_esperados(p, plan)), 7)
 
+    def test_tal_cual_no_si_un_anidado_cae_fuera_del_video(self):
+        """`queda` mira los de primer nivel: con el capítulo dentro y un
+        anidado detrás del final, copiarlos tal cual metía el anidado; el
+        compositor lo recorta (revisión de Codex del 2026-10-28)."""
+        p = capitulos(elegir(proyecto(), A_VIDEO, A_TRUEHD), *[(0, i) for i in range(8)])
+        plan = mux_plan.plan(p)
+        self.assertEqual(mux_plan.capitulos_nativos(p, plan), 0)
+        p.fuentes[0].capitulos[1].ultimo_anidado_ns = 700_000_000_000      # dentro de los 6112 s
+        self.assertEqual(mux_plan.capitulos_nativos(p, plan), 0)
+        p.fuentes[0].capitulos[1].ultimo_anidado_ns = 7_000_000_000_000    # detrás
+        self.assertIsNone(mux_plan.capitulos_nativos(p, plan))
+
     XML = """<?xml version="1.0"?>
 <Chapters><EditionEntry><EditionUID>11</EditionUID>
 <ChapterAtom><ChapterUID>1</ChapterUID><ChapterTimeStart>00:00:00.000000000</ChapterTimeStart>
@@ -571,6 +635,11 @@ class TestLosCapitulos(unittest.TestCase):
                          [(0, 0, "Inicio", 0), (1, 2_000_000_000_000, "B 2", 4),
                           (2, 6_100_000_000_000, "B final", 0)])
         self.assertEqual(caps[0]["idioma"], "spa")
+        # El último anidado de «B 2», a cualquier profundidad: el nieto de las
+        # 03:00:00, aunque el otro anidado, el de las 02:00:00, vaya después
+        # en el XML.
+        self.assertEqual([c["ultimo_anidado_ns"] for c in caps],
+                         [None, 10_800_000_000_000, None])
 
     def test_al_componer_se_quitan_los_uid_y_se_recortan_los_anidados(self):
         """Un UID repetido hace que mkvmerge 88 se coma un capítulo sin avisar

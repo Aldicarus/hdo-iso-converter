@@ -4932,7 +4932,11 @@ async def run_phase_g_remux(
     # origen se desincronizaba, en verde: la Fase H cuenta frames, no
     # duración. Medido el 2026-10-25: mkvmerge 88 retima el contenedor pero
     # no reescribe el VUI del HEVC ni con `--fix-bitstream-timing-information`.
-    duracion_frame = await _duracion_de_frame_del_origen(session)
+    try:
+        duracion_frame = await _duracion_de_frame_del_origen(session)
+    except BaseException:
+        await _parar_el_adelanto()
+        raise
     cadencia = (["--default-duration", f"0:{duracion_frame}ns"]
                 if duracion_frame else [])
     try:
@@ -4956,7 +4960,11 @@ async def run_phase_g_remux(
         await _parar_el_adelanto()
         raise RuntimeError(tr('cmv40_pipeline.mkvmerge_fallo_codigo', rc=rc))
     if duracion_frame:
-        real = await _duracion_de_frame(str(output_mkv))
+        try:
+            real = await _duracion_de_frame(str(output_mkv))
+        except BaseException:
+            await _parar_el_adelanto()
+            raise
         if real is not None and abs(real - duracion_frame) > 2:
             await _parar_el_adelanto()
             raise RuntimeError(tr('cmv40_pipeline.cadencia_distinta_del_origen',
@@ -5184,17 +5192,24 @@ async def _comprobar_pistas_del_origen(session, salida_json: str,
 
 async def _duracion_de_frame(mkv: str) -> int | None:
     """La `default_duration` (ns) de la primera pista de vídeo de un MKV, o
-    None si no la declara (vídeo de cadencia variable) o no se puede leer."""
+    None si no la declara (vídeo de cadencia variable).
+
+    Un MKV que no se puede leer LANZA: «no se pudo leer» no es «no la
+    declara», y tomarlo así dejaba a la Fase G sin fijar la cadencia ni
+    comprobarla, con el ritmo del VUI —el de antes, en un origen con la
+    velocidad ajustada en «Multiplexar MKV»— (revisión de Codex del
+    2026-10-28)."""
     try:
         rc, out, _ = await _run([MKVMERGE_BIN, "-J", mkv], timeout=120)
         if rc not in (0, 1):
-            return None
+            raise RuntimeError(f"mkvmerge -J rc={rc}")
         for t in (json.loads(out) or {}).get("tracks") or []:
             if t.get("type") == "video":
                 dd = (t.get("properties") or {}).get("default_duration")
                 return int(dd) if dd else None
-    except (OSError, ValueError, TypeError, RuntimeError, asyncio.TimeoutError):
-        return None
+    except (OSError, ValueError, TypeError, RuntimeError, asyncio.TimeoutError) as e:
+        raise RuntimeError(tr('cmv40_pipeline.cadencia_ilegible', nombre=Path(mkv).name,
+                              error=str(e)[:200])) from e
     return None
 
 

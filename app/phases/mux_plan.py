@@ -80,7 +80,8 @@ MOTIVOS = (
     "montaje_distinto",          # salto: escenas añadidas o quitadas
     "no_concluyente",            # la medida no dio puntos suficientes
     "video_sin_velocidad_fija",  # hay que ajustar la velocidad y no es fija
-    "en_marcha",                 # ya se está multiplexando (o espera turno)
+    "cadencia_sin_comprobar",    # hay que ajustarla y no se sabe si es fija
+    "en_marcha",                # ya se está multiplexando (o espera turno)
 )
 
 # Los que el usuario puede pasar por alto con «multiplexar igualmente». Los que
@@ -148,6 +149,21 @@ def video_ajustable(fuente) -> bool:
         return False
     duraciones = {v.default_duration_ns for v in videos}
     return len(duraciones) == 1 and 0 not in duraciones
+
+
+#: El `modo_cadencia` de un vídeo que MediaInfo no llegó a leer.
+CADENCIA_SIN_COMPROBAR = "DESCONOCIDO"
+
+
+def cadencia_sin_comprobar(fuente) -> bool:
+    """Si al vídeo le faltaría ajustar la velocidad sin saber si su cadencia
+    es fija: MediaInfo, que es quien dice si es VFR, no lo leyó. Tomarlo por
+    fijo ajustaba la velocidad de un VFR —uniformando sus tiempos— y la Fase C,
+    que mide la duración y los audios, lo daba por bueno (revisión de Codex
+    del 2026-10-28). Solo cuando por lo demás se podría ajustar: si no, ya lo
+    dice `video_sin_velocidad_fija`."""
+    return (video_ajustable(fuente)
+            and (fuente.video.modo_cadencia or "").upper() == CADENCIA_SIN_COMPROBAR)
 
 
 def _es_ass(p) -> bool:
@@ -406,6 +422,8 @@ def plan(proyecto, *, ignorar_estado: bool = False) -> dict:
             linea_de = o
             if not video_ajustable(proyecto.fuentes[v]):
                 motivo("video_sin_velocidad_fija")
+            if cadencia_sin_comprobar(proyecto.fuentes[v]):
+                motivo("cadencia_sin_comprobar")
             if cads[v]:
                 velocidad = (cads[v], cads[v] / f_vo)
             mover(o, -d_vo, None)
@@ -798,14 +816,25 @@ def capitulos_nativos(proyecto, plan_: dict) -> int | None:
         return None
     if any(x["queda"] != "ok" for x in caps.get("lista") or []):
         return None
+    # `queda` mira los de primer nivel: un anidado que empieza detrás del
+    # final del vídeo entraba igual, y el compositor sí lo recorta (revisión
+    # de Codex del 2026-10-28).
+    duracion = duracion_final(proyecto, plan_)
+    if duracion:
+        fin_ns = int(duracion * 1e9)
+        if any(o.ultimo_anidado_ns is not None and o.ultimo_anidado_ns >= fin_ns
+               for _, o in elegidos):
+            return None
     return f
 
 
 def capitulos_de_xml(xml: str) -> list[dict]:
     """Los capítulos de PRIMER nivel de un XML de Matroska, de todas sus
     ediciones: `[{edicion, indice, inicio_ns, fin_ns, nombre, idioma, oculto,
-    hijos}]`. Es lo que la pestaña enseña de cada fuente y lo que la Fase C
-    compara con el MKV final."""
+    hijos, ultimo_anidado_ns}]`. Es lo que la pestaña enseña de cada fuente y
+    lo que la Fase C compara con el MKV final. `ultimo_anidado_ns` es el
+    inicio del último de sus anidados, a cualquier profundidad: lo que dice si
+    copiarlos sin recortar dejaría alguno detrás del final del vídeo."""
     import xml.etree.ElementTree as ET
     raiz = ET.fromstring(xml)
     out = []
@@ -815,6 +844,9 @@ def capitulos_de_xml(xml: str) -> list[dict]:
             if not inicio:
                 continue
             fin = (atomo.findtext("ChapterTimeEnd") or "").strip()
+            anidados = [x for x in atomo.iter("ChapterAtom") if x is not atomo]
+            inicios = [_ns_de(t) for t in ((x.findtext("ChapterTimeStart") or "").strip()
+                                           for x in anidados) if t]
             display = atomo.find("ChapterDisplay")
             out.append({
                 "edicion": e, "indice": i,
@@ -823,7 +855,8 @@ def capitulos_de_xml(xml: str) -> list[dict]:
                 "nombre": ((display.findtext("ChapterString") if display is not None else "") or "").strip(),
                 "idioma": ((display.findtext("ChapterLanguage") if display is not None else "") or "").strip(),
                 "oculto": (atomo.findtext("ChapterFlagHidden") or "0").strip() == "1",
-                "hijos": len(list(atomo.iter("ChapterAtom"))) - 1,
+                "hijos": len(anidados),
+                "ultimo_anidado_ns": max(inicios) if inicios else None,
             })
     return out
 

@@ -186,7 +186,10 @@ def _resumen_de_video(pistas: list[MuxPistaOrigen], mediainfo: dict | None,
         cadencia_den=cad.denominator if cad else 1,
         frames=v.frames, pistas=len(videos),
         hdr=mi.get("HDR_Format") or "",
-        modo_cadencia=str(mi.get("FrameRate_Mode") or "").upper(),
+        # Sin MediaInfo no consta si es VFR, y «no consta» no puede valer
+        # «fija» (ver `mux_plan.cadencia_sin_comprobar`).
+        modo_cadencia=(str(mi.get("FrameRate_Mode") or "").upper() if mi
+                       else mux_plan.CADENCIA_SIN_COMPROBAR),
         dv_profile=getattr(dovi, "profile", 0) or 0,
         dv_el=getattr(dovi, "el_type", "") or "",
         dv_cm=getattr(dovi, "cm_version", "") or "",
@@ -343,6 +346,22 @@ def pareja_de(proyecto: MuxProject) -> tuple[int, int] | None:
         if any(x["id"] == ia for x in a) and any(x["id"] == ib for x in b):
             return ia, ib
     return mux_sync.pareja_de_referencia(a, b, idiomas_para_comparar(proyecto))
+
+
+def pareja_medida(proyecto: MuxProject) -> tuple[int, int] | None:
+    """Las pistas con las que se hizo la medida vigente, si siguen existiendo.
+
+    La comprobación final juzga contra ESAS. `pareja_de` da la de ahora, y sin
+    una pareja elegida depende de la ficha de TMDb, que puede llegar después
+    de medir y cambiar la preferencia: una pista con su propio desfase dentro
+    de su release tumbaba entonces un multiplexado correcto (revisión de Codex
+    del 2026-10-28)."""
+    s = proyecto.sincronia
+    if s is None or s.pista_a is None or s.pista_b is None:
+        return None
+    a = {x["id"] for x in _audio_como_dicts(proyecto.fuentes[0])}
+    b = {x["id"] for x in _audio_como_dicts(proyecto.fuentes[1])}
+    return (s.pista_a, s.pista_b) if s.pista_a in a and s.pista_b in b else None
 
 
 duracion_de_video = mux_plan.duracion_de_video
@@ -502,18 +521,29 @@ async def _capitulos_xml(proyecto: MuxProject, plan_: dict,
 
 async def fase_b_multiplexar(proyecto: MuxProject, plan_: dict, log, *,
                           al_lanzar=None, cancelado=None,
-                          al_progreso=None) -> tuple[Path, list[int]]:
+                          al_progreso=None, al_reservar=None) -> tuple[Path, list[int]]:
     """mkvmerge al nombre de trabajo. Devuelve su ruta y los inicios (ns) de
     los capítulos que tiene que traer, para la Fase C.
 
     Cualquier salida que no sea un éxito borra el fichero de trabajo: una
     fase que falla no puede dejar 60 GB a medias con un nombre que parezca un
     MKV.
+
+    Un fichero de trabajo que ya exista solo se borra si es de ESTE proyecto
+    (`trabajo_propio`): con el mismo nombre puede estar el que otro
+    multiplexado conservó al fallar su comprobación final, o el remux de un
+    proyecto CMv4.0 que espera su Fase H, y se borraba sin mirar (revisión de
+    Codex del 2026-10-28). `al_reservar(trabajo)` lo apunta como propio antes
+    de escribirlo, para que el arranque sepa de quién es.
     """
     final = ruta_final(proyecto)
     trabajo = ruta_de_trabajo(final)
     final.parent.mkdir(parents=True, exist_ok=True)
-    trabajo.unlink(missing_ok=True)       # el resto de un intento que murió
+    if trabajo.exists() and str(trabajo) != (proyecto.trabajo_propio or ""):
+        raise RuntimeError(tr('mux.trabajo_de_otro', nombre=trabajo.name))
+    trabajo.unlink(missing_ok=True)       # el resto de un intento suyo
+    if al_reservar:
+        await al_reservar(trabajo)
     xml, caps_esperados = await _capitulos_xml(proyecto, plan_, final.parent)
     cmd = mux_plan.argv(proyecto, plan_, str(trabajo), xml)
     await _log(log, '[Fase B] 📋 Plan: ' + plan_texto_para_el_log(proyecto, plan_))
@@ -633,12 +663,17 @@ def _salida_de_pista(proyecto: MuxProject, fuente: int, tid: int) -> int | None:
 async def fase_c_comprobar_y_guardar(proyecto: MuxProject, plan_: dict,
                                      trabajo: Path, log, *, al_lanzar=None,
                                      cancelado=None,
-                                     capitulos_ns: list[int] | None = None) -> dict:
+                                     capitulos_ns: list[int] | None = None,
+                                     al_publicar=None) -> dict:
     """Comprueba el MKV de trabajo contra el plan y, si está bien, le da su
     nombre definitivo y lo firma. Devuelve la validación.
 
     Si algo no cuadra, se lanza con el `.mkv.tmp` en su sitio para que se
     pueda inspeccionar: es la regla de la Fase H.
+
+    `al_publicar()` avisa de que el MKV ya tiene su nombre definitivo: desde
+    ahí el trabajo ya no se puede cancelar, y lo que queda —su análisis, ~1
+    min— no lo comprueba nadie (revisión de Codex del 2026-10-28).
     """
     from phases.cmv40_pipeline import _publicar_sin_pisar
     from phases.mkv_analyze import _run_dovi_on_mkv
@@ -704,6 +739,8 @@ async def fase_c_comprobar_y_guardar(proyecto: MuxProject, plan_: dict,
     if not await asyncio.to_thread(_publicar_sin_pisar, trabajo, final,
                                    proyecto.nombre_salida):
         raise RuntimeError(tr('mux.no_se_pudo_publicar', nombre=proyecto.nombre_salida))
+    if al_publicar:
+        al_publicar()
     await firma.firmar(str(final))
     # Con el MKV ya en su nombre definitivo y firmado: la huella de la caché
     # es el primer MB, que la marca cambia.
@@ -873,7 +910,7 @@ async def _comprobar_sincronia_final(proyecto: MuxProject, plan_: dict,
     era siempre de A (revisión de Codex).
     """
     v = plan_.get("video_de")
-    pareja = pareja_de(proyecto)
+    pareja = pareja_medida(proyecto) or pareja_de(proyecto)
     if v is None or pareja is None:
         return []
     o = 1 - v

@@ -1277,6 +1277,7 @@
   "mux.esperando_a_la_medida": "The sync is being measured. You can multiplex as soon as it finishes.",
   "mux.ya_existe_un_mkv_con_ese_nombre": "There is already an MKV with that name in Output: {nombre}. Change the output name or move the existing MKV.",
   "mux.otro_proyecto_escribe_ese_mkv": "Another running multiplex writes the same MKV ({nombre}). Change the output name of one of the two projects.",
+  "mux.trabajo_de_otro": "\"{nombre}\" already exists in Output and does not belong to this project: it may be another multiplex's or the remux of an unfinished CMv4.0 project. It can be deleted from ⚙︎ Settings → Maintenance (\"Scan for orphans\"), or the output name can be changed.",
   "mux.el_mkv_cambio": "{nombre} has changed since it was read, and the project data no longer describes it. Create the project again to read it again.",
   "mux.sin_espacio": "There is not enough space in Output: {libre} GB left and the MKV needs about {necesarios}.",
   "mux.no_se_pudieron_extraer_los_capitulos": "The chapters couldn't be extracted: {error}",
@@ -1345,6 +1346,7 @@
   "relato.mux_porque_montaje_distinto": "The offset changes abruptly partway through the movie: one of the two MKVs has scenes the other does not.",
   "relato.mux_porque_no_concluyente": "The measurement is uncertain: there are not enough reliable points to determine the offset.",
   "cmv40_pipeline.cadencia_distinta_del_origen": "The final MKV doesn't keep the source's frame rate ({real} ns per frame instead of {origen} ns): the source's audio would be out of sync.",
+  "cmv40_pipeline.cadencia_ilegible": "Could not read the frame rate of {nombre} ({error}). Without it, the final MKV's frame duration can't be set or checked, and its audio could end up out of sync.",
   "mux.adjunto_desconocido": "An attachment in the list doesn't exist or is listed twice.",
   "mux.capitulo_desconocido": "A chapter in the list doesn't exist or is listed twice.",
   "mux.chip_velocidad": "Video at {fps} fps",
@@ -1370,6 +1372,7 @@
   "mux.motivo_corto_sin_video": "no video is chosen",
   "mux.motivo_corto_video_de_las_dos": "video is chosen from both MKVs",
   "mux.motivo_corto_video_sin_velocidad_fija": "the video has no fixed frame rate, so its speed can't be adjusted",
+  "mux.motivo_corto_cadencia_sin_comprobar": "the video's frame rate could not be confirmed as fixed",
   "relato.mux_sin_video_elegido": "No video chosen",
   "relato.mux_sincronia_no_hace_falta": "Not needed: all tracks and chapters come from the video's MKV",
   "relato.mux_ninguna_pista": "No track chosen",
@@ -1380,6 +1383,8 @@
   "relato.mux_porque_sin_video": "The final MKV's video isn't chosen yet.",
   "relato.mux_porque_video_de_las_dos": "Video is chosen from both MKVs, and the video can only come from one.",
   "relato.mux_porque_video_sin_velocidad_fija": "Matching the other MKV's audio requires adjusting the video's speed, and this video has no fixed frame rate: it is variable frame rate or its video tracks do not share the same frame duration.",
+  "relato.mux_porque_cadencia_sin_comprobar": "Matching the other MKV's audio requires adjusting the video's speed, and its frame rate could not be confirmed as fixed: MediaInfo did not read this MKV when the project was created. Creating the project again reads it again.",
   "mux.no_se_pudieron_leer_los_capitulos": "The chapters of {nombre} could not be read. Try again: creating the project without them would show the MKV as having no chapters.",
-  "mux.pareja_con_medida_en_marcha": "A measurement is in progress: stop it or wait for it to finish before changing the compared tracks."
+  "mux.pareja_con_medida_en_marcha": "A measurement is in progress: stop it or wait for it to finish before changing the compared tracks.",
+  "mux.riesgo_con_medida_en_marcha": "A measurement is in progress: the risk is accepted on its result, so wait for it to finish."
 }

@@ -1574,6 +1574,9 @@ def mediainfo(sc):
             "MaxCLL": str(v.get("maxcll", 1000)) + " cd/m2",
             "MaxFALL": str(v.get("maxfall", 400)) + " cd/m2",
             "Format": v.get("format", "HEVC"),
+            # Como el real sobre un MKV (`fixtures_contrato/mediainfo_mkv.json`):
+            # «Multiplexar MKV» no ajusta la velocidad de un vídeo sin él.
+            "FrameRate_Mode": v.get("frame_rate_mode", "CFR"),
             "Width": str(v.get("width", 3840)),
             "Height": str(v.get("height", 2160)),
             # El PID en decimal: 4113 (0x1011) en la BL de los 81 discos del

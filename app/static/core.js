@@ -1948,6 +1948,9 @@ async function elegirFicha(i) {
   const url = tipo === 'cmv40' ? `/api/cmv40/${id}/tmdb-refresh`
             : tipo === 'mux'   ? `/api/mux/${id}/tmdb-refresh`
             : `/api/sessions/${id}/tmdb-refresh`;
+  // La versión del multiplexado ANTES de pedirlo: el proyecto que vuelve es
+  // el de cuando el servidor cambió la ficha (ver `muxTrasCambiarFicha`).
+  const version = tipo === 'mux' && typeof muxVersion === 'function' ? muxVersion(id) : null;
   const r = await apiFetch(url, {
     method: 'POST', body: JSON.stringify({ tmdb_id: c.tmdb_id }),
   });
@@ -1955,13 +1958,13 @@ async function elegirFicha(i) {
   // `updated`.
   if (!r || !(r.updated || r.ok)) { showToast(tr('core.no_se_pudo_guardar_la_ficha'), 'error'); return; }
   closeModal('ficha-modal');
-  showToast(tr('core.ficha_de_guardada', {title_en: c.title_es || c.title_en}), 'success');
+  showToast(tr('core.ficha_de_guardada', {title_en: escHtml(c.title_es || c.title_en)}), 'success');
   // Repintar donde se ve: la cabecera del proyecto abierto y la columna.
   if (tipo === 'cmv40') {
     if (typeof refreshCMv40Sidebar === 'function') refreshCMv40Sidebar();
     if (typeof _refreshCMv40Session === 'function') _refreshCMv40Session(id);
   } else if (tipo === 'mux') {
-    if (typeof muxTrasCambiarFicha === 'function') muxTrasCambiarFicha(id, r);
+    if (typeof muxTrasCambiarFicha === 'function') muxTrasCambiarFicha(id, r, version);
   } else {
     if (typeof loadSessions === 'function') loadSessions();
     if (typeof refreshOpenProjectState === 'function') refreshOpenProjectState(id);

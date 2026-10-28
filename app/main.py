@@ -812,6 +812,16 @@ def _scan_orphans() -> list[dict]:
                         if s.get("output_mkv_name") and not s.get("archived")}
     except Exception:
         de_proyectos = set()
+    # Ni el de un multiplexado en curso o en cola: es el MKV que su Fase B
+    # está escribiendo, y con el pool cargado puede pasar más de una hora
+    # entre escrituras (revisión de Codex del 2026-10-28).
+    try:
+        from storage import list_mux_projects_summary
+        de_proyectos |= {f"{s.get('nombre_salida')}.tmp"
+                         for s in list_mux_projects_summary()
+                         if s.get("nombre_salida") and s.get("status") in ("queued", "running")}
+    except Exception:
+        pass
     if output_base.exists():
         try:
             for tf in output_base.glob("*.mkv.tmp"):

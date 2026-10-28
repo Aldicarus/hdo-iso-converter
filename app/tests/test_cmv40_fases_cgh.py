@@ -288,6 +288,23 @@ class TestFaseGRemux(CmvPhaseCase):
             await self.run_g(session)
         self.assertIn("41666667", str(cm.exception))
 
+    async def test_si_la_cadencia_del_origen_no_se_puede_leer_se_para(self):
+        """«No se pudo leer» no es «no la declara»: tomarlo así dejaba el
+        remux sin fijar la cadencia ni comprobarla, con el ritmo del VUI —el
+        de antes, en un origen con la velocidad ajustada en «Multiplexar
+        MKV»— (revisión de Codex del 2026-10-28)."""
+        self.tb.define_mkv("source.mkv", tracks=[
+            {"type": "video", "codec": "HEVC/H.265/MPEG-H",
+             "dimensions": "3840x2160", "fps": 24.0}])
+        self.tb.fail_when_arg("mkvmerge", "-J", rc=2)
+        session = self.prepare(artifacts=("source_injected.hevc",),
+                               injected_props=INJ_FEL_V40)
+        with self.assertRaises(RuntimeError) as cm:
+            await self.run_g(session)
+        self.assertIn("source.mkv", str(cm.exception))
+        self.assertEqual([c for c in self.tb.find("mkvmerge") if c.has("-o")], [],
+                         "no remuxó sin saber la cadencia")
+
     async def test_drop_in_no_ejecuta_dovi_mux(self):
         session = self.prepare(artifacts=("source_injected.hevc",),
                                injected_props=INJ_FEL_V40)

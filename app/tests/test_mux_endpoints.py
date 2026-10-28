@@ -107,6 +107,12 @@ class MuxCase(ApiTestCase):
                                          ("01:50:00.000", "Final")])
         tb.define_rpu(self.a.name, profile=7, el_type="FEL", cm_version="v4.0", frames=FRAMES)
         tb.define_sin_dv(self.b.name)       # el WEB-DL es HDR10: sin RPU
+        # MediaInfo dice que los dos vídeos son de cadencia fija, como el real
+        # sobre los MKV del caso: sin él, ajustar la velocidad queda bloqueado
+        # (`cadencia_sin_comprobar`). Solo el vídeo: sus audios no se cruzarían
+        # con las pistas de estos MKV.
+        tb.define_mediainfo(self.a.name, audio=[], subs=[])
+        tb.define_mediainfo(self.b.name, audio=[], subs=[])
         tb.define_linea_de_tiempo(self.a.name, semilla=11)
         tb.define_linea_de_tiempo(self.b.name, alfa=alfa_b, beta_s=beta_b, semilla=11)
 
@@ -422,6 +428,20 @@ class TestEditar(MuxCase):
         self.assertEqual(self.storage.load_mux_project(p["id"]).pareja, [4, 1])
         self.assertEqual(self.medidas_pedidas.count(p["id"]), 2, "al crear y al cambiarla")
 
+    def test_con_una_medida_en_marcha_no_se_acepta_el_riesgo(self):
+        """El riesgo se acepta sobre un resultado: con una medida en curso, el
+        de antes —otro navegador con la pantalla vieja—, y la que terminaba lo
+        dejaba aceptado sobre el suyo (revisión de Codex del 2026-10-28).
+        Retirarlo sí se puede."""
+        p = self.crear()
+        self.mux._medidas[p["id"]] = {"procs": [], "cancelar": False, "progreso": [0, 7]}
+        self.put(p["id"], esperado=409, acepta_riesgo=True)
+        self.assertFalse(self.storage.load_mux_project(p["id"]).acepta_riesgo)
+        self.put(p["id"], acepta_riesgo=False)
+        self.mux._medidas.clear()
+        self.put(p["id"], acepta_riesgo=True)
+        self.assertTrue(self.storage.load_mux_project(p["id"]).acepta_riesgo)
+
     def test_cambiar_la_pareja_vuelve_a_medir(self):
         p = self.crear()
         self.medidas_pedidas.clear()
@@ -608,6 +628,22 @@ class TestContraQueSeComparaCadaAudio(MuxCase):
         self.assertEqual(self._de(2), [(0, 2)])
         self.assertIsNone(checks[4]["ok"])
         self.assertNotIn("motivo", checks[4])
+
+    def test_se_juzga_contra_la_pareja_que_se_midio(self):
+        """Sin pareja elegida, la de ahora depende de la ficha de TMDb, que
+        puede llegar después de medir: la comprobación usaba esa, y una pista
+        con su propio desfase dentro de su release tumbaba un multiplexado
+        correcto (revisión de Codex del 2026-10-28)."""
+        p = self.crear()
+        self.elegir(p["id"], A_VIDEO, B_DCP, B_DDP, B_INGLES)
+        self.con_medida(p["id"], pista_a=4, pista_b=1)    # castellano de A con el DCP de B
+        q = self.storage.load_mux_project(p["id"])
+        self.assertNotEqual(self.pipe.pareja_de(q), (4, 1), "la de ahora es otra")
+        asyncio.run(self.pipe._comprobar_sincronia_final(
+            q, self.plan.plan(q), self.tmp / "final.mkv", None, None))
+        # La primera comparación es la estricta: el DCP (0 en el MKV final)
+        # contra el castellano de A (2 entre sus audios).
+        self.assertEqual(self.llamadas[0][1:3], (2, 0))
 
     def test_primero_la_de_referencia_y_si_concluye_no_se_sigue(self):
         self.respuestas = {(0, 0): self._concluye(), (0, 1): self._concluye()}
@@ -923,6 +959,99 @@ class TestMultiplexar(MuxCase):
         self.assertIsNotNone(q.last_cancelled_at)
         self.assertFalse(tmp.exists())
         self.assertEqual(q.historial[-1].status, "cancelled")
+
+    def test_con_el_mkv_ya_publicado_cancelar_no_se_acepta(self):
+        """Publicado el MKV queda su análisis (~1 min), y nadie mira después
+        si lo cancelaron: el endpoint contestaba `ok` a un trabajo que acaba
+        en `done` (revisión de Codex del 2026-10-28)."""
+        p = self.crear()
+        d = self.elegir(p["id"], B_VIDEO, B_DCP)
+        respuestas = []
+        pipe = self.mux.mux_pipeline
+        original = pipe._dejar_hecho_el_analisis
+
+        async def _cancelan_durante_el_analisis(*a, **kw):
+            respuestas.append(await self.mux.mux_cancelar(p["id"]))
+        pipe._dejar_hecho_el_analisis = _cancelan_durante_el_analisis
+        self.addCleanup(setattr, pipe, "_dejar_hecho_el_analisis", original)
+        q = self.multiplexar(p["id"])
+        self.assertEqual(respuestas, [{"ok": False, "publicado": True}])
+        self.assertEqual(q.status, "done")
+        self.assertTrue((self.output_dir / d["nombre_salida"]).exists())
+        self.assertFalse(self.mux._progreso.get("publicado"), "el siguiente trabajo empieza sin él")
+
+
+class TestElFicheroDeTrabajoEsDeQuienLoEscribe(MuxCase):
+    """El `.mkv.tmp` lleva el nombre del MKV final, y con ese nombre puede
+    estar el de otro proyecto: el que otro multiplexado conservó al fallar su
+    comprobación final, o el remux de un CMv4.0 que espera su Fase H. La Fase B
+    lo borraba sin mirar (revisión de Codex del 2026-10-28)."""
+
+    def _preparado(self):
+        p = self.crear()
+        d = self.elegir(p["id"], A_VIDEO, B_DCP)
+        self.con_medida(p["id"])
+        return p["id"], Path(str(self.output_dir / d["nombre_salida"]) + ".tmp")
+
+    def test_el_de_otro_no_se_borra_y_el_trabajo_lo_dice(self):
+        pid, tmp = self._preparado()
+        tmp.write_bytes(b"el remux de otro proyecto")
+        q = self.multiplexar(pid)
+        self.assertEqual(q.status, "error")
+        self.assertIn(tmp.name, q.error_message)
+        self.assertEqual(tmp.read_bytes(), b"el remux de otro proyecto")
+        self.assertEqual([c for c in self.tb.find("mkvmerge") if c.has("-o")], [],
+                         "no llegó a multiplexar")
+        self.assertIsNone(q.trabajo_propio)
+
+    def test_el_que_conservo_su_comprobacion_fallida_es_suyo(self):
+        pid, tmp = self._preparado()
+        self.tb._scenario["default_duration_ignorada"] = True
+        self.tb._flush()
+        q = self.multiplexar(pid)
+        self.assertEqual(q.status, "error")
+        self.assertTrue(tmp.exists(), "se queda para inspeccionarlo")
+        self.assertEqual(q.trabajo_propio, str(tmp))
+        # Al repetirlo lo sustituye, y publicado deja de ser suyo.
+        self.tb._scenario["default_duration_ignorada"] = False
+        self.tb._flush()
+        q = self.multiplexar(pid)
+        self.assertEqual(q.status, "done", (q.error_message, q.validacion))
+        self.assertFalse(tmp.exists())
+        self.assertIsNone(q.trabajo_propio)
+
+    def test_el_arranque_no_borra_el_de_otro(self):
+        """Un multiplexado que murió antes de su Fase B no tiene fichero de
+        trabajo: el que hay con su nombre es de otro."""
+        pid, tmp = self._preparado()
+        q = self.storage.load_mux_project(pid)
+        q.status = "running"
+        self.storage.save_mux_project(q)
+        tmp.write_bytes(b"el remux de otro proyecto")
+        self.mux.recuperar_proyectos_interrumpidos()
+        self.assertEqual(self.storage.load_mux_project(pid).status, "error")
+        self.assertEqual(tmp.read_bytes(), b"el remux de otro proyecto")
+
+    def test_limpieza_no_ofrece_el_de_un_multiplexado_en_curso(self):
+        """Es el MKV que su Fase B está escribiendo; con el pool cargado puede
+        pasar más de una hora sin que cambie su fecha."""
+        import os
+        import time
+        pid, tmp = self._preparado()
+        tmp.write_bytes(b"escribiendo")
+        hace_dos_horas = time.time() - 7200
+        os.utime(tmp, (hace_dos_horas, hace_dos_horas))
+        q = self.storage.load_mux_project(pid)
+
+        def ofrecidos(estado):
+            q.status = estado
+            self.storage.save_mux_project(q)
+            r = self.client.get("/api/cleanup/scan")
+            self.assertEqual(r.status_code, 200, r.text)
+            return [i["path"] for i in r.json()["items"]]
+        self.assertNotIn(str(tmp), ofrecidos("running"))
+        self.assertNotIn(str(tmp), ofrecidos("queued"))
+        self.assertIn(str(tmp), ofrecidos("error"), "sin nadie escribiéndolo, sí es un resto")
 
 
 class TestElAnalisisDelMkvFinal(MuxCase):
@@ -1259,8 +1388,9 @@ class TestArranque(MuxCase):
         d = self.elegir(p["id"], A_VIDEO, B_DCP)
         q = self.con_medida(p["id"])
         q.status = "running"
-        self.storage.save_mux_project(q)
         tmp = Path(str(self.output_dir / d["nombre_salida"]) + ".tmp")
+        q.trabajo_propio = str(tmp)        # lo apuntó la Fase B al empezar
+        self.storage.save_mux_project(q)
         tmp.write_bytes(b"a medias")
         otro = self.crear()
         o = self.storage.load_mux_project(otro["id"])

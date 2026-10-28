@@ -410,6 +410,11 @@ window.addEventListener('load', () => setTimeout(async function () {
     manejador = (m, url) => (url.endsWith('/cancelar') ? {ok: true} : null);
     await cancelarMultiplexadoMux('mx13');
     r.cancelada = toasts();
+    limpiarToasts();
+    // El MKV ya publicado: lo que queda es su análisis, que no se cancela.
+    manejador = (m, url) => (url.endsWith('/cancelar') ? {ok: false, publicado: true} : null);
+    await cancelarMultiplexadoMux('mx13');
+    r.publicado = toasts();
     // La columna de trabajo: cada trabajo de esta pestaña por su endpoint.
     window.__pet = [];
     manejador = (m, url) => (/\/cancelar$/.test(url) ? {ok: true} : null);
@@ -841,10 +846,34 @@ window.addEventListener('load', () => setTimeout(async function () {
     const lectura = _muxLeer(p);
     await espera(20);
     const poster = 'https://image.tmdb.org/t/p/w342/poster.jpg';
+    // La versión la toma `elegirFicha` antes de pedir el cambio.
     muxTrasCambiarFicha('mxQ1', Object.assign(copia(d),
-      {tmdb_info: Object.assign(copia(d.tmdb_info), {poster_url: poster})}));
+      {tmdb_info: Object.assign(copia(d.tmdb_info), {poster_url: poster})}), muxVersion('mxQ1'));
     await lectura; await espera(20);
     return {poster: (p.datos.tmdb_info || {}).poster_url, esperado: poster};
+  });
+
+  // La ficha que vuelve es el proyecto de cuando el servidor la cambió: si
+  // mientras volaba se guardó otra cosa, aplicarla a la fuerza deshacía ese
+  // guardado y se multiplexaba lo que no se veía.
+  await caso('ficha_tras_un_guardado', async () => {
+    const d = copia(D.listo); d.id = 'mxQ5';
+    const srv = servidor(d);
+    manejador = (m, url, body) => (url === '/api/mux' ? {proyectos: []} : srv(m, url, body));
+    await abrirMux(d.id, d);
+    const version = muxVersion('mxQ5');
+    const el = document.getElementById('mux-mxQ5-titulo');
+    el.value = 'Title saved while TMDb answered'; marcarTocado(el);
+    await muxTituloContenedor('mxQ5', el);
+    await espera(30);
+    const vieja = Object.assign(copia(d), {tmdb_info: Object.assign(copia(d.tmdb_info || {}),
+      {poster_url: 'https://image.tmdb.org/t/p/w342/late.jpg'})});
+    window.__pet = [];
+    muxTrasCambiarFicha('mxQ5', vieja, version);
+    await espera(80);
+    return {titulo: _muxProyecto('mxQ5').datos.titulo,
+            pantalla: document.getElementById('mux-mxQ5-titulo').value,
+            pedidas: window.__pet.map(x => `${x.m} ${x.url}`)};
   });
 
   // Cerrar la pestaña no tira lo que esperaba detrás de un guardado.
@@ -918,6 +947,30 @@ window.addEventListener('load', () => setTimeout(async function () {
     await muxCambiarPareja('mxG1');
     return {misma, otra: window.__pet.map(x => ({m: x.m, url: x.url, body: x.body})),
             pareja_otra: [d.pareja[0], Number(otra)]};
+  });
+
+  // Con un cambio de pareja en vuelo, volver a la de antes y pulsar medía la
+  // del PUT —la que el servidor ya tenía— sin guardar la elegida.
+  await caso('pareja_con_put_en_vuelo', async () => {
+    const d = copia(D.listo); d.id = 'mxG2';
+    d.pareja = [d.sincronia.pista_a, d.sincronia.pista_b];
+    const srv = servidor(d);
+    manejador = (m, url, body) => (url === '/api/mux' ? {proyectos: []}
+                                   : m === 'PUT' ? tarde(120, () => srv(m, url, body))
+                                   : url.endsWith('/medir') ? {started: true} : srv(m, url, body));
+    await abrirMux(d.id, d);
+    const sel = document.getElementById('mux-mxG2-pareja-b');
+    const original = d.pareja[1];
+    const otra = [...sel.options].map(o => Number(o.value)).find(v => v !== original);
+    window.__pet = [];
+    sel.value = String(otra);
+    muxCambiarPareja('mxG2');
+    await espera(10);
+    sel.value = String(original);
+    await muxCambiarPareja('mxG2');
+    await espera(200);
+    return {pedidas: window.__pet.filter(x => x.m !== 'GET').map(x => ({m: x.m, url: x.url, body: x.body})),
+            pareja: [d.pareja[0], original], pareja_otra: [d.pareja[0], otra]};
   });
 
   await caso('lista_vieja', async () => {
@@ -1213,6 +1266,35 @@ window.addEventListener('load', () => setTimeout(async function () {
     await espera(200);
     cerrarMux('mxQ3');
     return {ev};
+  });
+
+  // Y si la relectura también falla, la pantalla sigue enseñando el cambio
+  // rechazado: hasta que una lectura lo consiga, no se encola.
+  await caso('multiplexar_con_la_relectura_fallida', async () => {
+    const d = copia(D.listo); d.id = 'mxQ6';
+    d.plan.avisos = [];
+    let falla = true;
+    manejador = (m, url) => {
+      if (url === '/api/mux') return {proyectos: []};
+      if (m === 'PUT') return null;
+      if (m === 'GET') return falla ? null : copia(d);
+      return copia(d);
+    };
+    await abrirMux(d.id, d);
+    window.__pet = [];
+    fila('mxQ6', '1:2').querySelector('.track-actions button').click();
+    await espera(60);
+    await muxMultiplexar('mxQ6');
+    await espera(30);
+    const ejecutar = () => window.__pet.filter(x => x.url.endsWith('/ejecutar')).length;
+    const antes = ejecutar();
+    falla = false;
+    await _muxLeer(_muxProyecto('mxQ6'));
+    await muxMultiplexar('mxQ6');
+    await espera(30);
+    const despues = ejecutar();
+    cerrarMux('mxQ6');
+    return {antes, despues};
   });
 
   // Cerrar con un patrón en vuelo y reabrir: la lectura espera a que vuelva.
@@ -1624,6 +1706,11 @@ class TestLaPestanaMultiplexarEnChrome(unittest.TestCase):
         self.assertNotIn(self.cat["tab4.multiplexado_cancelado"], " ".join(c["nada"]))
         self.assertIn(self.cat["tab4.quitado_de_la_cola"], " ".join(c["descartada"]))
         self.assertIn(self.cat["tab4.multiplexado_cancelado"], " ".join(c["cancelada"]))
+        # Con el MKV ya publicado, ni «cancelado» ni «no había nada».
+        publicado = " ".join(c["publicado"])
+        self.assertIn(self._tr("tab4.ya_esta_guardado"), publicado)
+        self.assertNotIn(self.cat["tab4.no_habia_nada_que_cancelar"], publicado)
+        self.assertNotIn(self.cat["tab4.multiplexado_cancelado"], publicado)
         self.assertEqual(c["posts"], ["/api/mux/mx13/medir/cancelar", "/api/mux/mx13/cancelar"])
 
     def test_dos_veces_el_mismo_fichero_no_se_puede_crear(self):
@@ -1808,6 +1895,30 @@ class TestLaPestanaMultiplexarEnChrome(unittest.TestCase):
     def test_la_ficha_nueva_gana_a_un_get_que_ya_volaba(self):
         c = self.caso("ficha_y_get_viejo")
         self.assertEqual(c["poster"], c["esperado"])
+
+    def test_la_ficha_no_deshace_lo_guardado_mientras_volaba(self):
+        """Revisión de Codex del 2026-10-28: el proyecto que devuelve el
+        cambio de ficha es de antes del guardado, y se aplicaba a la fuerza."""
+        c = self.caso("ficha_tras_un_guardado")
+        self.assertEqual(c["titulo"], "Title saved while TMDb answered")
+        self.assertEqual(c["pantalla"], "Title saved while TMDb answered")
+        self.assertIn("GET /api/mux/mxQ5", c["pedidas"], "se vuelve a leer en vez de aplicarla")
+
+    def test_con_la_relectura_fallida_no_se_encola_hasta_leer(self):
+        """Un cambio rechazado y la relectura también fallida: la pantalla
+        enseña lo rechazado, y «Multiplexar» encolaba lo guardado (revisión de
+        Codex del 2026-10-28)."""
+        c = self.caso("multiplexar_con_la_relectura_fallida")
+        self.assertEqual(c["antes"], 0)
+        self.assertEqual(c["despues"], 1, "con la pantalla al día, sí")
+
+    def test_volver_a_la_pareja_de_antes_con_un_put_en_vuelo_la_guarda(self):
+        """Revisión de Codex del 2026-10-28: medía la pareja del PUT en vuelo
+        sin guardar la elegida."""
+        c = self.caso("pareja_con_put_en_vuelo")
+        self.assertEqual([(p["m"], p["body"]) for p in c["pedidas"]],
+                         [("PUT", {"esquema": 2, "pareja": c["pareja_otra"]}),
+                          ("PUT", {"esquema": 2, "pareja": c["pareja"]})])
 
     def test_cerrar_la_pestana_no_tira_lo_que_esperaba_guardarse(self):
         c = self.caso("cerrar_con_pendiente")

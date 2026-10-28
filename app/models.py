@@ -2095,9 +2095,10 @@ class MuxVideo(BaseModel):
     """El `HDR_Format` de MediaInfo tal cual ('Dolby Vision / SMPTE ST 2086')."""
 
     modo_cadencia: str = ""
-    """El `FrameRate_Mode` de MediaInfo: 'CFR', 'VFR' o vacío si no lo dice.
-    Ajustar la velocidad del vídeo es escribir UNA duración de frame para
-    todo él, y eso solo vale para una cadencia fija."""
+    """El `FrameRate_Mode` de MediaInfo: 'CFR', 'VFR' o vacío si no lo dice, y
+    'DESCONOCIDO' (`mux_plan.CADENCIA_SIN_COMPROBAR`) si MediaInfo no leyó el
+    vídeo. Ajustar la velocidad del vídeo es escribir UNA duración de frame
+    para todo él, y eso solo vale para una cadencia fija."""
 
     dv_profile: int = 0
     dv_el: str = ""
@@ -2121,6 +2122,10 @@ class MuxCapituloOrigen(BaseModel):
     oculto: bool = False
     hijos: int = 0
     """Cuántos capítulos anidados lleva dentro. Van con él."""
+
+    ultimo_anidado_ns: int | None = None
+    """El inicio del último de sus anidados (a cualquier profundidad), o None
+    sin anidados o en un proyecto leído antes de que existiera el campo."""
 
 
 class MuxFuente(BaseModel):
@@ -2275,6 +2280,12 @@ class MuxProject(BaseModel):
     error_message: str | None = None
     last_cancelled_at: datetime | None = None
     output_mkv_path: str | None = None
+    trabajo_propio: str | None = None
+    """El `.mkv.tmp` que escribió ESTE proyecto y puede seguir en disco: el de
+    un multiplexado en curso, o el que su comprobación final conservó para
+    inspeccionarlo. Es lo único que la Fase B y el arranque borran con ese
+    nombre: el de otro proyecto —otro multiplexado, o el remux de un CMv4.0
+    que espera su Fase H— se llama igual (revisión de Codex del 2026-10-28)."""
     output_log: list[str] = []
     historial: list[MuxEjecucion] = []
     validacion: dict | None = None

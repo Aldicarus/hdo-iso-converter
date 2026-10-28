@@ -230,6 +230,13 @@ def _buscar_por_contenido(objetivo: list[dict], *, forzar: bool) -> Busqueda:
                     _logger.info("[reubicar] no se puede leer %s: %s", c, err)
                     concluye = False
                     continue
+                if fp is None:
+                    # Desapareció entre el recorrido y la lectura: lo están
+                    # moviendo, quizá a una carpeta ya recorrida. No es «otro
+                    # contenido», y tomarlo así concluía que no está (revisión
+                    # de Codex del 2026-10-28).
+                    concluye = False
+                    continue
                 if (fp and fp.get("sha256_1mb") == sha
                         and fp.get("size_bytes") == tamano):
                     res.encontrados[sha] = (c, fp)

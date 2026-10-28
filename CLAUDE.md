@@ -444,7 +444,13 @@ biblioteca del NAS son 212 carpetas y 1.639 MKV; recorrerla por metadatos,
   al final (`TOPE_RECORRIDO_S`), ninguna carpeta —ni una raíz: un montaje
   caído no es una carpeta vacía— ni entrada falló al leerse, y se comprobaron
   todos los candidatos del tamaño (más de `MAX_CANDIDATOS` deja la búsqueda
-  sin concluir: el que no se miró puede ser el bueno). Si no, el resultado es
+  sin concluir: el que no se miró puede ser el bueno). **Un candidato que
+  desaparece entre el recorrido y su lectura tampoco concluye**:
+  `compute_mkv_fingerprint` devuelve `None` —lo están moviendo, quizá a una
+  carpeta ya recorrida— y tomarlo por «otro contenido» concluía que no está,
+  con lo que Limpieza lo ofrecía borrar y la segunda pasada olvidaba el
+  análisis de una versión vieja que existe (revisión de Codex del
+  2026-10-28). Si no, el resultado es
   «no se sabe»: ni entra en la memoria, ni el porqué del relato afirma que se
   buscó, ni «Volver a buscar» dice que no está (dice que no pudo mirarlo
   todo), ni Limpieza lo ofrece borrar.
@@ -468,7 +474,19 @@ biblioteca del NAS son 212 carpetas y 1.639 MKV; recorrerla por metadatos,
   pendientes listos para aplicarse en el MKV equivocado; solo por huella, una
   copia idéntica abierta desde una ruta que sigue existiendo se movería. Una
   pestaña sin huella (abierta con una versión anterior) solo se mueve si nadie
-  más venía de su ruta.
+  más venía de su ruta **ni llegó a ella**. Lo segundo pasa en las cadenas
+  que produce la segunda pasada —P→Q y Q→R en la misma respuesta—, donde una
+  pestaña sin huella pasaba de P a Q y de Q a R, al MKV de otro (revisión de
+  Codex del 2026-10-28). Comparar además cada pestaña con la ruta que tenía
+  antes de mover ninguna se probó y se quitó: una mutación demostró que no
+  añadía nada, porque la llegada ya la deja quieta.
+- **La lista la pinta solo la última petición que salió**
+  (`refrescarMkvRecientes.pedido`): una automática que volvía después de la de
+  «Volver a buscar» devolvía la tarjeta a «No encontrado». Lo reubicado de una
+  respuesta vieja se recoge igual —es un hecho de esa petición y el servidor
+  no lo repite—. Y los avisos escapan el nombre del fichero: `showToast` pinta
+  HTML (lo mismo se arregló en tres avisos antiguos de `tab2.js` y en el de la
+  ficha de TMDb de `core.js`).
 - **Limpieza (⚙︎) busca antes de ofrecer borrar.** «Cache MKV huérfano» se
   ofrecía borrar, como seguro, con solo que la ruta guardada no existiera: el
   análisis de todo MKV movido, ~10 min de `extract-rpu` cada uno. El escaneo
@@ -492,12 +510,14 @@ idénticas moverla por la huella sería mover la equivocada. No es destructivo:
 «Aplicar cambios» sobre ella da «fichero no encontrado», y reabrirla desde la
 columna lo arregla.
 
-`test_tab2_reubicar.py` (40 tests) y los de la columna en
-`test_tab2_columna_izquierda.py`, con 47 mutaciones (`T2R-*` y `T2F-*`). La
-revisión de Codex del 2026-10-27 propuso ocho mutaciones que sobrevivían a la
-primera tanda —el tope de candidatos, el tamaño releído con la huella, las
-mayúsculas, el cerrojo…— y encontró siete fallos del diff; todo comprobado y
-arreglado con su test.
+`test_tab2_reubicar.py` (42 tests) y los de la columna en
+`test_tab2_columna_izquierda.py`, con 47 mutaciones (`T2R-*` y `T2F-*`) más
+las de la revisión previa a la v3.5.0 (`T5X-*`). La revisión de Codex del
+2026-10-27 propuso ocho mutaciones que sobrevivían a la primera tanda —el tope
+de candidatos, el tamaño releído con la huella, las mayúsculas, el cerrojo…— y
+encontró siete fallos del diff; la del 2026-10-28, antes de tagear, cuatro más
+(el candidato que desaparece, la respuesta vieja, el aviso sin escapar y la
+cadena de rutas). Todo comprobado y arreglado con su test.
 
 ### Editable
 - Pistas audio: nombre, flag default
@@ -572,7 +592,7 @@ Cada fase produce artefactos reutilizables y tiene endpoint independiente. El us
 6. **Fase F — Inyectar RPU**: `dovi_tool inject-rpu -i EL.hevc --rpu-in RPU_final.bin`.
    - **Workflows single-layer (`p7_mel`, `p8`): el RPU se convierte a Profile 8.1 antes de inyectar** (`_ensure_profile8_rpu` → `dovi_tool editor` con `{"mode": 2}`). El merge conserva el profile del source, así que en `p7_mel` el RPU salía como Profile 7 aunque el EL se hubiera descartado: el MKV final se anunciaba como `dvhe.07 / BL+EL+RPU` — dual-layer **sin capa de mejora** — y un reproductor DV espera una EL que no existe. Caso real: "Te van a matar" (2026-08-15), donde el track name decía "P8.1 CMv4.0" y MediaInfo del fichero decía `dvhe.07`. La conversión preserva CM version, frame count y scene cuts (verificado: P7 MEL → P8, 136033 frames y 1101 escenas). Si falla, **la Fase F para antes de inyectar** (desde el 2026-10-17): seguía con el RPU original «porque el vídeo es correcto», pero la Fase H comprueba el perfil del MKV entregado y rechaza un Profile 7 en una salida single-layer, así que inyectar y remuxar (~20 min en UHD) era gastar para llegar a un rechazo seguro. Cubierto por `test_cmv40_profile8.py` (el helper) y por `test_cmv40_fase_f_matriz.py::TestProfile8EnSingleLayer`, que ejecuta la Fase F y comprueba el Profile del RPU que acaba en el HEVC. La decisión de convertir la toma `plan.inject.needs_profile8` (ver la matriz en `cmv40_strategy.py`).
 7. **Fase G — Remux final**: `dovi_tool mux --bl BL.hevc --el EL_injected.hevc` + `mkvmerge -o output.mkv --no-video source.mkv` (preserva audio/subs/capítulos del origen).
-   - **Fija la duración de frame del MKV origen** (`--default-duration 0:<ns>`) y la comprueba en el MKV final (`cadencia_distinta_del_origen`). El HEVC crudo no la trae de forma fiable —un origen con la velocidad del vídeo ajustada en «Multiplexar MKV» declara en su VUI la cadencia de antes, porque mkvmerge 88 no reescribe el VUI ni con `--fix-bitstream-timing-information`, y un WEB-DL puede no declarar ninguna—, así que mkvmerge le ponía la que dedujera del bitstream: el audio del origen se desincronizaba y la Fase H, que cuenta frames y no duración, lo daba por bueno (2026-10-25).
+   - **Fija la duración de frame del MKV origen** (`--default-duration 0:<ns>`) y la comprueba en el MKV final (`cadencia_distinta_del_origen`). El HEVC crudo no la trae de forma fiable —un origen con la velocidad del vídeo ajustada en «Multiplexar MKV» declara en su VUI la cadencia de antes, porque mkvmerge 88 no reescribe el VUI ni con `--fix-bitstream-timing-information`, y un WEB-DL puede no declarar ninguna—, así que mkvmerge le ponía la que dedujera del bitstream: el audio del origen se desincronizaba y la Fase H, que cuenta frames y no duración, lo daba por bueno (2026-10-25). **Si no puede leerla, se para** (`cadencia_ilegible`): un `mkvmerge -J` que fallaba o se agotaba contaba como «no la declara» y el remux seguía sin fijarla ni comprobarla (revisión de Codex del 2026-10-28).
 8. **Fase H — Validación**: dos rutas según el modo:
    - **Drop-in FEL** (`is_drop_in_fel == True`): fast path. La cadena upstream ya garantiza Profile 7 FEL CMv4.0 (pre-flight + Fase B con trust_ok + inject-rpu determinista que copia el bin íntegro). Verifica el frame count —**falla** con más de ±2 frames cuando el recuento es exacto; si es una estimación por duración, solo lo registra—, el Dolby Vision del propio MKV (ver abajo) y `mkvmerge -J`. ~segundos. Hasta el 2026-10-17 el frame count solo se registraba y el resultado era un `DoviInfo(profile=7, el_type="FEL", cm_version="v4.0")` escrito a mano: un MKV truncado se entregaba.
      - **El recuento exacto es la etiqueta `NUMBER_OF_FRAMES` que escribe mkvmerge, NO `nb_frames`** (`_frames_de_ffprobe`). Sobre un MKV real, `ffprobe … stream=nb_frames` no lo da NUNCA —en JSON la clave falta, en CSV sale `N/A,`, con la coma de la side data del DV—, así que la primera versión del arreglo solo era estricta **en los tests**: el `ffprobe` falso daba el número para cualquier fichero. Lo destapó la captura del contrato (ver «Los fakes tienen contrato»). Antes de activarlo se midió en el NAS: en los **29** MKV entregados que se emparejan con su proyecto, la etiqueta coincide EXACTAMENTE con los frames esperados, drop-in y merge. Con idioma la etiqueta lleva sufijo (`NUMBER_OF_FRAMES-eng`), y un HEVC crudo no trae nada.
@@ -2447,6 +2467,79 @@ biblioteca sin análisis.
 `test_mux_endpoints::TestElAnalisisDelMkvFinal` (12 tests, mutaciones
 `T4A-*`).
 
+### La revisión de Codex antes de la v3.5.0 (2026-10-28)
+
+El diff entero desde la v3.4.1, en dos paquetes —backend y frontend—: trece
+fallos ciertos, tres graves aunque poco probables, y uno descartado. En el
+backend:
+
+- **Sin MediaInfo no consta la cadencia** (motivo `cadencia_sin_comprobar`,
+  `mux_plan.cadencia_sin_comprobar`; no se salta aceptando el riesgo).
+  `video_ajustable` solo rechazaba un «VFR» explícito, y un MediaInfo que
+  fallaba al leer el MKV dejaba el modo vacío: a un VFR se le ajustaba la
+  velocidad —uniformando sus tiempos— y la Fase C, que mide la duración y los
+  audios, lo daba por bueno. `_resumen_de_video` guarda `DESCONOCIDO`
+  (`CADENCIA_SIN_COMPROBAR`) cuando MediaInfo no vio el vídeo; con el vídeo y
+  sin el campo se queda como estaba. **Lo destapó el arnés**: el MediaInfo
+  falso no contestaba nada para los MKV de los tests, así que todos los
+  multiplexados con la velocidad ajustada pasaban justo por ese camino. Hoy
+  da `FrameRate_Mode` (`CFR` por defecto, como el real sobre un MKV),
+  `MuxCase` declara MediaInfo para los dos orígenes y la `fuente` de
+  `test_mux_plan` lleva uno con `CFR` (`mediainfo=False` es el que no lo leyó).
+- **El `.mkv.tmp` es de quien lo escribió** (`MuxProject.trabajo_propio`). La
+  Fase B borraba el que hubiera con su nombre, y con ese nombre puede estar
+  el que otro multiplexado conservó al fallar su comprobación final, o el
+  remux de un CMv4.0 que espera su Fase H. Hoy se niega con uno ajeno
+  (`mux.trabajo_de_otro`), apunta el suyo antes de escribirlo
+  (`al_reservar`), el arranque solo borra el propio y Limpieza no ofrece el de
+  un multiplexado en cola o en curso. Solo una comprobación fallida lo
+  conserva como propio: lo demás lo limpia, porque apuntar uno que ya no
+  existe reclamaría el de otro que apareciera con ese nombre.
+- **El riesgo no se acepta con una medida en curso** (409,
+  `mux.riesgo_con_medida_en_marcha`): otro navegador con la pantalla vieja lo
+  aceptaba sobre el resultado anterior, y la medida que terminaba lo dejaba
+  aceptado sobre el suyo. Retirarlo sí se puede.
+- **La Fase C juzga contra las pistas que se midieron** (`pareja_medida`,
+  `sincronia.pista_a`/`pista_b`). Usaba `pareja_de`, la de ahora, que sin
+  pareja elegida depende de la ficha de TMDb —puede llegar después de medir—,
+  y una pista con su propio desfase tumbaba un multiplexado correcto.
+- **Los capítulos sin ajustes miran también los anidados**
+  (`MuxCapituloOrigen.ultimo_anidado_ns`): `queda` es de los de primer nivel,
+  y un anidado detrás del final del vídeo entraba sin recortar.
+- **Con el MKV ya publicado, «Cancelar» no se acepta** (`{ok: false,
+  publicado: true}`, avisado por `al_publicar`): queda su análisis, que nadie
+  comprueba si lo cancelaron, y el trabajo acababa en `done` después de
+  anunciarse cancelado.
+
+En la interfaz, la clase de siempre —lo que se cruza entre dos escrituras—:
+
+- **La ficha de TMDb lleva la versión** (`muxVersion`, que toma `elegirFicha`
+  antes del POST): si mientras volaba se guardó otra cosa, el proyecto que
+  devuelve es más viejo que la pantalla, y en vez de aplicarlo se vuelve a
+  leer.
+- **Un rechazo con la relectura también fallida deja el proyecto
+  `_desincronizado`** hasta que una lectura se aplique, y
+  `_muxEsperarGuardado` no deja seguir: «Multiplexar» encolaba lo guardado
+  mientras se veía lo rechazado.
+- **«Medir con estas pistas» espera a lo que vuela** antes de comparar con la
+  pareja guardada: con un cambio de pareja en vuelo, volver a la de antes
+  medía la del PUT sin guardar la elegida.
+
+Y la pregunta abierta que dejó sobre CMv4.0 era un fallo: **la Fase G se para
+si no puede leer la cadencia del origen o la del MKV final**
+(`_duracion_de_frame` lanza `cmv40_pipeline.cadencia_ilegible`). «No se pudo
+leer» no es «no la declara», y tomarlo así remuxaba con el ritmo del VUI —el
+de antes, en un origen con la velocidad ajustada aquí—.
+
+**Lo que no se hizo:** tras un PUT rechazado se tiran también los cambios que
+esperaban detrás. Es a propósito: la pantalla vuelve a lo guardado, así que se
+ve, y un cambio del mismo campo iría construido sobre el que se rechazó.
+
+Tests: `TestLaCadenciaQueNoSeComprobo` y dos de capítulos en `test_mux_plan`,
+`TestElFicheroDeTrabajoEsDeQuienLoEscribe` y tres más en
+`test_mux_endpoints`, tres casos en `test_tab4_multiplexar` y uno de la Fase G
+en `test_cmv40_fases_cgh`; mutaciones `T5X-*`.
+
 ### Los tests, y lo que el arnés aprendió
 
 `test_mux_plan` (el plan en las dos direcciones, con las pistas reales de
@@ -2463,7 +2556,8 @@ mutaciones de la pestaña son las `T4-*`, `T4P-*` (el plan), `T4R-*`/`T4S-*`/
 `T4L-*`/`T4C-*` (router, persistencia, relato y pipeline), `T4X-*` (los
 arreglos de la revisión de Codex de la implementación), `T4F-*` (la interfaz
 nueva), `T4V-*` (el registro de los textos y la marca que el log
-anunciaba) y `T4A-*` (el análisis del MKV final). Las `T5R-*` son de la pasada de registro a toda la app que vino
+anunciaba), `T4A-*` (el análisis del MKV final) y `T5X-*` (la revisión
+previa a la v3.5.0). Las `T5R-*` son de la pasada de registro a toda la app que vino
 después (ver «La app habla tres idiomas»). Para verificarlas rápido, `mutar.py` acepta una CLASE como módulo
 (`test_mux_endpoints.TestCrear`): el módulo entero son ~3 min por mutación y
 una clase, segundos. **En el catálogo van con el módulo entero** —lo exige
@@ -4001,11 +4095,12 @@ El pipeline de ejecución (Fase D + Fase E en [phases/phase_d.py](app/phases/pha
 ### La auditoría de la suite del 2026-10-17: lo que cambió en cómo se prueba
 
 Con **38 mutaciones** propuestas por Codex aplicadas A LA VEZ, los 3.117 tests
-de entonces seguían en verde. Hoy hay **661 mutaciones** en
+de entonces seguían en verde. Hoy hay **685 mutaciones** en
 `app/tools/mutaciones.json` —las 42 de la auditoría que siguen aplicando, más
 una por cada arreglo que salió de ella, las de la pestaña Multiplexar, las
-`T5R-*` de la pasada de registro a toda la app y las `T2R-*`/`T2F-*`/`T4A-*`
-de la reubicación de los MKV movidos y del análisis del MKV multiplexado— y
+`T5R-*` de la pasada de registro a toda la app, las `T2R-*`/`T2F-*`/`T4A-*`
+de la reubicación de los MKV movidos y del análisis del MKV multiplexado, y
+las `T5X-*` de la revisión de Codex previa a la v3.5.0— y
 `app/tools/mutar.py` las caza todas. Lo que se aprendió, por orden de cuántas veces se repitió:
 
 - **Se probaba que algo PASA, no la frontera en que deja de pasar.** Umbrales

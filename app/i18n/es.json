@@ -1277,6 +1277,7 @@
   "mux.esperando_a_la_medida": "La sincronía se está midiendo. Se puede multiplexar en cuanto termine.",
   "mux.ya_existe_un_mkv_con_ese_nombre": "Ya existe un MKV con ese nombre en Output: {nombre}. Cambia el nombre de salida o mueve el MKV existente.",
   "mux.otro_proyecto_escribe_ese_mkv": "Otro multiplexado en curso escribe el mismo MKV ({nombre}). Cambia el nombre de salida de uno de los dos proyectos.",
+  "mux.trabajo_de_otro": "Ya existe «{nombre}» en Output y no es de este proyecto: puede ser el de otro multiplexado o el remux de un proyecto CMv4.0 a medias. Se puede borrar desde ⚙︎ Configuración → Mantenimiento («Escanear huérfanos»), o cambiar el nombre de salida.",
   "mux.el_mkv_cambio": "{nombre} ha cambiado desde que se leyó, y los datos del proyecto ya no lo describen. Crea el proyecto de nuevo para volver a leerlo.",
   "mux.sin_espacio": "No hay espacio suficiente en Output: quedan {libre} GB y el MKV necesita unos {necesarios}.",
   "mux.no_se_pudieron_extraer_los_capitulos": "No se pudieron extraer los capítulos: {error}",
@@ -1345,6 +1346,7 @@
   "relato.mux_porque_montaje_distinto": "El desfase cambia bruscamente a mitad de la película: uno de los dos MKV tiene escenas que el otro no tiene.",
   "relato.mux_porque_no_concluyente": "La medida es dudosa: no hay suficientes puntos fiables para determinar el desfase.",
   "cmv40_pipeline.cadencia_distinta_del_origen": "El MKV final no conserva la cadencia del origen (frame de {real} ns en vez de {origen} ns): el audio del origen iría desincronizado.",
+  "cmv40_pipeline.cadencia_ilegible": "No se pudo leer la cadencia de {nombre} ({error}). Sin ella no se puede fijar ni comprobar la duración de frame del MKV final, y su audio podría quedar desincronizado.",
   "mux.adjunto_desconocido": "Un adjunto de la lista no existe o está repetido.",
   "mux.capitulo_desconocido": "Un capítulo de la lista no existe o está repetido.",
   "mux.chip_velocidad": "Vídeo a {fps} fps",
@@ -1370,6 +1372,7 @@
   "mux.motivo_corto_sin_video": "no hay ningún vídeo elegido",
   "mux.motivo_corto_video_de_las_dos": "hay vídeo elegido de los dos MKV",
   "mux.motivo_corto_video_sin_velocidad_fija": "el vídeo no tiene una cadencia fija y su velocidad no se puede ajustar",
+  "mux.motivo_corto_cadencia_sin_comprobar": "no se pudo comprobar que la cadencia del vídeo sea fija",
   "relato.mux_sin_video_elegido": "Sin vídeo elegido",
   "relato.mux_sincronia_no_hace_falta": "No hace falta: todas las pistas y los capítulos proceden del MKV del vídeo",
   "relato.mux_ninguna_pista": "Ninguna pista elegida",
@@ -1380,6 +1383,8 @@
   "relato.mux_porque_sin_video": "Falta elegir el vídeo del MKV final.",
   "relato.mux_porque_video_de_las_dos": "Hay vídeo elegido de los dos MKV, y el vídeo solo puede proceder de uno.",
   "relato.mux_porque_video_sin_velocidad_fija": "Para coincidir con el audio del otro MKV hay que ajustar la velocidad del vídeo, y este vídeo no tiene una cadencia fija: es de cadencia variable o sus pistas de vídeo no tienen la misma duración de frame.",
+  "relato.mux_porque_cadencia_sin_comprobar": "Para coincidir con el audio del otro MKV hay que ajustar la velocidad del vídeo, y no se pudo comprobar que su cadencia sea fija: MediaInfo no leyó este MKV al crear el proyecto. Crear el proyecto de nuevo vuelve a leerlo.",
   "mux.no_se_pudieron_leer_los_capitulos": "No se pudieron leer los capítulos de {nombre}. Vuelve a intentarlo: crear el proyecto sin esa lectura mostraría el MKV como si no tuviera capítulos.",
-  "mux.pareja_con_medida_en_marcha": "Hay una medida en curso: detenla o espera a que termine para cambiar las pistas comparadas."
+  "mux.pareja_con_medida_en_marcha": "Hay una medida en curso: detenla o espera a que termine para cambiar las pistas comparadas.",
+  "mux.riesgo_con_medida_en_marcha": "Hay una medida en curso: el riesgo se acepta sobre su resultado, así que espera a que termine."
 }

@@ -524,6 +524,17 @@ async def mux_actualizar(project_id: str, body: ActualizarMux):
                 p.pareja = pareja
                 volver_a_medir = True
         if body.acepta_riesgo is not None:
+            # Aceptar el riesgo es sobre un resultado concreto. Con una medida
+            # en curso, el que se acepta es el de antes —otro navegador con la
+            # pantalla vieja—, y la medida que termina lo dejaba aceptado sobre
+            # un resultado que nadie ha visto (revisión de Codex del
+            # 2026-10-28). Retirarlo sí se puede siempre.
+            viva = _medidas.get(project_id)
+            tarea = (viva or {}).get("task")
+            if (body.acepta_riesgo and viva
+                    and not (tarea is not None and tarea.done())):
+                raise HTTPException(status_code=409,
+                                    detail=tr('mux.riesgo_con_medida_en_marcha'))
             p.acepta_riesgo = bool(body.acepta_riesgo)
         if body.retraso_manual_ms is not None:
             p.retraso_manual_ms = int(body.retraso_manual_ms)
@@ -803,6 +814,11 @@ async def mux_cancelar(project_id: str):
     y la fase limpia su fichero de trabajo."""
     if await queue_manager.cancel(project_id):
         return {"ok": True, "descartada": True}
+    if _progreso.get("id") == project_id and _progreso.get("publicado"):
+        # El MKV ya tiene su nombre definitivo y lo que queda (su análisis)
+        # termina igual: aceptarlo decía «cancelado» de un trabajo que acaba
+        # en `done` (revisión de Codex del 2026-10-28).
+        return {"ok": False, "publicado": True}
     if _progreso.get("id") == project_id:
         _cancelar[project_id] = True
         _matar(_procesos.get(project_id))
@@ -839,7 +855,8 @@ async def _multiplexar(pid: str) -> None:
                        tr('mux.wl_multiplexado_de', p1=titulo or p.nombre_salida))
     inicio = datetime.now(timezone.utc)
     ahora = time.monotonic()
-    _progreso.update(id=pid, fase="", pct=None, paso="", desde=ahora, fase_desde=ahora, chips=[])
+    _progreso.update(id=pid, fase="", pct=None, paso="", desde=ahora, fase_desde=ahora, chips=[],
+                     publicado=False)
     _cancelar[pid] = False
     _procesos[pid] = []
     log_lineas: list[str] = []
@@ -866,6 +883,18 @@ async def _multiplexar(pid: str) -> None:
     def al_pct(pct: float) -> None:
         _progreso["pct"] = max(0.0, min(100.0, pct))
 
+    async def al_reservar(ruta: Path) -> None:
+        # Antes de escribirlo: si el contenedor se reinicia a mitad, el
+        # arranque solo borra el fichero de trabajo que sea de este proyecto.
+        async with _cerrojo(pid):
+            q = await _cargar(pid)
+            if q is not None:
+                q.trabajo_propio = str(ruta)
+                await _guardar(q)
+
+    def al_publicar() -> None:
+        _progreso["publicado"] = True
+
     plan = mux_plan.plan(p, ignorar_estado=True)
     if plan.get("velocidad_video"):
         _progreso["chips"] = [tr('mux.chip_velocidad', fps=mux_sync.texto_de_cadencia(
@@ -883,11 +912,12 @@ async def _multiplexar(pid: str) -> None:
             elif fase == "combinar":
                 trabajo, capitulos_ns = await mux_pipeline.fase_b_multiplexar(
                     p, plan, log, al_lanzar=_registrar_proceso(pid),
-                    cancelado=cancelado, al_progreso=al_pct)
+                    cancelado=cancelado, al_progreso=al_pct, al_reservar=al_reservar)
             else:
                 validacion = await mux_pipeline.fase_c_comprobar_y_guardar(
                     p, plan, trabajo, log, al_lanzar=_registrar_proceso(pid),
-                    cancelado=cancelado, capitulos_ns=capitulos_ns)
+                    cancelado=cancelado, capitulos_ns=capitulos_ns,
+                    al_publicar=al_publicar)
             tiempos[fase] = round(time.monotonic() - t0, 1)
         estado_final = "done"
     except mux_pipeline.MultiplexadoCancelado:
@@ -916,6 +946,12 @@ async def _multiplexar(pid: str) -> None:
             if q is not None:
                 run_n = len(q.historial) + 1
                 q.output_log = list(log_lineas)
+                # Solo una comprobación final fallida conserva su fichero de
+                # trabajo; en lo demás ya no existe (publicado, o borrado por
+                # la fase que falló), y apuntarlo como propio reclamaría el de
+                # otro proyecto que apareciera con ese nombre.
+                if validacion is None or estado_final == "done":
+                    q.trabajo_propio = None
                 if estado_final == "done":
                     q.status = "done"
                     q.output_mkv_path = str(mux_pipeline.ruta_final(q))
@@ -941,7 +977,7 @@ async def _multiplexar(pid: str) -> None:
                          # multiplexado dos veces tiene dos logs, y la línea
                          # del historial habla de uno.
                          ref_log=f"mux:{pid}#{run_n}" if run_n else f"mux:{pid}")
-        _progreso.update(id="", fase="", pct=None, paso="", chips=[])
+        _progreso.update(id="", fase="", pct=None, paso="", chips=[], publicado=False)
         _cancelar.pop(pid, None)
         _procesos.pop(pid, None)
 
@@ -1024,8 +1060,14 @@ def recuperar_proyectos_interrumpidos() -> None:
             if p.status == "running":
                 p.status = "error"
                 p.error_message = historial.motivo_interrumpido()
+                # Solo el que escribía ESTE proyecto: uno que murió antes de
+                # la Fase B no tiene fichero de trabajo, y con su nombre puede
+                # estar el de otro (ver `MuxProject.trabajo_propio`).
                 try:
-                    mux_pipeline.ruta_de_trabajo(mux_pipeline.ruta_final(p)).unlink(missing_ok=True)
+                    trabajo = mux_pipeline.ruta_de_trabajo(mux_pipeline.ruta_final(p))
+                    if p.trabajo_propio == str(trabajo):
+                        trabajo.unlink(missing_ok=True)
+                        p.trabajo_propio = None
                 except (RuntimeError, OSError):
                     pass
             elif p.status == "queued" and p.id not in en_cola:

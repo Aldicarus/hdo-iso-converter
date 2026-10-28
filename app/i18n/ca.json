@@ -1277,6 +1277,7 @@
   "mux.esperando_a_la_medida": "S'està mesurant la sincronia. Es pot multiplexar quan acabi.",
   "mux.ya_existe_un_mkv_con_ese_nombre": "Ja existeix un MKV amb aquest nom a Output: {nombre}. Canvia el nom de sortida o mou el MKV existent.",
   "mux.otro_proyecto_escribe_ese_mkv": "Una altra multiplexació en curs escriu el mateix MKV ({nombre}). Canvia el nom de sortida d'un dels dos projectes.",
+  "mux.trabajo_de_otro": "Ja existeix «{nombre}» a Output i no és d'aquest projecte: pot ser el d'una altra multiplexació o el remux d'un projecte CMv4.0 a mig fer. Es pot esborrar des de ⚙︎ Configuració → Manteniment («Escanejar orfes»), o canviar el nom de sortida.",
   "mux.el_mkv_cambio": "{nombre} ha canviat des que es va llegir, i les dades del projecte ja no el descriuen. Crea el projecte de nou per tornar-lo a llegir.",
   "mux.sin_espacio": "No hi ha prou espai a Output: queden {libre} GB i el MKV en necessita uns {necesarios}.",
   "mux.no_se_pudieron_extraer_los_capitulos": "No s'han pogut extreure els capítols: {error}",
@@ -1345,6 +1346,7 @@
   "relato.mux_porque_montaje_distinto": "El desfasament canvia bruscament a meitat de la pel·lícula: un dels dos MKV té escenes que l'altre no té.",
   "relato.mux_porque_no_concluyente": "La mesura és dubtosa: no hi ha prou punts fiables per determinar el desfasament.",
   "cmv40_pipeline.cadencia_distinta_del_origen": "L'MKV final no conserva la cadència de l'origen (frame de {real} ns en lloc de {origen} ns): l'àudio de l'origen aniria dessincronitzat.",
+  "cmv40_pipeline.cadencia_ilegible": "No s'ha pogut llegir la cadència de {nombre} ({error}). Sense ella no es pot fixar ni comprovar la durada de frame del MKV final, i el seu àudio podria quedar dessincronitzat.",
   "mux.adjunto_desconocido": "Un adjunt de la llista no existeix o hi és repetit.",
   "mux.capitulo_desconocido": "Un capítol de la llista no existeix o hi és repetit.",
   "mux.chip_velocidad": "Vídeo a {fps} fps",
@@ -1370,6 +1372,7 @@
   "mux.motivo_corto_sin_video": "no hi ha cap vídeo triat",
   "mux.motivo_corto_video_de_las_dos": "hi ha vídeo triat dels dos MKV",
   "mux.motivo_corto_video_sin_velocidad_fija": "el vídeo no té una cadència fixa i la seva velocitat no es pot ajustar",
+  "mux.motivo_corto_cadencia_sin_comprobar": "no s'ha pogut comprovar que la cadència del vídeo sigui fixa",
   "relato.mux_sin_video_elegido": "Sense cap vídeo triat",
   "relato.mux_sincronia_no_hace_falta": "No cal: totes les pistes i els capítols provenen del MKV del vídeo",
   "relato.mux_ninguna_pista": "Cap pista triada",
@@ -1380,6 +1383,8 @@
   "relato.mux_porque_sin_video": "Falta triar el vídeo del MKV final.",
   "relato.mux_porque_video_de_las_dos": "Hi ha vídeo triat dels dos MKV, i el vídeo només pot provenir d'un.",
   "relato.mux_porque_video_sin_velocidad_fija": "Per coincidir amb l'àudio de l'altre MKV cal ajustar la velocitat del vídeo, i aquest vídeo no té una cadència fixa: és de cadència variable o les seves pistes de vídeo no tenen la mateixa durada de frame.",
+  "relato.mux_porque_cadencia_sin_comprobar": "Per coincidir amb l'àudio de l'altre MKV cal ajustar la velocitat del vídeo, i no s'ha pogut comprovar que la seva cadència sigui fixa: MediaInfo no va llegir aquest MKV en crear el projecte. Crear el projecte de nou el torna a llegir.",
   "mux.no_se_pudieron_leer_los_capitulos": "No s'han pogut llegir els capítols de {nombre}. Torna-ho a provar: crear el projecte sense aquesta lectura mostraria el MKV com si no tingués capítols.",
-  "mux.pareja_con_medida_en_marcha": "Hi ha una mesura en curs: atura-la o espera que acabi per canviar les pistes comparades."
+  "mux.pareja_con_medida_en_marcha": "Hi ha una mesura en curs: atura-la o espera que acabi per canviar les pistes comparades.",
+  "mux.riesgo_con_medida_en_marcha": "Hi ha una mesura en curs: el risc s'accepta sobre el seu resultat, així que espera que acabi."
 }

@@ -703,6 +703,8 @@ function _muxAplicar(project, datos, forzar = false) {
   // bastaba —una que ya había salido tenía ESE número y pasaba—.
   if (forzar) project._version = (project._version || 0) + 1;
   project.datos = datos;
+  // La pantalla vuelve a ser lo que hay en el servidor (ver `_muxEnviarPendiente`).
+  project._desincronizado = false;
   _muxPintarPanel(project);
   _muxNombreDeSubTab(project);
   _muxActualizarEnLista(datos);
@@ -777,8 +779,15 @@ async function _muxEnviarPendiente(project) {
     project._pedido = null;
   }
   // El servidor no lo aceptó (apiFetch ya ha dicho por qué): se vuelve a lo
-  // que hay de verdad, o la pantalla enseñaría un cambio que no existe.
-  if (rechazado) await _muxLeer(project);
+  // que hay de verdad, o la pantalla enseñaría un cambio que no existe. Hasta
+  // que una lectura lo consiga, la pantalla no es lo guardado: si la relectura
+  // también falla, `_muxEsperarGuardado` no deja seguir (revisión de Codex del
+  // 2026-10-28) — «Multiplexar» encolaba la selección guardada mientras se
+  // veía la rechazada.
+  if (rechazado) {
+    project._desincronizado = true;
+    await _muxLeer(project);
+  }
   return !rechazado;
 }
 
@@ -793,6 +802,7 @@ async function _muxEnviarPendiente(project) {
  *  dos se encolaba una selección que no era la que se veía. */
 async function _muxEsperarGuardado(project, conPatron = true) {
   for (;;) {
+    if (project._desincronizado) return false;
     const enviando = project._guardado;
     if (enviando) {
       if (!await enviando) return false;
@@ -814,10 +824,29 @@ function refrescarMuxAbiertos() {
   if (typeof currentTab !== 'undefined' && currentTab === 4) refrescarMuxLista();
 }
 
-/** El selector de ficha devuelve el proyecto entero ya con la carátula. */
-function muxTrasCambiarFicha(id, datos) {
+/** La versión de escritura del proyecto ahora mismo: la toma el selector de
+ *  ficha antes de pedir el cambio (ver `muxTrasCambiarFicha`). */
+function muxVersion(id) {
   const project = _muxProyecto(id);
-  if (project && datos && datos.id) _muxAplicar(project, datos, true);
+  return project ? (project._version || 0) : null;
+}
+
+/** El selector de ficha devuelve el proyecto entero ya con la carátula: el
+ *  de cuando el servidor cambió la ficha. Si desde que se pidió se ha escrito
+ *  algo —un cambio que esperaba detrás de otro—, ese proyecto es más viejo
+ *  que lo que hay en pantalla, y aplicarlo a la fuerza deshacía el guardado:
+ *  se veía una selección y se multiplexaba otra (revisión de Codex del
+ *  2026-10-28). Entonces se vuelve a leer, con lo guardado ya en el servidor. */
+function muxTrasCambiarFicha(id, datos, version) {
+  const project = _muxProyecto(id);
+  if (project && datos && datos.id) {
+    if (version != null && (project._version || 0) === version
+        && !project._escribiendo && !project._pendiente) {
+      _muxAplicar(project, datos, true);
+    } else {
+      _muxEsperarGuardado(project).then(() => _muxLeer(project));
+    }
+  }
   refrescarMuxLista();
 }
 
@@ -1521,6 +1550,12 @@ async function muxCambiarPareja(pid) {
   delete a.dataset.tocado;
   delete b.dataset.tocado;
   const pareja = [Number(a.value), Number(b.value)];
+  // Se compara con lo que hay en el SERVIDOR, así que antes se espera a lo
+  // que vuela: con un cambio de pareja en vuelo, volver a la de antes y
+  // pulsar medía la otra —la del PUT, que el servidor ya tenía— sin guardar
+  // la elegida, y medir con ese PUT sin llegar lo haría rebotar con un 409
+  // (revisión de Codex del 2026-10-28).
+  if (!await _muxEsperarGuardado(project)) return;
   // El servidor vuelve a medir solo si la pareja CAMBIA, así que con la que
   // ya estaba guardada el botón no hacía nada (revisión de Codex del
   // 2026-10-25). Ahí se pide la medida directamente.
@@ -2308,6 +2343,7 @@ async function cancelarMultiplexadoMux(pid) {
   // no había nada que cancelar (ya había terminado).
   if (r && r.descartada) showToast(tr('tab4.quitado_de_la_cola'), 'info');
   else if (r && r.ok) showToast(tr('tab4.multiplexado_cancelado'), 'info');
+  else if (r && r.publicado) showToast(tr('tab4.ya_esta_guardado'), 'info');
   else if (r) showToast(tr('tab4.no_habia_nada_que_cancelar'), 'info');
   const project = _muxProyecto(pid);
   if (project) await _muxLeer(project);

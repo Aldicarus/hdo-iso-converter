@@ -336,7 +336,7 @@ function openMkvProject(analysis) {
     _mkvRefreshSubTab(existente);
     switchMkvSubTab(existente.id);
     _renderMkvEditPanel(existente);
-    showToast(tr('tab2.mkv_actualizado_p1', {p1: analysis.file_name}), 'success');
+    showToast(tr('tab2.mkv_actualizado_p1', {p1: escHtml(analysis.file_name)}), 'success');
     return existente;
   }
 
@@ -358,7 +358,7 @@ function openMkvProject(analysis) {
   _mkvCreatePanel(project);
   switchMkvSubTab(project.id);
   _renderMkvEditPanel(project);
-  showToast(tr('tab2.mkv_abierto_p1', {p1: analysis.file_name}), 'success');
+  showToast(tr('tab2.mkv_abierto_p1', {p1: escHtml(analysis.file_name)}), 'success');
   return project;
 }
 
@@ -3432,9 +3432,19 @@ let _mkvRecientesDebounce = null;
  *  aunque se haya hecho hace poco, y entonces el fallo sí se enseña: lo ha
  *  pedido el usuario con un botón. Devuelve la respuesta, o null. */
 async function refrescarMkvRecientes({ buscar = false } = {}) {
+  // Cada petición lleva su número y la lista solo la pinta la última que
+  // salió: una automática que vuelve después de la de «Volver a buscar»
+  // devolvía la tarjeta a «No encontrado» (revisión de Codex del 2026-10-28).
+  // Lo reubicado se recoge igual, llegue cuando llegue: es un hecho de ESA
+  // petición y el servidor no lo repite.
+  const n = refrescarMkvRecientes.pedido = (refrescarMkvRecientes.pedido || 0) + 1;
   const data = await apiFetch(
     buscar ? '/api/mkv/recientes?buscar=true' : '/api/mkv/recientes',
     { silent: !buscar });
+  if (n !== refrescarMkvRecientes.pedido) {
+    if (data) _mkvRecogerReubicados(data.reubicados || []);
+    return data;
+  }
   if (!data) {
     // NO vaciar la lista: machacarla con [] dejaría la columna en «0» y sería
     // indistinguible de «no has analizado nada», que es una conclusión mucho
@@ -3471,7 +3481,12 @@ async function refrescarMkvRecientes({ buscar = false } = {}) {
 function _mkvRecogerReubicados(reubicados) {
   if (!Array.isArray(reubicados) || !reubicados.length) return;
   for (const r of reubicados) {
-    const ambigua = reubicados.filter(x => x.antes === r.antes).length > 1;
+    // Sin huella no se sabe qué contenido tiene la pestaña: si otro venía de
+    // su ruta, o llegó a ella, no hay forma de elegir. Lo segundo pasa en las
+    // cadenas que produce la segunda pasada —P→Q y Q→R en la misma
+    // respuesta—, donde una pestaña sin huella pasaba de P a Q y de Q a R, al
+    // MKV de otro (revisión de Codex del 2026-10-28).
+    const ambigua = reubicados.some(x => x !== r && (x.antes === r.antes || x.ahora === r.antes));
     for (const p of openMkvProjects) {
       if (_mkvRutaDe(p) !== r.antes) continue;
       const huella = p.analysis && p.analysis.huella;
@@ -3484,8 +3499,9 @@ function _mkvRecogerReubicados(reubicados) {
       _mkvRefreshSubTab(p);
     }
   }
+  // `showToast` pinta HTML: el nombre del fichero va escapado.
   showToast(reubicados.length === 1
-    ? tr('tab2.reubicado_uno', {nombre: reubicados[0].nombre})
+    ? tr('tab2.reubicado_uno', {nombre: escHtml(reubicados[0].nombre)})
     : tr('tab2.reubicados_varios', {n: reubicados.length}), 'info');
 }
 
@@ -3498,7 +3514,7 @@ async function _mkvVolverABuscar(r) {
   if (!data) return;
   const sigue = (data.recientes || []).find(x => x.ruta === r.ruta && !x.existe);
   if (sigue) {
-    const nombre = r.nombre || r.ruta;
+    const nombre = escHtml(r.nombre || r.ruta);
     showToast(sigue.buscado
       ? tr('tab2.no_esta_en_ninguna_carpeta', {nombre})
       : tr('tab2.busqueda_incompleta', {nombre}), 'warning');
@@ -3774,7 +3790,7 @@ function abrirMkvReciente(ruta) {
     return;
   }
   if (entrada && !entrada.existe) {
-    showToast(tr('tab2.ya_no_esta_en_el_analisis', {nombre: nombre, ruta: ruta}), 'warning');
+    showToast(tr('tab2.ya_no_esta_en_el_analisis', {nombre: escHtml(nombre), ruta: escHtml(ruta)}), 'warning');
     return;
   }
   // El tope se comprueba ANTES de arrancar: el análisis puede tardar 1-3 min
