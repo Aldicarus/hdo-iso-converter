@@ -37,13 +37,13 @@ It runs on a NAS or any Linux machine with Docker and is used from the browser.
 
 ## Who it is for
 
-Doing this by hand means DoVi_Scripts or the command-line tools: dozens of options, terms such as RPU, L8 or FEL, and mistakes that only show up on screen hours later. For many people who care about picture quality, that is a mountain.
+For people who want the best version of their films without having to become Dolby Vision experts to get it.
 
-UHD Blu-ray Toolkit is made for them. It guides each step, says what it decided and why, and stops to ask whenever a decision could make the result worse, so getting the best result does not depend on knowing Dolby Vision in depth. Building it meant learning a great many things about Dolby Vision, discs and containers, so that using it does not.
+The tools that do this work — dovi_tool, MKVToolNix and FFmpeg, and DoVi_Scripts on top of them — expect you to know at every step which playlist is the film, which metadata levels to merge, or how many frames separate two masters. A wrong choice does not stop them: it shows up on screen, hours later.
 
-**If you want control over every option**, use dovi_tool and MKVToolNix directly: they can do everything this app does to a file, and this app runs them.
+UHD Blu-ray Toolkit carries that knowledge itself. It makes every choice that can be made from the files, explains each one, and checks the result before moving on. It only asks you what depends on your judgment, and no step is allowed to leave you with a file worse than the one you started with.
 
-**If you would rather be guided to the best result**, with every step checked and a file that is never worse than the one you started with, this is the tool.
+If you already work comfortably with those tools, you can do everything it does by hand: the app runs the same commands and shows them in each job's log.
 
 ---
 
