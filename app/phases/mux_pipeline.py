@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import tempfile
 import time
@@ -547,7 +548,7 @@ async def fase_b_multiplexar(proyecto: MuxProject, plan_: dict, log, *,
     xml, caps_esperados = await _capitulos_xml(proyecto, plan_, final.parent)
     cmd = mux_plan.argv(proyecto, plan_, str(trabajo), xml)
     await _log(log, '[Fase B] 📋 Plan: ' + plan_texto_para_el_log(proyecto, plan_))
-    await _log(log, '$ ' + " ".join(_citar(a) for a in cmd))
+    await _log(log, '$ ' + shlex.join(cmd))
     _comprobar_cancelado(cancelado)
 
     proc = await asyncio.create_subprocess_exec(
@@ -625,10 +626,6 @@ async def fase_b_multiplexar(proyecto: MuxProject, plan_: dict, log, *,
     await _log(log, '[Fase B] ' + tr('mux.log_multiplexado',
                                      gb=f"{trabajo.stat().st_size / 1e9:.1f}"))
     return trabajo, caps_esperados
-
-
-def _citar(a: str) -> str:
-    return a if re.fullmatch(r"[\w./:,=+-]+", a) else "'" + a.replace("'", "'\\''") + "'"
 
 
 def plan_texto_para_el_log(proyecto: MuxProject, plan_: dict) -> str:

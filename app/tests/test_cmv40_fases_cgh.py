@@ -339,6 +339,19 @@ class TestFaseGRemux(CmvPhaseCase):
                 self.assertIn("BL_injected.hevc",
                               " ".join(self._el_remux().argv))
 
+    async def test_el_log_dice_los_comandos_que_se_ejecutan(self):
+        """Cada comando sale en el log citado como en el shell: el nombre de
+        salida y el de la pista llevan espacios, y unidos sin citar el log no
+        se podría copiar para repetir el paso a mano."""
+        session = self.prepare(trust_ok=False,
+                               artifacts=("BL.hevc", "EL_injected.hevc"),
+                               injected_props=INJ_FEL_V40)
+        session.output_mkv_name = "Peli (2024) [CMv4 FULL].mkv"
+        await self.run_g(session)
+        self.assertEqual(self.log.comandos("mkvmerge"), [self._el_remux().argv])
+        [mux] = self.tb.find("dovi_tool", "mux")
+        self.assertIn(mux.argv, self.log.comandos("dovi_tool"))
+
     async def test_escribe_a_output_con_sufijo_tmp(self):
         session = self.prepare(artifacts=("source_injected.hevc",),
                                injected_props=INJ_FEL_V40)

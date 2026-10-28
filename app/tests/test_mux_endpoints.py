@@ -23,7 +23,7 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "tests"))
 
 from api_harness import ApiTestCase  # noqa: E402
-from cmv40_harness import FakeToolbox  # noqa: E402
+from cmv40_harness import CollectingLog, FakeToolbox  # noqa: E402
 
 FPS_BD = 24000 / 1001
 FRAMES = 172_800
@@ -738,6 +738,19 @@ class TestMultiplexar(MuxCase):
         # tiene dos logs, y el detalle de la vieja no puede enseñar el nuevo.
         self.assertEqual(linea["ref_log"], f"mux:{p['id']}#1")
         self.assertEqual(q.historial[-1].run_number, 1)
+
+    def test_el_log_dice_el_mkvmerge_que_se_ejecuta(self):
+        """El log del multiplexado enseña el `mkvmerge` tal como se ejecutó,
+        citado como en el shell: el nombre de salida y los de las pistas
+        llevan espacios."""
+        p = self.crear()
+        self.elegir(p["id"], A_VIDEO, B_DCP, B_INGLES, capitulos=[(1, 0)])
+        self.con_medida(p["id"])
+        q = self.multiplexar(p["id"])
+        self.assertEqual(q.status, "done", (q.error_message, q.validacion))
+        log = CollectingLog()
+        log.lines = list(q.historial[-1].output_log)
+        self.assertEqual(log.comandos("mkvmerge"), [self.el_mux().argv])
 
     def test_la_marca_no_se_anuncia_en_el_log(self):
         """La regla de `firma.py`, que Tab 1 ya vigilaba en su log: una marca

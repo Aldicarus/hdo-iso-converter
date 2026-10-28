@@ -6178,5 +6178,59 @@
   "modulos": [
    "test_tab2_columna_izquierda"
   ]
+ },
+ {
+  "id": "T7L-1 la ruta directa de la Fase E no registra su mkvmerge",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        await log_callback(f\"[Fase B] └─ $ {shlex.join(cmd)}\")\n",
+  "nuevo": "",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T7L-2 la ruta directa registra el comando sin citar",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        await log_callback(f\"[Fase B] └─ $ {shlex.join(cmd)}\")\n",
+  "nuevo": "        await log_callback(f\"[Fase B] └─ $ {' '.join(cmd)}\")\n",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T7L-3 el mkvpropedit de la Fase E no se registra",
+  "fichero": "app/phases/phase_e.py",
+  "viejo": "        await log_callback(f\"[Fase C] └─ $ {shlex.join(cmd)}\")\n",
+  "nuevo": "",
+  "modulos": [
+   "test_fases_de_tab1"
+  ]
+ },
+ {
+  "id": "T7L-4 CMv4.0 registra sus comandos sin citar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "        await _log(log_callback, f\"$ {shlex.join(cmd)}\")\n        # start_new_session=True para que cancel pueda usar killpg",
+  "nuevo": "        await _log(log_callback, f\"$ {' '.join(cmd)}\")\n        # start_new_session=True para que cancel pueda usar killpg",
+  "modulos": [
+   "test_cmv40_fases_cgh"
+  ]
+ },
+ {
+  "id": "T7L-5 el pipe de la Fase A registra sus comandos sin citar",
+  "fichero": "app/phases/cmv40_pipeline.py",
+  "viejo": "await _log(log_callback, f\"$ {shlex.join(ff_cmd)} | {shlex.join(dv_cmd)}\")",
+  "nuevo": "await _log(log_callback, f\"$ {' '.join(ff_cmd)} | {' '.join(dv_cmd)}\")",
+  "modulos": [
+   "test_pipe_fase_a"
+  ]
+ },
+ {
+  "id": "T7L-6 Multiplexar registra su mkvmerge sin citar",
+  "fichero": "app/phases/mux_pipeline.py",
+  "viejo": "    await _log(log, '$ ' + shlex.join(cmd))",
+  "nuevo": "    await _log(log, '$ ' + ' '.join(cmd))",
+  "modulos": [
+   "test_mux_endpoints"
+  ]
  }
 ]

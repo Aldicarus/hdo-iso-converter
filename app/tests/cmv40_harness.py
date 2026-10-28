@@ -751,6 +751,30 @@ class CollectingLog:
         hits = [l for l in self.lines if "📋 Plan" in l]
         return "\n".join(hits)
 
+    def comandos(self, binario: str) -> list[list[str]]:
+        """Los argv de `binario` que el log dice haber ejecutado, partidos
+        como los partiría el shell (`shlex.split`), sin el propio binario.
+
+        Es lo que hace comparable el log con `Call.argv`: si el log uniera
+        los argumentos con espacios, una ruta como `Peli (2024) [DV FEL].mkv`
+        saldría partida en tres y la comparación fallaría — que es justo lo
+        que tiene que pasar, porque esa línea no se puede copiar al shell.
+        Una línea con `|` (el pipe de la Fase A) da un argv por extremo."""
+        import shlex
+        salida = []
+        for linea in self.lines:
+            if "$ " not in linea:
+                continue
+            tramo: list[str] = []
+            for token in shlex.split(linea.split("$ ", 1)[1]) + ["|"]:
+                if token != "|":
+                    tramo.append(token)
+                    continue
+                if tramo and Path(tramo[0]).name == binario:
+                    salida.append(tramo[1:])
+                tramo = []
+        return salida
+
 
 class PhaseTestCase(unittest.IsolatedAsyncioTestCase):
     """Base para tests que ejecutan fases: tmpdir, toolbox y OUTPUT_DIR aislados."""

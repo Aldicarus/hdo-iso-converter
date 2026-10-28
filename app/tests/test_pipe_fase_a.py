@@ -111,6 +111,23 @@ class TestPipeFaseA(PhaseTestCase):
         self.assertIn("|", texto, "debe verse que son dos procesos en pipe")
         self.assertIn("extract-rpu", texto)
 
+    async def test_los_dos_extremos_del_pipe_salen_citados(self):
+        """El log enseña los dos comandos tal como se ejecutaron: con una
+        ruta con espacios y el `|` del muxer tee, unidos sin citar no se
+        podrían repetir en el shell."""
+        from phases.cmv40_pipeline import _ffmpeg_extract_rpu_piped
+        mkv = self.tmp / "Peli (2024) [DV FEL].mkv"
+        write_artifacts(self.tmp, mkv.name, props=self.props)
+        log = CollectingLog()
+        ok = await asyncio.wait_for(_ffmpeg_extract_rpu_piped(
+            str(mkv), self.tmp / "RPU_source.bin",
+            hevc_out=self.tmp / "source.hevc", log_callback=log), timeout=30)
+        self.assertTrue(ok, log.lines)
+        [ff] = self.tb.find("ffmpeg")
+        [dv] = self.tb.find("dovi_tool", "extract-rpu")
+        self.assertEqual(log.comandos("ffmpeg"), [ff.argv])
+        self.assertEqual(log.comandos("dovi_tool"), [dv.argv])
+
     async def test_una_sola_pasada_de_ffmpeg(self):
         # El ahorro viene de no leer el MKV dos veces.
         await self._piped(hevc_out=self.tmp / "source.hevc")

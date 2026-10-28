@@ -234,7 +234,9 @@ class TestFaseD(FaseTestCase):
 
     async def test_registra_el_comando_completo(self):
         await self._correr()
-        self.assertTrue(self.log.says("$ mkvmerge"), self.log.lines)
+        [mux] = [c for c in self.tb.find("mkvmerge") if c.has("--gui-mode")]
+        self.assertEqual(self.log.comandos("mkvmerge"), [mux.argv],
+                         "el log tiene que decir el comando que se ejecutó, citado")
         self.assertTrue(self.log.says("📋"), "falta el plan de la fase")
         self.assertTrue(self.log.says("🎯"), "falta el resultado de la fase")
 
@@ -277,6 +279,15 @@ class TestFaseEDirecta(FaseTestCase):
             session or self._sesion_completa(),
             source or str(self.mpls),
             log_callback=self.log)
+
+    async def test_registra_el_comando_que_ejecuta(self):
+        """La portada promete que el log de cada trabajo enseña los comandos,
+        y la ruta directa —la que escribe el MKV final— no registraba el suyo.
+        El nombre del MKV lleva espacios y paréntesis, y los nombres de pista
+        también: unidos sin citar, el log no se podría copiar al shell."""
+        await self._correr()
+        [mux] = [c for c in self.tb.find("mkvmerge") if c.has("--gui-mode")]
+        self.assertEqual(self.log.comandos("mkvmerge"), [mux.argv])
 
     async def test_escribe_el_mkv_final_en_output(self):
         salida = await self._correr()
@@ -512,6 +523,13 @@ class TestFaseEPropedit(FaseTestCase):
 
     def _en_output(self):
         return sorted(p.name for p in self.salida.rglob("*") if p.is_file())
+
+    async def test_registra_el_comando_que_ejecuta(self):
+        """Lo mismo que la ruta directa: el `mkvpropedit` que aplica los
+        nombres y las marcas sale en el log, citado."""
+        await self._correr()
+        [edita] = self.tb.find("mkvpropedit")
+        self.assertEqual(self.log.comandos("mkvpropedit"), [edita.argv])
 
     async def test_entrega_el_mkv_con_el_nombre_definitivo(self):
         salida = await self._correr()

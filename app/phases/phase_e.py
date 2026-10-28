@@ -38,6 +38,7 @@ from i18n import t as tr
 import asyncio
 import json
 import os
+import shlex
 import shutil
 import tempfile
 import time
@@ -234,6 +235,7 @@ async def run_phase_e_direct(
             '[Fase B] ' + tr('phase_e.generando_el_mkv_final_con_un')
         )
         await log_callback('[Fase B] ┌─ ' + tr('phase_e.escribiendo', output_path=output_path))
+        await log_callback(f"[Fase B] └─ $ {shlex.join(cmd)}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -387,6 +389,7 @@ async def run_phase_e_propedit(
             '[Fase C] ' + tr('phase_e.aplicando_los_metadatos_al_mkv_intermedio')
         )
         await log_callback('[Fase C] ┌─ ' + tr('phase_e.editando_metadatos_en', p1=Path(intermediate_mkv).name))
+        await log_callback(f"[Fase C] └─ $ {shlex.join(cmd)}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,

@@ -29,6 +29,7 @@ import asyncio
 import os
 import subprocess
 import json
+import shlex
 import time
 from pathlib import Path
 
@@ -178,7 +179,7 @@ async def run_phase_d(
             '[Fase B] ' + tr('phase_d.extrayendo_todas_las_pistas_del_origen')
         )
         await log_callback('[Fase B] ┌─ ' + tr('phase_d.origen', p1=Path(mpls_path).name))
-        await log_callback(f"[Fase B] └─ $ {' '.join(cmd)}")
+        await log_callback(f"[Fase B] └─ $ {shlex.join(cmd)}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,

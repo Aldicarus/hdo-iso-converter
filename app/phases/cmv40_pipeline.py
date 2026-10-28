@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -393,7 +394,7 @@ def raise_if_cancelled() -> None:
 async def _run(cmd: list[str], log_callback=None, timeout: int | None = None) -> tuple[int, str, str]:
     """Ejecuta un comando y devuelve (returncode, stdout, stderr)."""
     raise_if_cancelled()
-    await _log(log_callback, f"$ {' '.join(cmd)}")
+    await _log(log_callback, f"$ {shlex.join(cmd)}")
     # start_new_session=True para que cancel pueda hacer killpg si el
     # proc no responde a SIGTERM/SIGKILL directo (ver cmv40_cancel).
     proc = await asyncio.create_subprocess_exec(
@@ -900,7 +901,7 @@ async def _run_streaming_sin_red(
     progress_expected = int(progress_ctx.get("expected_out_bytes") or 0) if progress_ctx else 0
     progress_read_total = int(progress_ctx.get("expected_read_bytes") or 0) if progress_ctx else 0
     reader: _ReadProgress | None = None
-    await _log(log_callback, f"$ {' '.join(cmd)}")
+    await _log(log_callback, f"$ {shlex.join(cmd)}")
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -1377,7 +1378,7 @@ async def _ffmpeg_extract_rpu_piped(
     # el caller recurría al camino en dos pasos, que sí lo comprueba — pero
     # después de haber arrancado (y matado) este pipeline para nada.
     raise_if_cancelled()
-    await _log(log_callback, f"$ {' '.join(ff_cmd)} | {' '.join(dv_cmd)}")
+    await _log(log_callback, f"$ {shlex.join(ff_cmd)} | {shlex.join(dv_cmd)}")
 
     read_fd, write_fd = os.pipe()
     _widen_pipe(write_fd)
@@ -1696,7 +1697,7 @@ async def _run_with_time_estimate(
 
     tick_task = asyncio.create_task(_tick())
     try:
-        await _log(log_callback, f"$ {' '.join(cmd)}")
+        await _log(log_callback, f"$ {shlex.join(cmd)}")
         # start_new_session=True para que cancel pueda usar killpg
         proc = await asyncio.create_subprocess_exec(
             *cmd,
