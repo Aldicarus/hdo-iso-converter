@@ -15,7 +15,7 @@ checks every step, and never delivers a file that is worse than the one you star
 
 [How it works](#how-it-works) · [Same tools, one more layer](#same-tools-one-more-layer) · [And DoVi_Scripts?](#uhd-blu-ray-toolkit-and-dovi_scripts) · [The four steps](#the-four-steps-in-detail) · [Installation](#installation) · [Your first film](#your-first-film) · [FAQ](#faq)
 
-> 🖼️ **[Screenshot 1 — hero]** *A CMv4.0 upgrade project of a well-known film: the film's card, the DoviTools verdict, the recommendation and the Jobs column with a job running.*
+<img src="docs/img/portada-cmv40.png" alt="A finished CMv4.0 upgrade of The Godfather: the film's card, the source and output MKVs, the DoviTools verdict, the project list on the left and the Jobs column on the right">
 
 </div>
 
@@ -37,7 +37,10 @@ It runs on a NAS or any Linux machine with Docker and is used from the browser.
 
 ## How it works
 
-> 🖼️ **[Diagram]** *The three sources and the four steps: what each source brings, what each step does and what it checks.*
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/flujo-dark.svg">
+  <img src="docs/img/flujo-light.svg" alt="The three sources and the four steps: the UHD Blu-ray goes into Rip, the CMv4.0 RPU file into Upgrade and another release into Multiplex; Verify comes last, and the result is one MKV with nothing re-encoded. Under each step, what it checks.">
+</picture>
 
 Four steps, one tab each. Together they cover what it takes to improve a remux: the best picture, the best grading metadata, the language you want, and proof of what ended up inside the file.
 
@@ -65,7 +68,7 @@ UHD Blu-ray Toolkit does nothing new to your files. Every change is made by **mk
 
 - **Nothing is re-encoded.** Picture and sound are copied bit for bit.
 - **Your originals are never modified.** Discs and the library are mounted read-only. An edit to a library file is made on a copy.
-- **A file that fails its checks is not delivered as finished.** Each MKV is written under a temporary name and only takes its final name once it has passed. The upgrade and the multiplex never overwrite an existing file.
+- **A file that fails is not delivered as finished.** The rip, the upgrade and the multiplex write their MKV under a temporary name, and it only takes its final name when the job completes, so a job that is cut off never leaves a half-written file that looks finished. The upgrade and the multiplex also keep the temporary name when the final checks fail, and never overwrite an existing file; the rip lists every difference it finds between the MKV and what was configured.
 - **When a step cannot improve the file, the app says so.** A CMv4.0 file without colorist trims gets the recommendation to keep your MKV. Frames that do not line up stop the upgrade, and a sync that cannot be measured stops the multiplex, until you decide.
 
 ### By hand, or here
@@ -110,7 +113,7 @@ Many people who work with Dolby Vision already use [DoVi_Scripts](https://github
 
 ### 1 · Rip the disc — 💿 Blu-ray ISO → MKV
 
-> 🖼️ **[Screenshot 2]** *An ISO → MKV project: the Dolby Vision and HDR cards, and the tracks kept and discarded, each with its reason.*
+<img src="docs/img/rip-pistas.png" alt="An episode of Game of Thrones in the ISO → MKV tab: the MKV name with its season and episode, the estimated size, the Dolby Vision FEL and HDR cards, and the audio tracks, the one kept and the ones discarded, each with its reason" width="808">
 
 - **The FEL layer, preserved.** The base layer, the enhancement layer and the Dolby Vision metadata go into the MKV as they are on the disc. Before anything is ripped, the analysis tells you whether the disc carries a full (FEL) or a minimal (MEL) enhancement layer.
 - **The right title.** The main title is chosen by what it plays, not by the size of its playlist. When a disc has several cuts of the film, or decoy playlists, the app tells you before the rip.
@@ -120,7 +123,7 @@ Many people who work with Dolby Vision already use [DoVi_Scripts](https://github
 
 ### 2 · Upgrade it to CMv4.0 — ✨ Dolby Vision CMv4.0 upgrade
 
-> 🖼️ **[Screenshot 3]** *The analysis and recommendation card: what the CMv4.0 file brings, level by level, next to what your disc already has.*
+<img src="docs/img/cmv40-recomendacion.png" alt="The analysis and recommendation card: inject the CMv4.0 RPU by merge, the CMv4 FULL quality tier, and the L8, L2 and L3 levels of the file next to what the disc already has" width="808">
 
 Dolby Vision carries a set of instructions that tells each display how to fit the picture to what its screen can show. Those instructions are where the colorist's work lives, and CM v4.0 adds trims made by hand for each kind of display. The upgrade takes the CMv4.0 trims from a streaming master and adds them to your disc's Dolby Vision. The picture, its FEL layer and its bitrate stay as they are.
 
@@ -131,11 +134,9 @@ Dolby Vision carries a set of instructions that tells each display how to fit th
 - **The FEL layer stays.** On FEL discs the CMv4.0 metadata is merged into the disc's own and the enhancement layer is kept. On MEL discs the minimal layer, which carries no picture information, is dropped and the result is Profile 8.1. Each case takes its own route — drop-in, merge or direct injection — without you having to choose it.
 - **The delivered file is checked**: the frame count, and the Dolby Vision profile, layer and CM version read from the MKV itself, along with every audio and subtitle track of the original. The file name carries the quality tier the trims reach: `[CMv4 FULL]`, `[CMv4 CORE+]` or `[CMv4 CORE]`.
 
-> 🖼️ **[Screenshot 4]** *The sync chart: the brightness of the disc and of the CMv4.0 file, frame by frame, with the confidence of the alignment.*
-
 ### 3 · Add audio and subtitles from other releases — 🔀 Multiplex MKVs
 
-> 🖼️ **[Screenshot 5]** *The sync measurement of two releases at different speeds: the seven points, the drift and the speed adjustment.*
+<img src="docs/img/mux-sincronia.png" alt="The sync of two releases of Toy Story 5 measured from the sound: 24 fps in A and 23.976 fps in B, seven points on a straight line, and the video speed set to 23.999869 fps without re-encoding" width="808">
 
 - **Two MKVs, and you choose what comes from each.** Video, audio, subtitles, chapters and attachments, section by section, and chapters one by one. Typically the remux picture, with its Dolby Vision FEL, and the other release's dub and subtitles.
 - **The sync is measured, not assumed.** The sound of both files is compared at seven points of the film. Two releases often run at slightly different speeds — 23.976 and 24 fps — and merged as they are, the audio drifts by almost six seconds by the end.
@@ -145,7 +146,9 @@ Dolby Vision carries a set of instructions that tells each display how to fit th
 
 ### 4 · Verify the result — 🔬 Inspect / Edit MKV
 
-> 🖼️ **[Screenshot 6]** *The DV+HDR deep dive: the Dolby Vision profile and levels, the mastering chain and the film's brightness from start to finish.*
+<img src="docs/img/radiografia-lectura.png" alt="The deep dive of an MKV read in three sentences: what it is (Dolby Vision Profile 7 FEL over HDR10), the master (Display P3 at 4000 nits, 2,251 CMv4.0 adjustments) and the light (peak 4009 nits, matching the master)" width="778">
+
+<img src="docs/img/radiografia-luz.png" alt="The brightness the RPU declares across the whole film, on a logarithmic scale, with the master and the trim targets marked" width="778">
 
 - **Everything inside the file:** the Dolby Vision profile, its FEL or MEL layer, the CM version and its levels, the mastering chain and the HDR10 metadata, along with every audio format and its real bitrate.
 - **The film's brightness from start to finish**, in an interactive chart with its peaks, percentiles and how much of the running time falls at each brightness level.
@@ -157,7 +160,7 @@ Dolby Vision carries a set of instructions that tells each display how to fit th
 
 ## Always in view
 
-> 🖼️ **[Screenshot 7]** *The Jobs column and the detail of a running job: its phases, the measured progress, the time left and the log with the commands.*
+<img src="docs/img/trabajo-detalle.png" alt="The detail of a finished multiplex job: its three phases with the time each took, and the log with the mkvmerge command that was run and its output">
 
 - **The Jobs column** stays next to all four tools: what is running, what is queued, how long each job has taken and how long is left, and the history of everything that has finished.
 - **The browser tab tells you when a long job finishes**, even when you are working in another tab.
@@ -255,7 +258,7 @@ It depends on the file, and the app measures it for you. Three CoreELEC builds c
 <details>
 <summary><b>Where do the CMv4.0 files come from?</b></summary>
 
-Mostly from the DoviTools repository, maintained by R3S3T_9999 (see [Acknowledgements](#acknowledgements)). The app reads its sheet and searches its repository for you; listing the repository needs a free Google API key. You can also take the CMv4.0 metadata from another MKV that already has it, or use your own files.
+Mostly from the DoviTools repository, maintained by R3S3t9999 (see [Acknowledgements](#acknowledgements)). The app reads its sheet and searches its repository for you; listing the repository needs a free Google API key. You can also take the CMv4.0 metadata from another MKV that already has it, or use your own files.
 
 </details>
 
@@ -286,7 +289,7 @@ The disks set the pace, not the processor.
 <details>
 <summary><b>What happens if a job fails, or the NAS restarts?</b></summary>
 
-A file that fails its checks keeps its temporary name, so it cannot be mistaken for a finished one, and the project keeps its state, its error and its log so the step can be run again. If the container restarts, the queue resumes, and a job that was cut off is marked as interrupted, with its half-written file removed.
+In the upgrade and the multiplex, a file that fails its checks keeps its temporary name, so it cannot be mistaken for a finished one. The project keeps its state, its error and its log, so the step can be run again. If the container restarts, the queue resumes, and a job that was cut off is marked as interrupted, with its half-written file removed.
 
 </details>
 
