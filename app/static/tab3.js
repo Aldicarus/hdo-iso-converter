@@ -3821,10 +3821,7 @@ function cmv40AcceptKeep(pid) {
   showConfirm(
     tr('tab3.mantener_el_mkv_actual_y_cerrar'),
     tr('tab3.el_proyecto_se_cierra_como_completado') + ' '
-      + tr('tab3.tu_reproductor_p3i_t4_sony_lg') + ' '
-      + tr('tab3.hara_la_conversion_al_vuelo_en') + ' '
-      + tr('tab3.equivalente_al_de_inyectar_el_rpu') + ' '
-      + tr('tab3.procesado_ni_50_gb_de_disco'),
+      + tr('tab3.si_tu_reproductor_convierte_al_vuelo'),
     async () => {
       const data = await apiFetch(`/api/cmv40/${pid}/accept-keep`, { method: 'POST' });
       if (!data) {

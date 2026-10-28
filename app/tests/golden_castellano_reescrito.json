@@ -1,7 +1,8 @@
 {
  "motivos": {
   "registro_2026_10_27": "la pasada de registro preciso a toda la app, a petición del usuario (2026-10-27, tras la de Multiplexar MKV): fuera las metáforas que tienen palabra exacta, el inglés mezclado que tiene palabra castellana y la primera persona del plural, y se corrige lo que ya no era cierto (la sub-pestaña Cola, «Tab 3», el comparador A/B, la lista de niveles del merge FEL, la Fase F que «inyecta el RPU original»). Cambia la FORMA, o un dato viejo; el criterio está en REGISTRO.md («Precisión, no jerga de calle») y lo vigila test_registro_de_la_traduccion::TestLaAppHablaConPrecision",
-  "manual_cmv40_2026_10_27": "el manual CMv4.0 describía reglas retiradas —el árbol «perfil + L2 idéntico», los gates L1/L6 que «solo avisan», el L5 que «aborta», el botón «Detectar offset», la corrección solo al inicio, la validación «byte-idéntica» del drop-in, combinaciones que «abortan», un interruptor que no existe— y se reescribió contra el código el 2026-10-27, en las tres lenguas y con el registro preciso del resto de la app"
+  "manual_cmv40_2026_10_27": "el manual CMv4.0 describía reglas retiradas —el árbol «perfil + L2 idéntico», los gates L1/L6 que «solo avisan», el L5 que «aborta», el botón «Detectar offset», la corrección solo al inicio, la validación «byte-idéntica» del drop-in, combinaciones que «abortan», un interruptor que no existe— y se reescribió contra el código el 2026-10-27, en las tres lenguas y con el registro preciso del resto de la app",
+  "builds_al_vuelo_2026_10_28": "la conversión a CMv4.0 al vuelo la hacen hoy tres builds de CoreELEC —p3i (pannal) y avdvplus en CE21, la de SamuriHL en CE22—, y la app nombraba otras (cpm, panni, «p3i T4 / Sony / LG modernos», appletvplus); a petición del usuario (2026-10-28), al publicar la portada nueva, que dice lo mismo. De paso la confirmación de «Mantener el MKV actual» deja de partir su frase en tres claves"
  },
  "frases": {
   "\" ⟦⟧ \" sigue ejecutándose — míralo en la Cola": "registro_2026_10_27",
@@ -375,6 +376,16 @@
   "⚠ dovi_tool export excedió ⟦⟧ s — matando proceso": "registro_2026_10_27",
   "⟦⟧ en este bin, y aquí no queda desfase residual (detectado ⟦⟧ ). La corrección está puesta.": "registro_2026_10_27",
   "⟦⟧ episodio ⟦⟧ creado ⟦⟧ pero no abierto ⟦⟧ (límite ⟦⟧ pestañas). Ábrelos desde el sidebar.": "registro_2026_10_27",
-  "⟦⟧ pero la medición no ha detectado variabilidad en ninguno de los dos RPU. Revisa este desglose antes de fiarte del veredicto.": "registro_2026_10_27"
+  "⟦⟧ pero la medición no ha detectado variabilidad en ninguno de los dos RPU. Revisa este desglose antes de fiarte del veredicto.": "registro_2026_10_27",
+  "Builds de desarrollador de CoreELEC como": "builds_al_vuelo_2026_10_28",
+  "Conversión procedural on-the-fly (avdvplus/panni)": "builds_al_vuelo_2026_10_28",
+  "Si tu caja es Ugoos AM6B+ (o similar con CoreELEC-avdvplus) y solo reproduces ahí": "builds_al_vuelo_2026_10_28",
+  "Solo en la caja Amlogic con firmware avdvplus/panni — no es portable": "builds_al_vuelo_2026_10_28",
+  "Tu reproductor (p3i T4 / Sony / LG modernos compatibles con CMv4.0)": "builds_al_vuelo_2026_10_28",
+  "avdvplus/Builds — releases del fork CMv4.0 append": "builds_al_vuelo_2026_10_28",
+  "equivalente al de inyectar el RPU, pero sin gastar ~25 min de": "builds_al_vuelo_2026_10_28",
+  "niveles L8-L11 desde una fuente que sí los tiene auténticos (un master CMv4.0 retail de la misma edición). Lo que hace avdvplus es": "builds_al_vuelo_2026_10_28",
+  "¿Reproduces exclusivamente desde una Ugoos con CoreELEC-avdvplus?": "builds_al_vuelo_2026_10_28",
+  "—disponibles en reproductores Amlogic con SoC licenciado por Dolby (Ugoos AM6B+, AM6B Plus, Homatics R 4K Plus)— tienen un toggle": "builds_al_vuelo_2026_10_28"
  }
 }

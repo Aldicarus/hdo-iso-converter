@@ -1438,8 +1438,8 @@ def recommend_action(session) -> tuple[str, str, str]:
     """Calcula la recomendación del modelo de 4 caminos para una sesión CMv4.0.
 
     Devuelve (action, label, reason) donde action es:
-      - "keep":     no procesar. El reproductor compatible con CMv4.0 (p3i T4
-                    con Auto append) hace la conversión sobre la marcha con
+      - "keep":     no procesar. Las builds de CoreELEC que convierten a
+                    CMv4.0 al vuelo (p3i, avdvplus, SamuriHL) dan un
                     resultado equivalente. Casos: bin sintético, sin bin, no
                     aporta, o el veredicto «tone_mapping» que pregunta.
       - "drop_in":  el RPU del bin sustituye entero al del disco. Lo decide

@@ -3667,8 +3667,9 @@ async def cmv40_accept_keep(session_id: str):
     el historial como completado vía "mantener MKV".
 
     El usuario sigue teniendo el MKV original (con CMv2.9) y deja que su
-    reproductor (p3i T4 / Sony / LG modernos) haga la conversión a CMv4.0
-    al vuelo en runtime con el mismo resultado visible.
+    reproductor haga la conversión a CMv4.0 al vuelo con el mismo resultado
+    visible: hoy la hacen tres builds de CoreELEC, p3i y avdvplus en CE21 y
+    la de SamuriHL en CE22.
     """
     session = load_cmv40_session(session_id)
     if not session:
@@ -3712,7 +3713,7 @@ async def cmv40_override_recommendation(session_id: str):
     mantener el MKV actual (bin sintético). Útil cuando quiere archivar la
     versión CMv4.0 "completa" por compatibilidad con otros reproductores,
     aunque el resultado visible sea equivalente a la conversión al vuelo
-    del p3i T4.
+    de las builds de CoreELEC que la hacen (p3i, avdvplus, SamuriHL).
 
     Resetea `preflight_decision` y `recommended_action` para desbloquear
     el orquestador, y dispara la siguiente fase si auto_pipeline=True.
