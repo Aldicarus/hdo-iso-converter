@@ -4995,6 +4995,15 @@ DÓNDE abre cada una.
 las fechas y los miles seguían en formato español en las tres lenguas; no es
 texto, así que ningún guard de traducción lo miraba.
 
+**Y los números del servidor pasan por `i18n.numero`** (2026-10-28). Cinco
+sitios escribían `f"{n:,}".replace(",", ".")` —la lectura del máster, los
+frames del relato, el progreso de ffmpeg, los GB del pipeline y la copia de
+Tab 2— y en inglés «It carries 2.251 trims» se lee como dos coma algo. Lo
+destapó la captura de la portada. `numero(x, decimales, miles=)` usa los
+separadores del idioma activo; `miles=False` es para los decimales del log,
+que nunca se agruparon. Lo que sigue con el punto decimal fijo
+(`format(x, '.2f')`, ~77 sitios del log) es anterior y no se tocó.
+
 ### Lo que NO se traduce, y por qué
 
 - **Los cuatro volcados de diagnóstico**: 🔬 Datos ISO, su gemelo de Tab 2, el
@@ -5528,7 +5537,7 @@ Reglas concretas:
 2. Anuncios prematuros — nunca decir "procediendo con Fase X" hasta que el dispatcher realmente la dispare. Si `auto_pipeline=False`, indicarlo.
 3. Textos dinámicos según `workflow` + `target_type` + `target_trust_ok` cuando el comportamiento del backend depende de esa combinación. Patrón "5 ramas if/elif" para Fase F y Fase G (drop-in / p7_fel merge / p7_mel merge / p7_mel direct / p8 merge / p8 direct).
 4. Markers de persistencia (`━━━`, `✓ Fase`, `✗ Fase`, `🎯 Resultado`, `📋 Plan`, `🛑 Cancelado`, `ℹ️ Auto`, `ℹ️ Forward`) son tokens de matching para `_CMV40_LOG_FORCE_PERSIST_MARKERS` (en `main.py`, buscar por símbolo). Sus prefijos no se pueden cambiar; el texto detrás sí.
-5. Tokens del frontend (`§§PROGRESS§§`, `$ ` prefix, `--gui-mode` mkvmerge → "Progress: XX%") son contratos del parser — intocables.
+5. Tokens del frontend (`§§PROGRESS§§`, `$ ` prefix, `--gui-mode` mkvmerge → "Progress: XX%") son contratos del parser — intocables. Lo que va detrás del `$ ` es **el comando citado como se teclearía en un shell** (`shlex.join`), en las tres pestañas que ejecutan: las fases D y E de Tab 1, `_run`, `_run_streaming`, el pipe de la Fase A y `_run_with_time_estimate` de CMv4.0, y el multiplexado. Antes iba sin citar y una ruta con espacios no se podía copiar y pegar; es lo que permite a la portada decir que el log enseña los comandos que se ejecutaron. `CollectingLog.comandos(binario)` del arnés los devuelve para afirmar sobre ellos, y los tests van con un workdir con espacios.
 6. `_emit_progress(pct, label)` debe ser **monotónico** dentro de una fase. Si una operación intermedia consume tiempo sin reportar progreso (típico de `_run` sync vs `_run_streaming`), reservar un % fijo (ej. Fase F merge → 15%, inject → 85%).
 7. El `_emit_progress(100%, "X completado")` debe emitirse **después** del `🎯 Resultado` final, no antes (evita que la barra llegue al 100% mientras quedan logs útiles).
 
@@ -5654,9 +5663,12 @@ La diferencia con el viejo «indeterminate» es que aquel decía «no sé qué e
 esto» y este dice exactamente qué trae y qué no. Va en ámbar y con las dos
 salidas, y es **el único sitio donde la app no decide por ti**: lo que se
 gana depende de con qué reproduces, y eso la app no lo sabe. El texto lo
-dice — si tu reproductor ya hace el append on-the-fly (Ugoos, CoreELEC con
-avdvplus o panni), el pipeline ya lo tienes y lo único que ganas es que el
-upgrade viaje dentro del fichero.
+dice — si tu reproductor ya hace el append on-the-fly, el pipeline ya lo
+tienes y lo único que ganas es que el upgrade viaje dentro del fichero. Lo
+hacen hoy **tres builds de CoreELEC**: p3i (de pannal) y avdvplus en CE21, y
+la de SamuriHL en CE22. La app las nombra así en todas partes —los textos,
+el manual y el README— desde el 2026-10-28; antes citaba otras (cpm, panni,
+appletvplus) y cada superficie una lista distinta.
 
 **Y «default» distingue dos motivos**, porque llevan a decisiones
 distintas: un L8 presente pero enteramente neutro es un máster que no pasó
@@ -5711,7 +5723,7 @@ exactamente los bins que hay que descartar. El motivo es el de arriba: el
 mid tone offset lo produce el análisis de Dolby, no el colorista.
 
 Ojo con el atajo de «los generados no tienen L3»: es cierto de
-avdvplus/panni, que ponen identidad `(2048,2048,2048)` igual que el
+avdvplus y p3i, que ponen identidad `(2048,2048,2048)` igual que el
 `add_cmv4_default_metadata` de dovi_tool — pero **los bins `Generated` del
 repo no son suyos**, son de `DoVi_Scripts` con `cm_analyze`. De los 40
 medidos, **ninguno** traía L3 identidad.
