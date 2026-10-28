@@ -2,18 +2,18 @@
 
 # UHD Blu-ray Toolkit
 
-**The best version of every film, in a single MKV.**
+**Get the most out of your UHD Blu-rays, in a single MKV.**
 
 Rip the disc &nbsp;→&nbsp; Upgrade it to CMv4.0 &nbsp;→&nbsp; Add audio and subtitles from other releases &nbsp;→&nbsp; Verify the result
 
-The simplest way to build it from your own discs, without becoming a Dolby Vision expert.<br>
-The app makes the choices, checks every step, and never delivers a file worse than the one you started with.
+A self-hosted web app that takes the backups of your own UHD Blu-rays (ISO, BDMV or M2TS)<br>
+to that file, and checks each step along the way.
 
 [![Latest release](https://img.shields.io/github/v/release/Aldicarus/hdo-iso-converter?sort=semver&filter=v*&label=release)](https://github.com/Aldicarus/hdo-iso-converter/releases/latest)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/Aldicarus/hdo-iso-converter/pkgs/container/hdo-iso-converter)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[Why it exists](#why-it-exists) · [How it works](#how-it-works) · [Same tools, one more layer](#same-tools-one-more-layer) · [And DoVi_Scripts?](#uhd-blu-ray-toolkit-and-dovi_scripts) · [The four steps](#the-four-steps-in-detail) · [Installation](#installation) · [Your first film](#your-first-film) · [FAQ](#faq)
+[Why I built it](#why-i-built-it) · [How it works](#how-it-works) · [Same tools, one more layer](#same-tools-one-more-layer) · [And DoVi_Scripts?](#uhd-blu-ray-toolkit-and-dovi_scripts) · [The four steps](#the-four-steps-in-detail) · [Installation](#installation) · [Your first film](#your-first-film) · [FAQ](#faq)
 
 <img src="docs/img/portada-cmv40.png" alt="A finished CMv4.0 upgrade of The Godfather: the film's card, the source and output MKVs, the DoviTools verdict, the project list on the left and the Jobs column on the right">
 
@@ -21,34 +21,27 @@ The app makes the choices, checks every step, and never delivers a file worse th
 
 ---
 
-## The best copy of every film
+## What goes into that file
 
 Each release of a film has part of what makes it look its best:
 
 - **The UHD Blu-ray has the best picture.** It has the highest bitrate available, and on many discs Dolby Vision **Profile 7 FEL**: a full enhancement layer that carries picture information the base layer and streaming releases do not have.
-- **Streaming has the newest grading metadata.** Many streaming masters carry Dolby Vision **CM v4.0**, with trims the colorist made by hand for each kind of display. The disc only carries the older CM v2.9.
+- **Streaming has the newest grading metadata.** Many streaming masters carry Dolby Vision **CM v4.0**, with trims the colorist made by hand for each kind of display. The disc usually carries the older CM v2.9.
 - **Another release often has the language you want.** When the disc lacks a dub or subtitles, a WEB-DL usually has them, with a weaker picture and often at a slightly different speed.
 
-Put together in one MKV, they make the best copy of that film there is today: the disc's picture with its FEL layer, the colorist's newest grading and your language. No official release combines the three; your library will. On a player that plays Dolby Vision FEL, such as a Ugoos AM6B+ running CoreELEC, it is the most that player can show.
-
-Picture and sound are never re-encoded: they are copied bit for bit, and the only things that change are the Dolby Vision metadata and the container. The app runs on a NAS or any Linux machine with Docker and is used from the browser.
+Putting them together in one MKV is what it takes to get the most out of a film on a player that handles Dolby Vision FEL, such as a Ugoos AM6B+ running CoreELEC. Picture and sound are never re-encoded: they are copied bit for bit, and the only things that change are the Dolby Vision metadata and the container. The app runs in Docker on a NAS or a Linux machine with an x86-64 processor, and is used from the browser.
 
 ---
 
-## Why it exists
+## Why I built it
 
-Building that file by hand takes three jobs. Two of them are long rather than difficult:
+I watch everything on a Ugoos AM6B+ with CoreELEC, and I wanted my UHD Blu-rays to look as good as that setup allows.
 
-- **Ripping the disc**: mounting the ISO, finding which of its playlists is the film, telling the forced subtitles from the full ones, and naming every track.
-- **Adding another dub**: choosing the tracks one by one in MKVToolNix, then checking that they have not drifted out of sync.
+Ripping the discs and adding the Spanish audio I watch with were mostly a matter of patience: finding the right playlist, sorting out the forced subtitles, naming every track, checking that a dub stays in sync. CMv4.0 was different. I learned it from R3S3t9999's DoVi_Scripts videos and by trial and error with quietvoid's dovi_tool, and it turned out to be a whole world, where every disc seems to bring its own exception. Even when an upgrade went through, I was never fully sure the result was better than the file I had started with.
 
-The third, **upgrading to CMv4.0**, is where it gets hard. Dolby Vision comes in several profiles — Profile 7 with a full or a minimal enhancement layer, Profile 8 — and each one needs a different route. Its metadata is a stack of levels, from L1 to L11, and the CMv4.0 file and your disc do not always agree on them: the brightness of the master, the framing of the picture. The new metadata has to line up with the video frame by frame. And not every CMv4.0 file carries a colorist's work; many were generated by an analysis. You can get every step right and still not know whether the result is better than the file you had.
+This app is what came out of that. It takes care of the patient parts, and most of it is about that uncertainty. Before an upgrade, it compares the CMv4.0 metadata with your disc, estimates whether the trims came from a colorist or from an automated analysis, and recommends whether it is worth it; sometimes the answer is to keep the original. If you go ahead, it lines everything up with the film and reads the finished MKV back to check that it came out as it should.
 
-Almost all of that knowledge is already out there, shared by the community: in forum threads, in R3S3t9999's DoVi_Scripts and DoviTools, in quietvoid's dovi_tool. Putting it together still takes a lot of trial and error, and for many people who care about picture quality, that is reason enough never to start.
-
-UHD Blu-ray Toolkit gathers that knowledge into a guided workflow, so that getting the best result does not depend on having gone through all of it first. The aim is not to do more than those tools, but to make the way to the best result simple and safe: the app makes every choice that can be made from the files, explains each one, checks the result before moving on, and only asks you what depends on your judgment. In the upgrade, that means measuring whether the file is worth it and whether it matches your disc before anything runs, and reading the finished MKV back afterwards. When the upgrade would not improve the film, the app says so and recommends keeping the file you have.
-
-It does not replace the tools it runs. If you already work comfortably with them, you can do everything it does by hand, and each job's log shows the commands it ran.
+I'm sharing it for anyone who has wanted to do this and held back. If you already work comfortably with dovi_tool and MKVToolNix, you can do everything it does by hand: it runs the same commands, and each job's log shows them.
 
 ---
 
@@ -59,49 +52,39 @@ It does not replace the tools it runs. If you already work comfortably with them
   <img src="docs/img/flujo-light.svg" alt="The three sources and the four steps: the UHD Blu-ray goes into Rip, the CMv4.0 RPU file into Upgrade and another release into Multiplex; Verify comes last, and the result is one MKV with nothing re-encoded. Under each step, what it checks.">
 </picture>
 
-Four steps, one tab each. Together they cover what it takes to improve a remux: the best picture, the best grading metadata, the language you want, and proof of what ended up inside the file.
+Four steps, one tab each. Use them in order, or start with the one you need: upgrade an MKV you already have, multiplex two releases without ripping anything, or inspect any file in your library.
 
 | | Step | What it does | What it checks |
 |---|---|---|---|
 | 1 | 💿 **Blu-ray ISO → MKV** | Turns the disc into a lossless MKV with the Dolby Vision FEL layer, the best audio tracks and the chapters | The finished MKV, track by track and chapter by chapter, against what was configured |
-| 2 | ✨ **Dolby Vision CMv4.0 upgrade** | Adds the colorist's CMv4.0 trims to the disc's own Dolby Vision, without touching the picture | Whether the upgrade is worth it, before it starts; the sync frame by frame; the Dolby Vision of the delivered file |
-| 3 | 🔀 **Multiplex MKVs** | Puts the dub and subtitles of another release next to the disc's picture | The sync, measured from the sound; every track and every audio's sync in the result |
-| 4 | 🔬 **Inspect / Edit MKV** | Shows everything inside any MKV, and edits track names, flags and chapters in seconds | Nothing is assumed: this is the step where you see it for yourself |
-
-Each step also works on its own: upgrade an MKV you already have, multiplex two releases without ripping anything, or inspect any file in your library.
+| 2 | ✨ **Dolby Vision CMv4.0 upgrade** | Adds the CMv4.0 metadata of a streaming master to the disc's own Dolby Vision, without touching the picture | Whether the upgrade is worth it, before it starts; the sync frame by frame; the Dolby Vision of the delivered file |
+| 3 | 🔀 **Multiplex MKVs** | Puts the dub and subtitles of another release next to the disc's picture | The sync, measured from the sound; every track, and the sync of every added audio track, in the result |
+| 4 | 🔬 **Inspect / Edit MKV** | Shows everything inside any MKV, and edits track names, flags and chapters without re-encoding | Shows you what ended up in the file, so you can check it yourself |
 
 ---
 
 ## Same tools, one more layer
 
-UHD Blu-ray Toolkit does nothing new to your files. Every change is made by **mkvmerge**, **mkvpropedit**, **dovi_tool** or **FFmpeg**, with the same options you would type yourself, and the log of each job shows the commands that were run. What the app adds is everything around those commands:
+UHD Blu-ray Toolkit does nothing to your files that the usual tools cannot do. Every change is made by **mkvmerge**, **mkvpropedit**, **dovi_tool** or **FFmpeg**, and each job's log shows the commands it ran. What the app adds is what happens around those commands:
 
 - **It orchestrates.** It picks the route each case needs, runs the steps in order and one heavy job at a time, so they do not compete for the same disks. Jobs keep running after you close the browser, and the queue resumes after a restart.
-- **It checks before spending time.** Is the CMv4.0 file really CMv4.0, and were its trims made by a colorist? Do its frames line up with your disc? Is there room on the disk, and is the output name free? Each question is answered before the 20 to 40 minutes of work, not after.
+- **It checks before spending time.** Is the CMv4.0 file really CMv4.0, and does it seem to carry a colorist's trims? Do its frames line up with your disc? Is there room on the disk, and is the output name free? Each question is answered before the long part of the work, not after.
 - **It verifies after.** Each step reads back the file it produced and compares it with what it was meant to produce.
 - **It keeps you informed.** Progress comes from the tools themselves, and a figure that is only an estimate says so. A Jobs column shows what is running, how long is left and everything that has finished, with its log.
 
-### Never worse than your source
+### Safeguards
 
-- **Nothing is re-encoded.** Picture and sound are copied bit for bit.
+- **Nothing is re-encoded.** Picture and sound are copied bit for bit; only the Dolby Vision metadata and the container change.
 - **Your originals are never modified.** Discs and the library are mounted read-only. An edit to a library file is made on a copy.
-- **A file that fails is not delivered as finished.** The rip, the upgrade and the multiplex write their MKV under a temporary name, and it only takes its final name when the job completes, so a job that is cut off never leaves a half-written file that looks finished. The upgrade and the multiplex also keep the temporary name when the final checks fail, and never overwrite an existing file; the rip lists every difference it finds between the MKV and what was configured.
-- **When a step cannot improve the file, the app says so.** A CMv4.0 file without colorist trims gets the recommendation to keep your MKV. Frames that do not line up stop the upgrade, and a sync that cannot be measured stops the multiplex, until you decide.
-
-### By hand, or here
-
-| | By hand | With UHD Blu-ray Toolkit |
-|---|---|---|
-| **Rip** | Find the main playlist, read `mkvmerge -J`, choose the track IDs, write the track order, names and flags, extract the chapters, then check the result | Select the ISO. The title, the tracks and the chapters are chosen with the reason for each choice, and the result is checked against them |
-| **Upgrade** | Look the film up in the DoviTools sheet, find the file in the repository, check its CM version and its L8 trims, demux the disc, compare frame counts, write the editor JSON, choose which levels to merge, inject, mux and remux, then check the profile | Select the MKV and the file the repository suggests. The rest runs by itself, and stops where a decision is yours |
-| **Multiplex** | Line up the two releases by ear or by waveform, work out the delay and the speed factor, write the `--sync` and `--default-duration` options, and check the drift at the end | Select the two MKVs and what you want from each. The sync is measured, the timing is computed, and every audio track is checked in the result |
-| **Verify** | Run MediaInfo, `dovi_tool info` and `dovi_tool export`, and read the output | Open the MKV |
+- **No half-written file looks finished.** The rip, the upgrade and the multiplex write their MKV under a temporary name, and it only takes its final name when the job completes.
+- **Final checks decide what is delivered.** The upgrade and the multiplex keep the temporary name when their final checks fail, and never overwrite an existing file. The rip lists every difference it finds between the MKV and what was configured.
+- **Doubtful cases wait for you.** When a CMv4.0 file does not seem to add anything, the app recommends keeping your MKV; when it only carries analysis metadata, it explains what you would gain and lets you decide. Frames that do not line up stop the upgrade, and a sync that cannot be measured stops the multiplex, until you confirm.
 
 ---
 
 ## UHD Blu-ray Toolkit and DoVi_Scripts
 
-Many people who work with Dolby Vision already use [DoVi_Scripts](https://github.com/R3S3t9999/DoVi_Scripts), and it deserves a direct answer. DoVi_Scripts, by R3S3t9999, is the most complete Dolby Vision toolbox available, and its author also maintains the DoviTools sheet and repository that this app's upgrade relies on. The two are not competing for the same job:
+Many people who work with Dolby Vision already use [DoVi_Scripts](https://github.com/R3S3t9999/DoVi_Scripts), by R3S3t9999, who also maintains the DoviTools sheet and repository this app's upgrade relies on. The two overlap in part, but they are built for different ways of working:
 
 | | DoVi_Scripts | UHD Blu-ray Toolkit |
 |---|---|---|
@@ -110,11 +93,11 @@ Many people who work with Dolby Vision already use [DoVi_Scripts](https://github
 | **How it is used** | You choose the mode and the options for each file or folder | You choose the files; the app chooses the route and stops where a decision is yours |
 | **What it covers** | Extracting, editing and injecting metadata; generating Dolby Vision from HDR10, HDR10+ or HLG with Dolby's tools; conversion to Profile 8; encoding; MP4 and TS; plots, screenshots and comparisons | Ripping the disc, the CMv4.0 upgrade, multiplexing another release and inspecting the result — in MKV, keeping the FEL layer |
 | **What it needs** | Python and its libraries, a tools pack, and Dolby's professional tools for some modes | Docker. Everything else is in the image |
-| **Checking the result** | It gives you the tools: info modes, plots and Dolby's official Metafier | Each step checks its own output and does not deliver a file that fails |
+| **Checking the result** | Info modes, plots and Dolby's official Metafier, which you run and read | Checks after each step, and the Inspect tab |
 
-**Choose DoVi_Scripts** when you want to do something this app does not do: generate Dolby Vision for a file that has none, convert to Profile 8 for a player without FEL support, encode, deliver MP4 or TS, or compare sources frame by frame. Choose it too when you want to decide every option yourself.
+**DoVi_Scripts is the one to use** for everything it covers beyond these four steps: generating Dolby Vision for a file that has none, converting to Profile 8 for a player without FEL support, encoding, MP4 and TS, or comparing sources frame by frame. It is also the one to use when you want to decide every option yourself.
 
-**Choose UHD Blu-ray Toolkit** when the job is improving your remuxes — the disc to MKV, the CMv4.0 upgrade, another release's dub, and proof of what ended up in the file — and you want it run for you, unattended, on the machine where your files are, with every step checked.
+**UHD Blu-ray Toolkit is meant** for improving your remuxes — the disc to MKV, the CMv4.0 upgrade, another release's dub, and a look at what ended up in the file — when you would rather be guided through it, on the machine where your files are.
 
 **Or use both.** They fit together: much of what this app does depends on the work R3S3t9999 shares through DoviTools, and a remux improved here is still a file DoVi_Scripts can work on. If you use either, consider [supporting the DoviTools repository](https://www.paypal.com/donate/?hosted_button_id=6ML5KUZG9XGB6).
 
